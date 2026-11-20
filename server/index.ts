@@ -25,6 +25,7 @@ import simGames from '../api/sim/games';
 import simMe from '../api/sim/me';
 import simHeartbeat from '../api/sim/heartbeat';
 import simReference from '../api/sim/reference';
+import simLive from '../api/sim/live';
 import simCompanionErrors from '../api/sim/companion-errors';
 import clientErrors from '../api/client-errors';
 import simV1 from '../api/sim/v1';
@@ -61,7 +62,7 @@ const routes = new Map<string,Handler>([
   ['/.well-known/oauth-protected-resource',protectedResource],['/api/wellknown/oauth-protected-resource',protectedResource],
   ['/api/oauth/register',register],['/api/oauth/issue-code',issueCode],['/api/oauth/token',token],
   ['/api/account',createAccountRoute()],['/api/db',createDbRoute()],
-  ['/api/sim/pair',simPair],['/api/sim/laps',simLaps],['/api/sim/codes',simCodes],['/api/sim/devices',simDevices],['/api/sim/coach',simCoach],['/api/sim/link',simLink],['/api/sim/tracks',simTracks],['/api/sim/games',simGames],['/api/sim/me',simMe],['/api/sim/heartbeat',simHeartbeat],['/api/sim/reference',simReference],['/api/sim/companion-errors',simCompanionErrors],['/api/client-errors',clientErrors],
+  ['/api/sim/pair',simPair],['/api/sim/laps',simLaps],['/api/sim/codes',simCodes],['/api/sim/devices',simDevices],['/api/sim/coach',simCoach],['/api/sim/link',simLink],['/api/sim/tracks',simTracks],['/api/sim/games',simGames],['/api/sim/me',simMe],['/api/sim/heartbeat',simHeartbeat],['/api/sim/reference',simReference],['/api/sim/live',simLive],['/api/sim/companion-errors',simCompanionErrors],['/api/client-errors',clientErrors],
   ['/api/companion/latest',companionLatest],['/api/companion/download',companionDownload],
   ['/api/car-brands',carBrands],
   ['/api/vehicle-visuals',vehicleVisuals],
@@ -78,6 +79,8 @@ const MAX_LAP_BODY_BYTES = 17 * 1024 * 1024;
 const MAX_TRACK_BODY_BYTES = 33 * 1024 * 1024;
 // A heartbeat from Xpeed Companion is a few dozen bytes (api/sim/heartbeat.ts refuses more than 2 KB).
 const MAX_HEARTBEAT_BODY_BYTES = 4 * 1024;
+// A live frame from Xpeed Companion is at most 64 KB (api/sim/_live.ts); the route answers 413 above that, this only bounds what is read.
+const MAX_LIVE_BODY_BYTES = 70 * 1024;
 const MAX_COACH_BODY_BYTES = 16 * 1024;
 // An error report (site or Companion) is a few KB (api/_error-reports.ts refuses more than 16 KB).
 const MAX_ERROR_REPORT_BODY_BYTES = 32 * 1024;
@@ -135,7 +138,7 @@ export function createXpeedServer(options: { staticRoot?: string; origin?: strin
         res.statusCode=ok?200:503;
         res.end(req.method==='HEAD'?undefined:JSON.stringify(ok?{ok:true,version:process.env.SOURCE_COMMIT??'local'}:{ok:false,database,storage}));return;
       }
-      const handler=url.pathname.startsWith('/api/storage/')?storageRoute:url.pathname.startsWith('/api/fn/')?functionRoute:url.pathname.startsWith('/api/sim/v1/')?simV1:url.pathname.startsWith('/api/sim/public/')?simPublic:url.pathname.startsWith('/api/sim/tracks/')?simTracks:url.pathname.startsWith('/api/sim/laps/')?simLaps:url.pathname.startsWith('/api/sim/games/')?simGames:url.pathname.startsWith('/api/sim/link/')?simLink:url.pathname.startsWith('/api/car-brands/')?carBrands:routes.get(url.pathname.replace(/\/$/,''));
+      const handler=url.pathname.startsWith('/api/storage/')?storageRoute:url.pathname.startsWith('/api/fn/')?functionRoute:url.pathname.startsWith('/api/sim/v1/')?simV1:url.pathname.startsWith('/api/sim/public/')?simPublic:url.pathname.startsWith('/api/sim/tracks/')?simTracks:url.pathname.startsWith('/api/sim/laps/')?simLaps:url.pathname.startsWith('/api/sim/games/')?simGames:url.pathname.startsWith('/api/sim/link/')?simLink:url.pathname.startsWith('/api/sim/live/')?simLive:url.pathname.startsWith('/api/car-brands/')?carBrands:routes.get(url.pathname.replace(/\/$/,''));
       if(handler){
         const controller=new AbortController();
         req.once('aborted',()=>controller.abort());
@@ -166,7 +169,7 @@ export function createXpeedServer(options: { staticRoot?: string; origin?: strin
         }
         let response: Response;
         try {
-          const body=await requestBody(req,url.pathname.replace(/\/$/,'')==='/api/sim/coach'?MAX_COACH_BODY_BYTES:url.pathname==='/api/db'?MAX_DB_BODY_BYTES:url.pathname.replace(/\/$/,'')==='/api/sim/heartbeat'?MAX_HEARTBEAT_BODY_BYTES:['/api/client-errors','/api/sim/companion-errors'].includes(url.pathname.replace(/\/$/,''))?MAX_ERROR_REPORT_BODY_BYTES:url.pathname==='/api/sim/laps'?MAX_LAP_BODY_BYTES:url.pathname.replace(/\/$/,'')==='/api/sim/tracks'?MAX_TRACK_BODY_BYTES:url.pathname.startsWith('/api/storage/')?MAX_STORAGE_BODY_BYTES:url.pathname.startsWith('/api/fn/')?MAX_FUNCTION_BODY_BYTES:MAX_BODY_BYTES);
+          const body=await requestBody(req,url.pathname.replace(/\/$/,'')==='/api/sim/coach'?MAX_COACH_BODY_BYTES:url.pathname==='/api/db'?MAX_DB_BODY_BYTES:url.pathname.replace(/\/$/,'')==='/api/sim/heartbeat'?MAX_HEARTBEAT_BODY_BYTES:url.pathname.replace(/\/$/,'')==='/api/sim/live'?MAX_LIVE_BODY_BYTES:['/api/client-errors','/api/sim/companion-errors'].includes(url.pathname.replace(/\/$/,''))?MAX_ERROR_REPORT_BODY_BYTES:url.pathname==='/api/sim/laps'?MAX_LAP_BODY_BYTES:url.pathname.replace(/\/$/,'')==='/api/sim/tracks'?MAX_TRACK_BODY_BYTES:url.pathname.startsWith('/api/storage/')?MAX_STORAGE_BODY_BYTES:url.pathname.startsWith('/api/fn/')?MAX_FUNCTION_BODY_BYTES:MAX_BODY_BYTES);
           const request=new Request(new URL(url.pathname+url.search,origin),{method:req.method,headers,signal:controller.signal,...(body?{body:body.buffer as ArrayBuffer}:{})});
           if(device)rememberDevice(request,device);
           response=await handler(request);

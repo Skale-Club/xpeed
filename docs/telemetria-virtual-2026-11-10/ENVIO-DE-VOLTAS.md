@@ -184,6 +184,23 @@ Authorization: Bearer xpd_…
 
 Toda recusa traz `{ "error": "…", "retryable": true|false }`. Código: `api/sim/reference.ts` (rota), `api/sim/_reference.ts` (os pontos), função `sim_reference_lap` (`supabase/migrations/20261119140000_sim_reference_lap.sql`, só leitura). Testes: `src/lib/sim/sim-reference.test.ts` e `npm run test:sim`.
 
+## 2f. Painel ao vivo para o celular (`POST /api/sim/live`)
+
+O Xpeed Companion manda o painel que está desenhando para o servidor, e o celular (a página PWA do site) o recebe de lá: **retransmissão pela nuvem** (decisão da dona, 2026-11-19), não ponto a ponto. Chave do aparelho, como o envio; sem CORS. O servidor guarda **só o último quadro de cada conta, na memória** (nada vai para o banco nem para o armazenamento) e nunca olha dentro de `model`.
+
+```
+POST /api/sim/live
+Authorization: Bearer xpd_…
+{ "v": 1, "seq": 1234, "sentAt": 1763550000000, "game": "lmu", "dashboard": "race" | "qualifying" | "practice" | "time_trial",
+  "rows": [["times"], ["session", "flag"]], "model": { … } }
+```
+
+- `v` é `1`; `seq` é um inteiro ≥ 0 que cresce a cada quadro; `sentAt` é a hora do computador em ms; `game` `^[a-z][a-z0-9_]{0,31}$`; `rows` tem até 30 linhas, cada uma com 1 a 12 ids de widget `^[a-z_]{2,24}$` (o desenho do celular); `model` é um objeto qualquer (o `DashModel` do painel em camelCase), opaco para o servidor. O corpo tem no máximo **64 KB**.
+- Um quadro com `seq` menor que o último aceito do mesmo aparelho é descartado (a resposta continua `200`), a não ser que o Companion tenha recomeçado: `seq` < 10 depois de mais de 10 s de silêncio.
+- `200 { "viewers": N }`: quantos celulares estão com a transmissão aberta. **O Companion manda uns 10 por segundo enquanto `viewers` > 0, senão um a cada 2 s** (sem ninguém olhando, o quadro só mantém o servidor sabendo que o painel existe).
+- `401` chave ausente, desconhecida ou revogada (o servidor lembra uma chave válida por 30 s: uma chave revogada ainda vale por esse tempo); `400 invalid_json | invalid_request | invalid_version | invalid_seq | invalid_sent_at | invalid_game | invalid_dashboard | invalid_rows | invalid_model`; `413 too_large`; `429 too_many_requests` (mais de **25 por segundo por aparelho**, com `Retry-After`); `503` (`retryable: true`; `busy` se o servidor está cheio de contas assistidas). Toda recusa traz `{ "error", "retryable" }`.
+- Quadros com mais de 30 s são esquecidos. O lado do celular (`GET /api/sim/live`, `GET /api/sim/live/stream`) está em `docs/platform/API-V1.md`. Código: `api/sim/live.ts` (rotas), `api/sim/_live.ts` (memória e regras). Testes: `src/lib/sim/sim-live.test.ts`, `src/lib/sim/sim-live-hub.test.ts`.
+
 ## 3. O que o Xpeed Sim guarda e o que ele nunca faz
 
 - **A pasta de voltas é a fila.** Uma volta só é pendente se estiver na pasta e não constar em `.xpeed-upload.json`, ao lado dela, que lista o que já foi enviado ou recusado (com o endereço do servidor; se a pessoa parear com outro servidor, a lista de enviadas recomeça). Se o computador desligar no meio, a próxima execução continua de onde parou. Nenhum arquivo de volta é apagado, movido nem alterado pelo envio.
