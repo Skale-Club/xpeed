@@ -185,6 +185,9 @@ pub(super) fn heat_colour(temp_c: f32) -> COLORREF {
 }
 /// How many divisions the rev bar has.
 pub(super) const REV_DIVISIONS: usize = 10;
+/// The rev bar's half steps, between two divisions: thinner than a division and only partly opaque (alpha 0..255).
+pub(super) const REV_HALF_STEP_W: f32 = 1.0;
+pub(super) const REV_HALF_STEP_ALPHA: u32 = 0x70;
 /// The window's backdrop runs from this at the top to that at the bottom (a gradient around `BACKGROUND`).
 pub(super) const BACKDROP_TOP: COLORREF = mix(BACKGROUND, rgb(0x1c, 0x1e, 0x23), 0.8);
 pub(super) const BACKDROP_BOTTOM: COLORREF = mix(BACKGROUND, rgb(0, 0, 0), 0.35);

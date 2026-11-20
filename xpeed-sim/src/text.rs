@@ -251,6 +251,7 @@ pub enum Msg {
     FuelPlanTitle,
     /// The use the plan counts with: `at 2.90 L/lap`.
     FuelPlanAt(String),
+    FuelPlanAfterLap,
     FuelPlanLaps(u32),
     FuelFullTank,
     /// A run the fuel in the car covers: `29.0 L · you have it`.
@@ -898,6 +899,7 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
         FuelMinutes(n) => format!("~{n} min"),
         FuelPlanTitle => t(s("Plan a run"), s("Planejar stint"), s("Planear tanda")),
         FuelPlanAt(n) => t(format!("at {n}/lap"), format!("a {n}/volta"), format!("a {n}/vuelta")),
+        FuelPlanAfterLap => t(s("after 1 lap"), s("após 1 volta"), s("tras 1 vuelta")),
         FuelPlanLaps(n) => t(format!("{n} laps"), format!("{n} voltas"), format!("{n} vueltas")),
         FuelFullTank => t(s("Full tank"), s("Tanque cheio"), s("Depósito lleno")),
         FuelYouHaveIt(n) => t(format!("{n} · you have it"), format!("{n} · você tem"), format!("{n} · lo tienes")),
@@ -1417,6 +1419,7 @@ mod tests {
             Msg::FuelMinutes("24".into()),
             Msg::FuelPlanTitle,
             Msg::FuelPlanAt("2.90 L".into()),
+            Msg::FuelPlanAfterLap,
             Msg::FuelPlanLaps(10),
             Msg::FuelFullTank,
             Msg::FuelYouHaveIt("29.0 L".into()),

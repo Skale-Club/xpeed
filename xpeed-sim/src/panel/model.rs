@@ -85,6 +85,9 @@ pub(super) const FUEL_LOW_LAPS: f32 = 2.0;
 
 /// The fuel to show: nothing when the game gives none, and nothing for a 0 taken while the car is not driving (in the
 /// menu or the garage some games drop their fuel reading to 0).
+/// A fuel number not known yet (the use per lap before a full lap, the lap so far before the lap's start was seen).
+pub(super) const FUEL_WAITING: &str = "–";
+
 pub(super) fn fuel_reading(live: &Live) -> Option<f32> {
     Some(live.fuel_l).filter(|f| f.is_finite() && (live.driving || *f > 0.0))
 }
@@ -431,8 +434,10 @@ pub(super) struct FuelStat {
 #[serde(rename_all = "camelCase")]
 pub(super) struct FuelPlanner {
     pub(super) title: String,
-    /// `at 2.90 L/lap`.
+    /// `at 2.90 L/lap`, or when it fills in.
     pub(super) at: String,
+    /// The use per lap is not known yet: every row waits with a dash.
+    pub(super) waiting: bool,
     /// What the run is, what it needs, and the colour of that.
     pub(super) rows: Vec<(String, String, Role)>,
 }
@@ -1152,47 +1157,45 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         _ => Elem::hidden(),
     };
 
-    // The fuel card's use numbers, minutes and stint planner (owner-approved module 6, 2026-11-19).
+    // The fuel card's use numbers, minutes and stint planner (owner-approved module 6, 2026-11-19). The three use tiles are
+    // always there, with a dash for a number not known yet (the card keeps its shape from the first metre of a run).
     let amount = |l: f32| fuel_use_text(l, units.fuel);
     let with_unit = |l: f32| format!("{} {}", fuel_text(l, units.fuel), units.fuel.label());
     let mut fuel_stats = Vec::new();
     if slots.fuel {
-        if let Some(avg) = per_lap {
-            fuel_stats.push(FuelStat {
-                label: say(Msg::FuelAvgLap),
-                value: amount(avg),
-                note: String::new(),
-                note_role: Role::Muted,
-            });
-            if let Some(last) = live.fuel_last_lap_l.filter(|l| l.is_finite() && *l > 0.0) {
+        let last = live.fuel_last_lap_l.filter(|l| l.is_finite() && *l > 0.0);
+        fuel_stats.push(FuelStat {
+            label: say(Msg::FuelAvgLap),
+            value: per_lap.map_or_else(|| FUEL_WAITING.to_owned(), amount),
+            note: String::new(),
+            note_role: Role::Muted,
+        });
+        // Under the average: green with a minus; over it: red with a plus.
+        let (note, note_role) = match (last, per_lap) {
+            (Some(last), Some(avg)) if (last - avg).abs() >= 0.005 => {
                 let diff = last - avg;
-                // Under the average: green with a minus; over it: red with a plus.
-                let (sign, note_role) = if diff < 0.0 { ('-', Role::Good) } else { ('+', Role::Danger) };
-                let note = if diff.abs() < 0.005 {
-                    String::new()
-                } else {
-                    format!("{sign}{}", amount(diff.abs()))
-                };
-                fuel_stats.push(FuelStat {
-                    label: say(Msg::FuelLastLap),
-                    value: amount(last),
-                    note,
-                    note_role,
-                });
+                let (sign, role) = if diff < 0.0 { ('-', Role::Good) } else { ('+', Role::Danger) };
+                (format!("{sign}{}", amount(diff.abs())), role)
             }
-        }
-        if let Some(this) = live.fuel_this_lap_l.filter(|l| l.is_finite() && *l >= 0.0) {
-            let note = match (live.dist_m, live.track_length_m) {
-                (Some(d), Some(l)) if l > 0.0 => format!("{:.0}%", (d / l).clamp(0.0, 1.0) * 100.0),
-                _ => String::new(),
-            };
-            fuel_stats.push(FuelStat {
-                label: say(Msg::FuelThisLap),
-                value: amount(this),
-                note,
-                note_role: Role::Muted,
-            });
-        }
+            _ => (String::new(), Role::Muted),
+        };
+        fuel_stats.push(FuelStat {
+            label: say(Msg::FuelLastLap),
+            value: last.map_or_else(|| FUEL_WAITING.to_owned(), amount),
+            note,
+            note_role,
+        });
+        let this = live.fuel_this_lap_l.filter(|l| l.is_finite() && *l >= 0.0);
+        let note = match (this, live.dist_m, live.track_length_m) {
+            (Some(_), Some(d), Some(l)) if l > 0.0 => format!("{:.0}%", (d / l).clamp(0.0, 1.0) * 100.0),
+            _ => String::new(),
+        };
+        fuel_stats.push(FuelStat {
+            label: say(Msg::FuelThisLap),
+            value: this.map_or_else(|| FUEL_WAITING.to_owned(), amount),
+            note,
+            note_role: Role::Muted,
+        });
     }
     let lap_s = live.last_lap_s.or(live.best_lap_s).filter(|s| s.is_finite() && *s > 0.0);
     let fuel_minutes = match (slots.fuel, laps_left_val, lap_s) {
@@ -1201,6 +1204,20 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     };
     let tank_l = live.fuel_tank_l.filter(|t| t.is_finite() && *t > 0.0);
     let fuel_planner = match (slots.fuel, per_lap, fuel_val, tank_l) {
+        // Before the use per lap is known the planner is there with its rows waiting, and says when it fills in.
+        (true, None, Some(_), Some(_)) => {
+            let mut rows: Vec<(String, String, Role)> = FUEL_PLAN_LAPS
+                .iter()
+                .map(|&laps| (say(Msg::FuelPlanLaps(laps)), FUEL_WAITING.to_owned(), Role::Muted))
+                .collect();
+            rows.push((say(Msg::FuelFullTank), FUEL_WAITING.to_owned(), Role::Muted));
+            Some(FuelPlanner {
+                title: say(Msg::FuelPlanTitle),
+                at: say(Msg::FuelPlanAfterLap),
+                rows,
+                waiting: true,
+            })
+        }
         (true, Some(per), Some(have), Some(tank)) => {
             let mut rows: Vec<(String, String, Role)> = FUEL_PLAN_LAPS
                 .iter()
@@ -1221,6 +1238,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
                 title: say(Msg::FuelPlanTitle),
                 at: say(Msg::FuelPlanAt(with_unit(per))),
                 rows,
+                waiting: false,
             })
         }
         _ => None,

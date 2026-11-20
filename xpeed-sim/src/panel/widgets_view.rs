@@ -701,14 +701,26 @@ pub(super) fn delta_ref_card(g: &mut Painter, d: &Dash, card: Area) {
             rival_note(g, note, (x, top + S1, w), y + h);
             return;
         }
+        // The lines that fit under the number, in order; the block of number and lines sits in the middle of the room under the
+        // caption.
+        let room = (y + h - top).max(0.0);
+        let mut block_h = REF_NUMBER_H + S1;
+        let mut lines = Vec::with_capacity(2);
+        for (line, size, ink) in [(&m.line, T_BODY, FOREGROUND_2), (&m.personal_line, T_CAPTION, MUTED_TEXT)] {
+            if let Some(line) = line.as_ref().filter(|_| block_h + REF_LINE_H <= room + 0.5) {
+                lines.push((line, size, ink));
+                block_h += REF_LINE_H;
+            }
+        }
+        if lines.is_empty() {
+            block_h = REF_NUMBER_H;
+        }
+        let top = top + ((room - block_h) / 2.0).max(0.0);
         let size = g.fitted(&m.value, w, T_HERO, T_VALUE, semi, Face::Num);
         let r = g.r(x, top, w, REF_NUMBER_H);
         g.text(&m.value, r, size, semi, Face::Num, m.role.colour(), DT_CENTER);
         let mut line_top = top + REF_NUMBER_H + S1;
-        for (line, size, ink) in [(&m.line, T_BODY, FOREGROUND_2), (&m.personal_line, T_CAPTION, MUTED_TEXT)] {
-            let Some(line) = line.as_ref().filter(|_| line_top + REF_LINE_H <= y + h + 0.5) else {
-                continue;
-            };
+        for (line, size, ink) in lines {
             let size = g.fitted(line, w, size, T_CAPTION, normal, Face::Ui);
             let r = g.r(x, line_top, w, REF_LINE_H);
             g.text(line, r, size, normal, Face::Ui, ink, DT_CENTER);
