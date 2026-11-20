@@ -300,6 +300,7 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
             label: None,
             lang,
             units: Default::default(),
+            prefs: Default::default(),
         })),
         readers: crate::games::READERS.iter().map(|r| (r.title.to_owned(), r.ids.to_vec())).collect(),
         icon_big,

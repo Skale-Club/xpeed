@@ -162,6 +162,7 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
     let view = View {
         lang: account.lang,
         units: account.units,
+        prefs: account.prefs,
         tab: state.tab,
         on_top: state.on_top,
         full: state.full.is_some(),
@@ -255,6 +256,7 @@ pub(super) unsafe fn clickable(hwnd: HWND, state: &State, x: i32, y: i32) -> boo
     let mut client = rect(0, 0, 0, 0);
     GetClientRect(hwnd, &mut client);
     header_hits(client.right, scale_of(hwnd)).iter().any(|r| inside(r, x, y))
+        || inside(&settings_hit(client.right, scale_of(hwnd)), x, y)
         || edit_start_hit(hwnd, state, client.right, x, y)
         || workspace_pill_hit(hwnd, state, client.right, x, y)
         || workspace_row_hit(hwnd, state, client.right, x, y)
@@ -638,6 +640,8 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
                 state.tab = Tab::Dash;
             } else if inside(&mon, x, y) {
                 state.tab = Tab::Monitor;
+            } else if inside(&settings_hit(client.right, scale_of(hwnd)), x, y) {
+                state.tab = Tab::Settings;
             } else if inside(&full, x, y) {
                 toggle_full(hwnd, state);
             } else if inside(&top, x, y) {
@@ -647,7 +651,7 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
                 begin_edit(state);
             } else if state.edit.is_some() {
                 edit_press(hwnd, state, x, y);
-            } else if waiting_now(state) && y > (HEADER_H * scale_of(hwnd)) as i32 {
+            } else if waiting_now(state) && y > (HEADER_H * scale_of(hwnd)) as i32 && x >= content_left(scale_of(hwnd)) {
                 // The carousel: it follows the mouse while dragged; a press that does not move is a click, on release.
                 state.press = Some((x, y, state.carousel.at(now_ms()), false));
                 SetCapture(hwnd);
@@ -682,6 +686,19 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
                         }
                     }
                     Action::Lang(i) => choose_lang(state, Lang::ALL[i]),
+                    // The Settings screen's choices: shown at once, then kept by the tray (it says back what it kept).
+                    Action::Toggle(pref) => {
+                        let mut account = lock(&state.ctx.account);
+                        account.prefs = account.prefs.toggled(pref);
+                        drop(account);
+                        crate::tray::pref_of_running(pref);
+                    }
+                    Action::Unit(kind, i) => {
+                        let mut account = lock(&state.ctx.account);
+                        account.units = kind.pick(account.units, i);
+                        drop(account);
+                        crate::tray::unit_of_running(kind, i);
+                    }
                     Action::Cover(i) => {
                         let steps = carousel_steps(state.carousel.target, i, state.covers.len());
                         if steps != 0 {
@@ -787,14 +804,14 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
             0
         }
         WM_LBUTTONDBLCLK => {
-            // A double click below the header: full screen and back. On the carousel, the second click of a quick
+            // A double click below the header (not on the sidebar): full screen and back. On the carousel, the second click of a quick
             // pair is one more press (two quick clicks move it two covers).
             let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
             if state.workspace_open {
                 // Two quick clicks on the menu's Reset are two presses, never full screen.
                 workspace_press(hwnd, state, x, y);
                 InvalidateRect(hwnd, null(), 0);
-            } else if y > (HEADER_H * scale_of(hwnd)) as i32 {
+            } else if y > (HEADER_H * scale_of(hwnd)) as i32 && x >= content_left(scale_of(hwnd)) {
                 if state.edit.is_some() {
                     // Two quick clicks (Reset, a ×) are two presses, never full screen.
                     edit_press(hwnd, state, x, y);
@@ -840,6 +857,7 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
                 0x45 => begin_edit(state),
                 0x31 => state.tab = Tab::Dash,
                 0x32 => state.tab = Tab::Monitor,
+                0x33 => state.tab = Tab::Settings,
                 0x54 => {
                     state.on_top = !state.on_top;
                     set_on_top(hwnd, state.on_top);

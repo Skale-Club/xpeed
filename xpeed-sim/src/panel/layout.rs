@@ -19,31 +19,49 @@ pub(super) const SHIFT_AT: f32 = 0.97;
 
 pub(super) const LIGHTS: usize = 20;
 
-/// The places of the header that can be clicked: the two tabs, "full screen" and "always on top" (square icon
-/// buttons at the right).
+/// Width of the sidebar down the window's left edge (design pixels): the screens (Dashboard, Monitor) as small icon buttons,
+/// each named by a tooltip while the mouse is on it.
+pub(super) const SIDEBAR_W: f32 = 48.0;
+
+/// The side of a sidebar button (design pixels).
+pub(super) const SIDEBAR_BUTTON: f32 = 32.0;
+
+/// Where the header and the screens start (pixels): right of the sidebar.
+pub(super) fn content_left(scale: f32) -> i32 {
+    (SIDEBAR_W * scale).round() as i32
+}
+
+/// The places of the window's frame that can be clicked: the two screens (icon buttons down the sidebar), then the
+/// language, "full screen" and "always on top" (square icon buttons at the header's right).
 pub(super) fn header_hits(width: i32, scale: f32) -> [RECT; 5] {
     let p = |v: f32| (v * scale).round() as i32;
     let (top, bottom) = (p(13.0), p(51.0));
     let right = width - p(16.0);
     let (side, gap) = (p(38.0), p(8.0));
     let nth = |n: i32| rect(right - side - n * (side + gap), top, right - n * (side + gap), bottom);
-    // Narrower tabs in a narrow window (a phone held upright), so they never run into the buttons.
-    let tab = if (width as f32 / scale) < 560.0 { 80.0 } else { 116.0 };
-    [
-        rect(p(20.0), p(17.0), p(20.0 + tab), p(47.0)),
-        rect(p(20.0 + tab), p(17.0), p(20.0 + 2.0 * tab), p(47.0)),
-        nth(2),
-        nth(1),
-        nth(0),
-    ]
+    // The sidebar's buttons: smaller squares centred in its width, the first one level with the header's buttons.
+    let (small, left) = (p(SIDEBAR_BUTTON), p((SIDEBAR_W - SIDEBAR_BUTTON) / 2.0));
+    let first = p(32.0 - SIDEBAR_BUTTON / 2.0);
+    let screen = |n: i32| {
+        let y = first + n * (small + gap);
+        rect(left, y, left + small, y + small)
+    };
+    [screen(0), screen(1), nth(2), nth(1), nth(0)]
+}
+
+/// The sidebar's third button, Settings (pixels): under the two screens, the same size and gap.
+pub(super) fn settings_hit(width: i32, scale: f32) -> RECT {
+    let [dash, mon, ..] = header_hits(width, scale);
+    let step = mon.top - dash.top;
+    rect(mon.left, mon.top + step, mon.right, mon.bottom + step)
 }
 
 /// Where the version text sits in the header (pixels), or `None` when the window is too narrow to show it.
 pub(super) fn version_hit(width: i32, scale: f32) -> Option<RECT> {
     let p = |v: f32| (v * scale).round() as i32;
-    let [_, mon, lang, _, _] = header_hits(width, scale);
+    let [_, _, lang, _, _] = header_hits(width, scale);
     let right = header_edge(width, scale) - p(14.0);
-    (right - p(60.0) > mon.right + p(12.0)).then(|| rect(right - p(120.0), lang.top, right, lang.bottom))
+    (right - p(60.0) > content_left(scale) + p(12.0)).then(|| rect(right - p(120.0), lang.top, right, lang.bottom))
 }
 
 /// Where the header's "Edit layout" button sits (pixels): a square button left of the language button, when the window is wide
@@ -61,12 +79,11 @@ fn header_edge(width: i32, scale: f32) -> i32 {
     edit_button_hit(width, scale).map_or(lang.left, |edit| edit.left)
 }
 
-/// Where the dashboard's name sits in the header (pixels): after the tabs, when the window leaves room before the
+/// Where the dashboard's name sits in the header (pixels): at its left, after the sidebar, when the window leaves room before the
 /// version (or the language button, without the version).
 pub(super) fn dashboard_hit(width: i32, scale: f32) -> Option<RECT> {
     let p = |v: f32| (v * scale).round() as i32;
-    let [_, mon, _, _, _] = header_hits(width, scale);
-    let left = mon.right + p(24.0);
+    let left = content_left(scale) + p(S4);
     (header_limit(width, scale) - left >= p(150.0)).then(|| rect(left, p(17.0), left + p(150.0), p(47.0)))
 }
 
@@ -88,8 +105,7 @@ pub(super) fn phone_hit(width: i32, scale: f32) -> Option<RECT> {
 /// example never shows), `want` design units wide or as much of it as the header leaves, and never narrower than 110.
 pub(super) fn preview_hit(width: i32, scale: f32, want: f32) -> Option<RECT> {
     let p = |v: f32| (v * scale).round() as i32;
-    let [_, mon, _, _, _] = header_hits(width, scale);
-    let left = dashboard_hit(width, scale).map_or(mon.right + p(24.0), |name| name.right + p(8.0));
+    let left = dashboard_hit(width, scale).map_or(content_left(scale) + p(S4), |name| name.right + p(8.0));
     let w = p(want).min(header_limit(width, scale) - left);
     (w >= p(110.0)).then(|| rect(left, p(17.0), left + w, p(47.0)))
 }

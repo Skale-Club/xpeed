@@ -29,12 +29,107 @@ pub enum Action {
     UpdateNow,
     /// Looks for a new version now ("Check now", "Try again").
     CheckUpdates,
+    /// Switches one of the Settings screen's on/off choices.
+    Toggle(Pref),
+    /// Picks the unit at this place in its kind's list (`SpeedUnit::ALL` and the others).
+    Unit(UnitKind, usize),
+}
+
+/// A choice of the Settings screen that is on or off (the tray menu has the same ones, with a check mark).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pref {
+    Autostart,
+    AutoUpdate,
+    PhoneView,
+}
+
+/// The kinds of value whose unit the person picks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnitKind {
+    Speed,
+    Temperature,
+    Pressure,
+    Fuel,
+}
+
+impl UnitKind {
+    pub const ALL: [UnitKind; 4] = [UnitKind::Speed, UnitKind::Temperature, UnitKind::Pressure, UnitKind::Fuel];
+
+    /// Its name, as the tray menu says it.
+    pub fn msg(self) -> Msg {
+        match self {
+            UnitKind::Speed => Msg::MenuUnitSpeed,
+            UnitKind::Temperature => Msg::MenuUnitTemperature,
+            UnitKind::Pressure => Msg::MenuUnitPressure,
+            UnitKind::Fuel => Msg::MenuUnitFuel,
+        }
+    }
+
+    /// The choices' labels and the place of the one in use.
+    pub fn choices(self, units: crate::config::Units) -> (Vec<&'static str>, usize) {
+        use crate::config::{FuelUnit, PressureUnit, SpeedUnit, TempUnit};
+        fn of<T: Copy + PartialEq>(all: &[T], now: T, label: fn(T) -> &'static str) -> (Vec<&'static str>, usize) {
+            (
+                all.iter().map(|u| label(*u)).collect(),
+                all.iter().position(|u| *u == now).unwrap_or(0),
+            )
+        }
+        match self {
+            UnitKind::Speed => of(SpeedUnit::ALL, units.speed, SpeedUnit::label),
+            UnitKind::Temperature => of(TempUnit::ALL, units.temperature, TempUnit::label),
+            UnitKind::Pressure => of(PressureUnit::ALL, units.pressure, PressureUnit::label),
+            UnitKind::Fuel => of(FuelUnit::ALL, units.fuel, FuelUnit::label),
+        }
+    }
+
+    /// The units with the one at `index` of this kind picked (an index out of the list changes nothing).
+    pub fn pick(self, units: crate::config::Units, index: usize) -> crate::config::Units {
+        use crate::config::{FuelUnit, PressureUnit, SpeedUnit, TempUnit};
+        let mut out = units;
+        match self {
+            UnitKind::Speed => out.speed = SpeedUnit::ALL.get(index).copied().unwrap_or(units.speed),
+            UnitKind::Temperature => out.temperature = TempUnit::ALL.get(index).copied().unwrap_or(units.temperature),
+            UnitKind::Pressure => out.pressure = PressureUnit::ALL.get(index).copied().unwrap_or(units.pressure),
+            UnitKind::Fuel => out.fuel = FuelUnit::ALL.get(index).copied().unwrap_or(units.fuel),
+        }
+        out
+    }
+}
+
+/// The on/off choices as the tray knows them, for the Settings screen to show.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Prefs {
+    pub autostart: bool,
+    pub auto_update: bool,
+    pub phone_view: bool,
+}
+
+impl Prefs {
+    pub fn get(self, pref: Pref) -> bool {
+        match pref {
+            Pref::Autostart => self.autostart,
+            Pref::AutoUpdate => self.auto_update,
+            Pref::PhoneView => self.phone_view,
+        }
+    }
+
+    /// The same choices with this one switched.
+    pub fn toggled(self, pref: Pref) -> Prefs {
+        let mut out = self;
+        match pref {
+            Pref::Autostart => out.autostart = !self.autostart,
+            Pref::AutoUpdate => out.auto_update = !self.auto_update,
+            Pref::PhoneView => out.phone_view = !self.phone_view,
+        }
+        out
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
     Dash,
     Monitor,
+    Settings,
 }
 
 /// One line of the monitor's game list.
@@ -51,6 +146,8 @@ pub struct View<'a> {
     pub lang: Lang,
     /// The units the dashboard's values are written in.
     pub units: crate::config::Units,
+    /// The on/off choices the Settings screen shows.
+    pub prefs: Prefs,
     pub tab: Tab,
     pub on_top: bool,
     /// The window fills its screen.
@@ -152,6 +249,7 @@ pub struct Account {
     pub label: Option<String>,
     pub lang: Lang,
     pub units: crate::config::Units,
+    pub prefs: Prefs,
 }
 
 /// What the window needs from the rest of the program.

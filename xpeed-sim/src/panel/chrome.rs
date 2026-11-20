@@ -4,12 +4,14 @@ use super::*;
 pub fn paint(hdc: HDC, width: i32, height: i32, view: &View) {
     let mut g = Painter::new(hdc, view.scale);
     g.backdrop(width, height);
+    sidebar(&mut g, width, height, view);
     header(&mut g, width, view);
     let top = g.px(HEADER_H);
-    let body = rect(g.px(S4), top, width - g.px(S4), height - g.px(S4));
+    let body = rect(content_left(view.scale) + g.px(S4), top, width - g.px(S4), height - g.px(S4));
     match view.tab {
         Tab::Dash => dashboard_screen(&mut g, body, view),
         Tab::Monitor => monitor(&mut g, body, view),
+        Tab::Settings => settings(&mut g, body, view),
     }
     if view.lang_open {
         lang_list(&mut g, width, view);
@@ -128,10 +130,28 @@ pub(super) fn lang_list(g: &mut Painter, width: i32, view: &View) {
     }
 }
 
-/// The name of the icon button under the mouse, in a small label below it.
+/// The name of the icon button under the mouse, in a small label below it (beside it, for the sidebar's).
 pub(super) fn tooltip(g: &mut Painter, width: i32, view: &View) {
     let Some((mx, my)) = view.mouse else { return };
-    let [_, _, lang, full, top] = header_hits(width, view.scale);
+    let [dash, mon, lang, full, top] = header_hits(width, view.scale);
+    let gear = settings_hit(width, view.scale);
+    for (r, label) in [
+        (dash, Msg::PanelTabDash),
+        (mon, Msg::PanelTabMonitor),
+        (gear, Msg::PanelTabSettings),
+    ] {
+        if inside(&r, mx, my) {
+            let label = text(view.lang, &label);
+            g.place(view.scale, 0, 0);
+            let measured = g.width_of(&label, T_CAPTION, FW_SEMIBOLD as i32, Face::Ui);
+            let (w, h) = (g.px(measured + 20.0), g.px(28.0));
+            let (left, mid) = (r.right + g.px(S3), (r.top + r.bottom) / 2);
+            let tip = rect(left, mid - h / 2, left + w, mid - h / 2 + h);
+            g.round(tip, POPOVER, Some(BORDER));
+            g.text(&label, tip, T_CAPTION, FW_SEMIBOLD as i32, Face::Ui, FOREGROUND, DT_CENTER);
+            return;
+        }
+    }
     let version = version_hit(width, view.scale).filter(|v| inside(v, mx, my));
     let edit = edit_button(width, view).filter(|e| inside(e, mx, my));
     let exit = view
@@ -176,20 +196,8 @@ pub(super) fn tooltip(g: &mut Painter, width: i32, view: &View) {
 
 pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
     g.place(view.scale, 0, 0);
-    let [dash, mon, lang, full, top] = header_hits(width, view.scale);
+    let [_, _, lang, full, top] = header_hits(width, view.scale);
     let semi = FW_SEMIBOLD as i32;
-    // The tabs: one square pill, the chosen tab a yellow square pill inside it (corners: `R_CORNER`).
-    let control = rect(dash.left - g.px(S1), g.px(13.0), mon.right + g.px(S1), g.px(51.0));
-    g.round(control, CARD, Some(BORDER));
-    let tab_size = if mon.right - dash.left < g.px(200.0) { T_CAPTION } else { T_BODY };
-    for (r, tab, label) in [(dash, Tab::Dash, Msg::PanelTabDash), (mon, Tab::Monitor, Msg::PanelTabMonitor)] {
-        let selected = view.tab == tab;
-        if selected {
-            g.round(r, PRIMARY, None);
-        }
-        let color = if selected { BACKGROUND } else { MUTED_TEXT };
-        g.text(&text(view.lang, &label), r, tab_size, semi, Face::Ui, color, DT_CENTER);
-    }
     // Full screen and always on top: square icon buttons; one that is on is filled yellow. Full screen uses
     // Windows' own icon; the pin is drawn here, upright and square like the rest.
     // The language: a square button with its flag (yellow edge while its list is open); a click opens the list.
@@ -270,6 +278,92 @@ pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
     let version = concat!("v", env!("CARGO_PKG_VERSION"));
     if let Some(r) = version_hit(width, view.scale) {
         g.text(version, r, T_CAPTION, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_RIGHT);
+    }
+}
+
+/// The sidebar down the window's left edge: no fill of its own, only a hairline at its right, and a small icon for each screen.
+/// The screen on view has a yellow icon and a thin yellow mark at the window's edge; the one under the mouse is brighter, the rest
+/// muted. `tooltip` names them.
+pub(super) fn sidebar(g: &mut Painter, width: i32, height: i32, view: &View) {
+    g.place(view.scale, 0, 0);
+    let edge = content_left(view.scale);
+    g.fill(rect(edge - g.px(1.0).max(1), 0, edge, height), BORDER);
+    let [dash, mon, ..] = header_hits(width, view.scale);
+    let gear = settings_hit(width, view.scale);
+    for (r, tab) in [(dash, Tab::Dash), (mon, Tab::Monitor), (gear, Tab::Settings)] {
+        let selected = view.tab == tab;
+        let hot = view.mouse.is_some_and(|(mx, my)| inside(&r, mx, my));
+        let ink = if selected {
+            PRIMARY
+        } else if hot {
+            FOREGROUND
+        } else {
+            MUTED_TEXT
+        };
+        if selected {
+            let inset = g.px(S2);
+            g.fill(rect(0, r.top + inset, g.px(2.0).max(2), r.bottom - inset), PRIMARY);
+        }
+        match tab {
+            Tab::Dash => dash_icon(g, r, ink),
+            Tab::Monitor => monitor_icon(g, r, ink),
+            Tab::Settings => gear_icon(g, r, ink),
+        }
+    }
+}
+
+/// The Dashboard screen's icon in a box (pixels): its cards, square like the other icons: a wide one on top, a tall one at the
+/// lower left and two small ones beside it.
+pub(super) fn dash_icon(g: &mut Painter, r: RECT, color: COLORREF) {
+    let (cx, cy) = ((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+    let p = |v: f32| g.px(v);
+    for (x0, y0, x1, y1) in [
+        (-7.0, -7.0, 7.0, -3.0), // wide card
+        (-7.0, -1.5, -1.0, 7.0), // tall card
+        (0.5, -1.5, 7.0, 2.0),   // small card
+        (0.5, 3.5, 7.0, 7.0),    // small card
+    ] {
+        g.fill(rect(cx + p(x0), cy + p(y0), cx + p(x1), cy + p(y1)), color);
+    }
+}
+
+/// The Monitor screen's icon in a box (pixels): a pulse, square like the other icons: a flat line, a beat up, down below it
+/// and back, and the flat line again.
+pub(super) fn monitor_icon(g: &mut Painter, r: RECT, color: COLORREF) {
+    let (cx, cy) = ((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+    let t = g.px(1.8).max(2);
+    // The line as points (design units, from the middle), joined by small squares a step apart.
+    let points = [(-8.0_f32, 0.0_f32), (-3.5, 0.0), (-1.3, -6.0), (1.3, 6.0), (3.5, 0.0), (8.0, 0.0)];
+    for pair in points.windows(2) {
+        let ((x0, y0), (x1, y1)) = (pair[0], pair[1]);
+        let steps = ((x1 - x0).hypot(y1 - y0) / 0.8).ceil().max(1.0) as i32;
+        for i in 0..=steps {
+            let k = i as f32 / steps as f32;
+            let (x, y) = (cx + g.px(x0 + (x1 - x0) * k) - t / 2, cy + g.px(y0 + (y1 - y0) * k) - t / 2);
+            g.fill(rect(x, y, x + t, y + t), color);
+        }
+    }
+}
+
+/// The Settings screen's icon in a box (pixels): a gear, square like the other icons: a ring of small squares with eight
+/// teeth around it.
+pub(super) fn gear_icon(g: &mut Painter, r: RECT, color: COLORREF) {
+    let (cx, cy) = ((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+    let t = g.px(1.8).max(2);
+    let dot = |g: &Painter, x: f32, y: f32, side: i32| {
+        let (px, py) = (cx + g.px(x) - side / 2, cy + g.px(y) - side / 2);
+        g.fill(rect(px, py, px + side, py + side), color);
+    };
+    // The ring.
+    for i in 0..28 {
+        let a = i as f32 / 28.0 * std::f32::consts::TAU;
+        dot(g, 4.6 * a.cos(), 4.6 * a.sin(), t);
+    }
+    // The teeth, a little bigger, standing out of the ring.
+    let tooth = g.px(2.6).max(3);
+    for i in 0..8 {
+        let a = i as f32 / 8.0 * std::f32::consts::TAU;
+        dot(g, 7.0 * a.cos(), 7.0 * a.sin(), tooth);
     }
 }
 
