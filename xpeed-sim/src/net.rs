@@ -680,8 +680,18 @@ fn viewers_in(body: &str) -> u32 {
 pub(crate) fn screen_in(body: &str) -> Option<crate::phone::Screen> {
     let value: Value = serde_json::from_str(body).ok()?;
     let screen = value.get("screen")?;
-    let side = |key: &str| screen.get(key).and_then(Value::as_u64).filter(|n| (1..=10_000).contains(n)).map(|n| n as u32);
-    let dpr = screen.get("dpr").and_then(Value::as_f64).filter(|d| d.is_finite() && *d > 0.0 && *d <= 8.0).unwrap_or(1.0);
+    let side = |key: &str| {
+        screen
+            .get(key)
+            .and_then(Value::as_u64)
+            .filter(|n| (1..=10_000).contains(n))
+            .map(|n| n as u32)
+    };
+    let dpr = screen
+        .get("dpr")
+        .and_then(Value::as_f64)
+        .filter(|d| d.is_finite() && *d > 0.0 && *d <= 8.0)
+        .unwrap_or(1.0);
     Some(crate::phone::Screen {
         w: side("w")?,
         h: side("h")?,

@@ -119,9 +119,9 @@ use model::*;
 use monitor_view::*;
 use paint::*;
 use preview::*;
-use settings_view::*;
 #[cfg(test)]
 use relay::*;
+use settings_view::*;
 use tokens::*;
 use view::*;
 use views::*;

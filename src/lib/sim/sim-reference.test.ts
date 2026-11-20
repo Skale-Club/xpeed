@@ -110,7 +110,7 @@ describe('GET /api/sim/reference', () => {
   });
 
   it('answers with the lap, its points, the ETag and the cache header', async () => {
-    const r = await get(`${Q}&variant=GP&kind=best`);
+    const r = await get(`${Q}&kind=best`);
     expect(r.status).toBe(200);
     expect(r.headers.get('etag')).toBe(`"${LAP}"`);
     expect(r.headers.get('cache-control')).toBe('private, max-age=300');
@@ -120,9 +120,11 @@ describe('GET /api/sim/reference', () => {
   it('asks the database as the device owner, names as parameters, best as the default kind', async () => {
     await get('game=lmu&track=Spa%27%3B%20DROP&car=Test%20Car');
     const call = rpcCalls.find((c) => c.name === 'sim_reference_lap')!;
-    expect(call.args).toEqual({ p_user: 'user-1', p_game: 'lmu', p_track: "Spa'; DROP", p_car: 'Test Car', p_kind: 'best' });
+    expect(call.args).toEqual({ p_user: 'user-1', p_game: 'lmu', p_track: "Spa'; DROP", p_car: 'Test Car', p_kind: 'best', p_variant: null });
+    await get(`${Q}&variant=GP`);
+    expect(rpcCalls.filter((c) => c.name === 'sim_reference_lap')[1].args.p_variant).toBe('GP');
     await get(`${Q}&kind=personal`);
-    expect(rpcCalls.filter((c) => c.name === 'sim_reference_lap')[1].args.p_kind).toBe('personal');
+    expect(rpcCalls.filter((c) => c.name === 'sim_reference_lap')[2].args.p_kind).toBe('personal');
   });
 
   it('says the kind of the lap that came back, with no driver for the owner\'s own lap', async () => {
@@ -144,12 +146,20 @@ describe('GET /api/sim/reference', () => {
     expect((await get(Q)).status).toBe(404);
   });
 
-  it('is 304 without reading the file when If-None-Match is the lap\'s ETag', async () => {
+  it('is 404 when the stored file is not the lap asked for (an older catalog row with no variant): the file decides', async () => {
+    // The stored lap is "Test Track" with no variant; asking for the GP variant or another track must not serve it.
+    expect((await get(`${Q}&variant=GP`)).status).toBe(404);
+    expect((await get('game=lmu&track=Other&car=Test%20Car')).status).toBe(404);
+    expect((await get(Q)).status).toBe(200);
+  });
+
+  // Since 2026-11-20 (codex/track-layout-reliability) the file is read first: its identity must match before even a 304.
+  it('is 304 with an empty body when If-None-Match is the lap\'s ETag, after checking the file is that lap', async () => {
     const r = await get(Q, { ...KEY, 'if-none-match': `W/"other", "${LAP}"` });
     expect(r.status).toBe(304);
     expect(await r.text()).toBe('');
     expect(r.headers.get('etag')).toBe(`"${LAP}"`);
-    expect(downloads).toBe(0);
+    expect(downloads).toBe(1);
     expect((await get(Q, { ...KEY, 'if-none-match': '"other"' })).status).toBe(200);
   });
 

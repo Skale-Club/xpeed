@@ -203,24 +203,6 @@ async function nameCatalog(backend: Backend, header: LapFile['header']): Promise
 }
 
 /**
- * The names people read for the lap's track and car, when the Companion sent them beside the game's own (Assetto Corsa's folder names:
- * `ks_laguna_seca` -> "Laguna Seca"). The catalog row keeps its aliases; only its display name changes, once (supabase/migrations/
- * 20261120120000_sim_catalog_titles.sql). Never a reason to refuse a lap: a failure is logged and the old name stays.
- */
-async function nameCatalog(backend: Backend, header: LapFile['header']): Promise<void> {
-  if (!header.track.title && !header.car.title) return;
-  try {
-    const named = await backend.service.rpc('sim_title_catalog', {
-      p_game: header.game, p_track_name: header.track.name, p_track_title: header.track.title ?? null,
-      p_car_name: header.car.name, p_car_title: header.car.title ?? null,
-    });
-    if (named.error) failed('sim_title_failed', named.error);
-  } catch (error) {
-    failed('sim_title_failed', error);
-  }
-}
-
-/**
  * Writes the lap file so that it is never half there: first under a staging name, then renamed to its final name in one step.
  * A failure takes the staging file with it. Finishing the rename before the row exists means a visible row always has its file.
  */

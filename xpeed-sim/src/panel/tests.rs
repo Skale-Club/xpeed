@@ -6415,8 +6415,16 @@ fn every_phone_layout_fits_a_phone_at_a_size_text_reads_at_and_places_its_cards_
                     assert!(s.cards.contains(pane), "{dash:?} {shape:?}: {pane:?} is not one the game fills");
                     assert!(area.1 + 0.01 >= CARDS_TOP, "{dash:?} {shape:?}: {pane:?} under the panel's header");
                     assert!(inside_box(*area, 0.0, 0.0, plan.w, plan.h), "{dash:?} {shape:?}: {pane:?} inside");
-                    assert!(area.3 + 0.01 >= card_min_h(*pane), "{dash:?} {shape:?}: {pane:?} is {} tall", area.3);
-                    assert!(area.2 + 0.01 >= card_min_w(*pane), "{dash:?} {shape:?}: {pane:?} is {} wide", area.2);
+                    assert!(
+                        area.3 + 0.01 >= card_min_h(*pane),
+                        "{dash:?} {shape:?}: {pane:?} is {} tall",
+                        area.3
+                    );
+                    assert!(
+                        area.2 + 0.01 >= card_min_w(*pane),
+                        "{dash:?} {shape:?}: {pane:?} is {} wide",
+                        area.2
+                    );
                     for (other, b) in &plan.cards[i + 1..] {
                         assert!(!overlap(*area, *b), "{dash:?} {shape:?}: {pane:?} over {other:?}");
                     }
@@ -6433,8 +6441,14 @@ fn every_phone_layout_fits_a_phone_at_a_size_text_reads_at_and_places_its_cards_
     };
     use PhoneShape::{Sideways, Upright};
     assert_eq!(ids(DashboardId::Race, Upright), ["times", "session", "flag", "relative", "centre"]);
-    assert_eq!(ids(DashboardId::Qualifying, Upright), ["times", "session", "delta_bar", "sectors", "centre"]);
-    assert_eq!(ids(DashboardId::TimeTrial, Upright), ["delta_bar", "times", "delta_ref", "sectors", "centre"]);
+    assert_eq!(
+        ids(DashboardId::Qualifying, Upright),
+        ["times", "session", "delta_bar", "sectors", "centre"]
+    );
+    assert_eq!(
+        ids(DashboardId::TimeTrial, Upright),
+        ["delta_bar", "times", "delta_ref", "sectors", "centre"]
+    );
     assert_eq!(ids(DashboardId::Practice, Upright), ["times", "fuel", "centre", "laps"]);
     assert_eq!(ids(DashboardId::Race, Sideways), ["times", "centre", "relative", "fuel_calc"]);
     assert_eq!(ids(DashboardId::Qualifying, Sideways), ["times", "delta_bar", "centre", "sectors"]);
@@ -6470,11 +6484,13 @@ fn the_picture_is_the_panel_drawn_for_the_phones_screen_sized_to_it_and_only_whi
         let (w, h, s) = picture_size(&plan, screen);
         // At 1.5 pixels per CSS pixel at most, filling the room on one side.
         let (room_w, room_h) = (screen.w as f32 * 1.5, screen.h as f32 * 1.5);
-        assert!((w as f32 - room_w).abs() <= 1.0 || (h as f32 - room_h).abs() <= 1.0, "{shape:?}: {w} x {h}");
+        assert!(
+            (w as f32 - room_w).abs() <= 1.0 || (h as f32 - room_h).abs() <= 1.0,
+            "{shape:?}: {w} x {h}"
+        );
         assert!(w as f32 <= room_w + 1.0 && h as f32 <= room_h + 1.0, "{shape:?}: {w} x {h}");
         assert!((s - w as f32 / plan.w).abs() < 0.01);
-        let (pixels, pw, ph) =
-            phone_pixels(&live, &ctx, DashboardId::Race, &Views::default(), &[], screen).expect("a picture");
+        let (pixels, pw, ph) = phone_pixels(&live, &ctx, DashboardId::Race, &Views::default(), &[], screen).expect("a picture");
         assert_eq!((pw, ph), (w, h));
         assert!(has_color(&pixels, CARD) > 1000, "{shape:?}: the panel's cards");
     }

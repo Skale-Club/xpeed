@@ -37,7 +37,12 @@ pub(super) fn phone_plan(dashboard: DashboardId, shape: PhoneShape, slots: &Slot
     let present: Vec<(f32, Vec<(Pane, f32)>)> = phone_shape_rows(dashboard, shape)
         .iter()
         .map(|row| {
-            let cards = row.cards.iter().copied().filter(|(c, _)| slots.cards.contains(c)).collect::<Vec<_>>();
+            let cards = row
+                .cards
+                .iter()
+                .copied()
+                .filter(|(c, _)| slots.cards.contains(c))
+                .collect::<Vec<_>>();
             (row.h, cards)
         })
         .filter(|(_, cards)| !cards.is_empty())
@@ -74,7 +79,11 @@ const PICTURE_QUALITY: u8 = 70;
 /// The size of the picture for a screen (pixels) and the scale the panel is drawn at in it: the phone layout scaled to fit the
 /// screen's room at its pixels per CSS pixel (at most `PICTURE_MAX_DPR`).
 pub(super) fn picture_size(plan: &Plan, screen: phone::Screen) -> (i32, i32, f32) {
-    let k = if screen.dpr.is_finite() { screen.dpr.clamp(1.0, PICTURE_MAX_DPR) } else { 1.0 };
+    let k = if screen.dpr.is_finite() {
+        screen.dpr.clamp(1.0, PICTURE_MAX_DPR)
+    } else {
+        1.0
+    };
     let (room_w, room_h) = (screen.w as f32 * k, screen.h as f32 * k);
     let s = (room_w / plan.w).min(room_h / plan.h).min(PICTURE_MAX_PX / plan.w.max(plan.h));
     let (w, h) = ((plan.w * s).round().max(1.0), (plan.h * s).round().max(1.0));
@@ -169,7 +178,7 @@ pub(super) fn phone_pixels(
         super::dash_view::header(&mut g, &d, plan.w);
         for &(card, area) in &plan.cards {
             card_frame(&mut g, area);
-            draw_pane(&mut g, &d, card, area);
+            draw_pane(&mut g, &d, card, area, &plan.cards);
         }
         if let Some(target) = banner_target(&plan) {
             banner(&mut g, &d, target);
@@ -252,7 +261,11 @@ fn base64(bytes: &[u8]) -> String {
         let n = (u32::from(chunk[0]) << 16) | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8) | u32::from(*chunk.get(2).unwrap_or(&0));
         out.push(ABC[(n >> 18) as usize & 63] as char);
         out.push(ABC[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 { ABC[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            ABC[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
         out.push(if chunk.len() > 2 { ABC[n as usize & 63] as char } else { '=' });
     }
     out

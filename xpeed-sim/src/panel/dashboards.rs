@@ -880,7 +880,12 @@ const PRACTICE_PHONE_UPRIGHT: &[Row] = &[
 // Race on its side: no room for a fifth card at a size the panel's cards read at; the flag is on the upright layout.
 const RACE_PHONE_SIDEWAYS: &[Row] = &[Row {
     h: 280.0,
-    cards: &[(Pane::Times, 1.05), (Pane::Centre, 0.85), (Pane::Relative, 0.95), (Pane::FuelCalc, 1.15)],
+    cards: &[
+        (Pane::Times, 1.05),
+        (Pane::Centre, 0.85),
+        (Pane::Relative, 0.95),
+        (Pane::FuelCalc, 1.15),
+    ],
 }];
 
 const QUALIFYING_PHONE_SIDEWAYS: &[Row] = &[Row {

@@ -103,7 +103,7 @@ fn ac_content_roots() -> Vec<PathBuf> {
     if cfg!(test) {
         return Vec::new();
     }
-    crate::tracks::dump::game_folders("XPEED_AC_DIR", "assettocorsa", "content")
+    crate::tracks::dump::game_folders("XPEED_AC_DIR", 244_210, "assettocorsa", "content")
         .into_iter()
         .filter(|p| p.is_dir())
         .collect()
@@ -300,7 +300,7 @@ mod tests {
     #[test]
     #[ignore = "reads the installed game; run by hand"]
     fn names_of_the_installed_game() {
-        let roots = crate::tracks::dump::game_folders("XPEED_AC_DIR", "assettocorsa", "content");
+        let roots = crate::tracks::dump::game_folders("XPEED_AC_DIR", 244_210, "assettocorsa", "content");
         let Some(root) = roots.iter().find(|p| p.is_dir()) else {
             eprintln!("Assetto Corsa is not installed here");
             return;
@@ -323,14 +323,19 @@ mod tests {
             eprintln!("set XPEED_TITLES_OUT");
             return;
         };
-        let roots = crate::tracks::dump::game_folders("XPEED_AC_DIR", "assettocorsa", "content");
+        let roots = crate::tracks::dump::game_folders("XPEED_AC_DIR", 244_210, "assettocorsa", "content");
         let Some(root) = roots.iter().find(|p| p.is_dir()) else {
             eprintln!("Assetto Corsa is not installed here");
             return;
         };
         let folders = |kind: &str| {
             let mut list: Vec<String> = std::fs::read_dir(root.join(kind))
-                .map(|dir| dir.flatten().filter(|e| e.path().is_dir()).map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+                .map(|dir| {
+                    dir.flatten()
+                        .filter(|e| e.path().is_dir())
+                        .map(|e| e.file_name().to_string_lossy().into_owned())
+                        .collect()
+                })
                 .unwrap_or_default();
             list.sort();
             list
