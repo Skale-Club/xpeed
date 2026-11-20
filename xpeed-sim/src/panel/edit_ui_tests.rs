@@ -541,3 +541,54 @@ fn saving_writes_the_view_and_a_missing_folder_is_an_error_that_changes_nothing(
     assert!(reset_edit(&saved, DashboardId::Race, None).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Two boxes share some area (touching edges do not count).
+fn meets(a: Area, b: Area) -> bool {
+    a.0 < b.0 + b.2 && b.0 < a.0 + a.2 && a.1 < b.1 + b.3 && b.1 < a.1 + a.3
+}
+
+#[test]
+fn the_cross_does_not_cover_the_title_line_of_any_card_of_race_wide() {
+    let ui = race_wide();
+    let plan = ui.plan();
+    for (row, cards) in edit_rows(&ui.session.current, &plan).iter().enumerate() {
+        for (card, (pane, area)) in cards.iter().enumerate() {
+            let cross = edit_remove_rect(*area);
+            let title = card_title_line(*area);
+            // The title line runs the card's whole inside width, so what is written at its right end is clear of the cross too.
+            assert!(!meets(cross, title), "{pane:?}: the cross is over the caption line");
+            assert!(cross.1 + cross.3 <= title.1, "{pane:?}: it ends where the card's inside begins");
+            // At the card's right end, inside the canvas.
+            assert!(cross.0 >= area.0, "{pane:?}: not left of the card");
+            assert!(cross.0 + cross.2 <= area.0 + area.2, "{pane:?}: not right of the card");
+            assert!(cross.1 >= 0.0 && cross.0 + cross.2 <= plan.w, "{pane:?}: inside the canvas");
+            // It can still be pressed.
+            let (cx, cy) = (cross.0 + cross.2 / 2.0, cross.1 + cross.3 / 2.0);
+            assert_eq!(remove_at(&ui.session.current, &plan, cx, cy), Some(Pos { row, card }), "{pane:?}");
+        }
+    }
+}
+
+#[test]
+fn the_cross_of_every_card_of_every_workspace_and_shape_clears_its_title_and_every_other_card() {
+    for dash in DashboardId::ALL {
+        for (layout, _) in LAYOUT_KEYS {
+            let view = SavedView::default_for(dash, layout);
+            let plan = edit_plan(&view, layout);
+            for (row, cards) in edit_rows(&view, &plan).iter().enumerate() {
+                for (card, (pane, area)) in cards.iter().enumerate() {
+                    let cross = edit_remove_rect(*area);
+                    let what = format!("{dash:?} {layout:?} {pane:?}");
+                    assert!(!meets(cross, card_title_line(*area)), "{what}: over its title line");
+                    for (other, other_area) in &plan.cards {
+                        if other != pane {
+                            assert!(!meets(cross, *other_area), "{what}: over the card {other:?}");
+                        }
+                    }
+                    let (cx, cy) = (cross.0 + cross.2 / 2.0, cross.1 + cross.3 / 2.0);
+                    assert_eq!(remove_at(&view, &plan, cx, cy), Some(Pos { row, card }), "{what}");
+                }
+            }
+        }
+    }
+}

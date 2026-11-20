@@ -59,6 +59,9 @@ pub(super) struct State {
     pub(super) carousel_step: f32,
     /// The language list is open.
     pub(super) lang_open: bool,
+    /// The workspace menu is open, and until when (ms) its reset waits for the second click.
+    pub(super) workspace_open: bool,
+    pub(super) workspace_reset_until: i64,
     /// When the diagnostics were last copied (Unix ms; 0 for never).
     pub(super) copied_at: i64,
     pub(super) ctx: Context,
@@ -106,6 +109,10 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
     // Edit mode is for the dashboard tab with a game on it: leaving either drops the edit (nothing was saved).
     if state.edit.is_some() && (state.tab != Tab::Dash || waiting_now(state)) {
         state.edit = None;
+    }
+    // So is the workspace menu, which is also shut while a layout is edited.
+    if state.workspace_open && (state.tab != Tab::Dash || state.edit.is_some() || waiting_now(state)) {
+        close_workspace(state);
     }
     let ctx = &state.ctx;
     let snapshot = ctx.shared.snapshot();
@@ -179,6 +186,8 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         layout: std::cell::Cell::new(state.layout),
         phone_viewers: ctx.shared.phone_viewers(),
         lang_open: state.lang_open,
+        workspace_open: state.workspace_open,
+        workspace_reset_until: state.workspace_reset_until,
         copied: state.copied_at > 0 && now - state.copied_at < COPIED_FOR_MS,
         failed: &failed,
         update: &update,
@@ -233,6 +242,8 @@ pub(super) unsafe fn clickable(hwnd: HWND, state: &State, x: i32, y: i32) -> boo
     GetClientRect(hwnd, &mut client);
     header_hits(client.right, scale_of(hwnd)).iter().any(|r| inside(r, x, y))
         || edit_start_hit(hwnd, state, client.right, x, y)
+        || workspace_pill_hit(hwnd, state, client.right, x, y)
+        || workspace_row_hit(hwnd, state, client.right, x, y)
         || state.buttons.iter().any(|(_, r)| inside(r, x, y))
         || (state.tab == Tab::Monitor && state.scroll.is_some_and(|bar| inside(&bar.thumb, x, y)))
 }
@@ -530,6 +541,12 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
             let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
             let mut client = rect(0, 0, 0, 0);
             GetClientRect(hwnd, &mut client);
+            if state.workspace_open {
+                // With the workspace menu open, a click is for the menu: a row, or anywhere else it only closes.
+                workspace_press(hwnd, state, x, y);
+                InvalidateRect(hwnd, null(), 0);
+                return 0;
+            }
             let [dash, mon, lang, full, top] = header_hits(client.right, scale_of(hwnd));
             if inside(&lang, x, y) {
                 state.lang_open = !state.lang_open;
@@ -539,6 +556,9 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
                     choose_lang(state, Lang::ALL[i]);
                 }
                 state.lang_open = false;
+            } else if workspace_pill_hit(hwnd, state, client.right, x, y) {
+                state.workspace_open = true;
+                state.workspace_reset_until = 0;
             } else if inside(&dash, x, y) {
                 state.tab = Tab::Dash;
             } else if inside(&mon, x, y) {
@@ -687,7 +707,11 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
             // A double click below the header: full screen and back. On the carousel, the second click of a quick
             // pair is one more press (two quick clicks move it two covers).
             let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
-            if y > (HEADER_H * scale_of(hwnd)) as i32 {
+            if state.workspace_open {
+                // Two quick clicks on the menu's Reset are two presses, never full screen.
+                workspace_press(hwnd, state, x, y);
+                InvalidateRect(hwnd, null(), 0);
+            } else if y > (HEADER_H * scale_of(hwnd)) as i32 {
                 if state.edit.is_some() {
                     // Two quick clicks (Reset, a ×) are two presses, never full screen.
                     edit_press(hwnd, state, x, y);
@@ -704,6 +728,11 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
         WM_KEYDOWN => {
             const VK_ESCAPE: usize = 0x1b;
             const VK_F11: usize = 0x7a;
+            if state.workspace_open && wparam == VK_ESCAPE {
+                close_workspace(state);
+                InvalidateRect(hwnd, null(), 0);
+                return 0;
+            }
             if state.edit.is_some() && !state.lang_open {
                 let key = match wparam {
                     VK_ESCAPE => Some(EditKey::Escape),
@@ -891,6 +920,8 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             press: None,
             carousel_step: 120.0,
             lang_open: false,
+            workspace_open: false,
+            workspace_reset_until: 0,
             copied_at: 0,
         }));
         refresh_installed(&mut *state);
@@ -979,6 +1010,79 @@ fn begin_edit(state: &mut State) {
     };
     let dashboard = pick(live.session_kind, state.choices.get(live.game));
     state.edit = Some(EditUi::new(dashboard, layout, state.views.rows_for(dashboard, layout)));
+    close_workspace(state);
+}
+
+/// Whether the point is on the header's dashboard pill, which opens the workspace menu (when the dashboard is on and not edited).
+fn workspace_pill_hit(hwnd: HWND, state: &State, width: i32, x: i32, y: i32) -> bool {
+    state.tab == Tab::Dash
+        && state.edit.is_none()
+        && !waiting_now(state)
+        && dashboard_hit(width, scale_of(hwnd)).is_some_and(|r| inside(&r, x, y))
+}
+
+/// The workspace menu as it is now: the choice made by hand for the game that is open, the workspace on screen and the places.
+fn workspace_menu_now(hwnd: HWND, state: &State, width: i32) -> Option<WorkspaceMenu> {
+    let live = state.ctx.shared.live()?;
+    let manual = state.choices.get(live.game);
+    workspace_menu(width, scale_of(hwnd), manual, pick(live.session_kind, manual), &state.views)
+}
+
+/// Whether the point is on a row of the open workspace menu that a click acts on.
+fn workspace_row_hit(hwnd: HWND, state: &State, width: i32, x: i32, y: i32) -> bool {
+    state.workspace_open
+        && workspace_menu_now(hwnd, state, width)
+            .is_some_and(|menu| menu.row_at(x, y).is_some_and(|row| row.enabled))
+}
+
+fn close_workspace(state: &mut State) {
+    state.workspace_open = false;
+    state.workspace_reset_until = 0;
+}
+
+/// A click while the workspace menu is open: `workspace_click` says what it does and this does it. Choosing a workspace (or
+/// automatic) is `D`'s change of the manual choice; the reset is the edit mode's (every window shape of the workspace in use).
+unsafe fn workspace_press(hwnd: HWND, state: &mut State, x: i32, y: i32) {
+    let mut client = rect(0, 0, 0, 0);
+    GetClientRect(hwnd, &mut client);
+    let Some(menu) = workspace_menu_now(hwnd, state, client.right) else {
+        close_workspace(state);
+        return;
+    };
+    let (act, until) = workspace_click(&menu, x, y, now_ms(), state.workspace_reset_until);
+    state.workspace_reset_until = until;
+    let live = state.ctx.shared.live();
+    match act {
+        WorkspaceAct::Keep => {}
+        WorkspaceAct::Close => close_workspace(state),
+        WorkspaceAct::Choose(_) => {
+            if let Some(live) = live {
+                if workspace_apply(act, &mut state.choices, live.game) {
+                    if let Some(home) = crate::config::home_dir() {
+                        // Not being able to keep the choice only means it is forgotten at the next start.
+                        let _ = state.choices.save(&home);
+                    }
+                }
+            }
+            close_workspace(state);
+        }
+        WorkspaceAct::Edit => {
+            close_workspace(state);
+            begin_edit(state);
+        }
+        WorkspaceAct::Reset => {
+            close_workspace(state);
+            if let Some(live) = live {
+                let in_use = pick(live.session_kind, state.choices.get(live.game));
+                match reset_edit(&state.views, in_use, crate::config::home_dir().as_deref()) {
+                    Ok(views) => state.views = views,
+                    Err(why) => {
+                        crate::applog::line(&format!("could not reset the workspace: {why}"));
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Whether the point is on the header's Edit button (it is only there when nothing is being edited).

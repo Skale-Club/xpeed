@@ -240,6 +240,15 @@ pub(super) const EDIT_DROP_VEIL: f32 = 0.25;
 pub(super) const EDIT_SOURCE_VEIL: f32 = 0.55;
 /// The mark after the name of a dashboard that has a saved view.
 pub(super) const MARK_DOT: f32 = 6.0;
+/// The workspace menu under the header's dashboard pill: its width, a row's height, its padding, the gap that holds the divider
+/// between the workspaces and the two actions, and how long "Click again to reset" waits for the second click (ms).
+pub(super) const WORKSPACE_W: f32 = 264.0;
+pub(super) const WORKSPACE_ROW_H: f32 = 36.0;
+pub(super) const WORKSPACE_PAD: f32 = 6.0;
+pub(super) const WORKSPACE_DIVIDER_H: f32 = 13.0;
+/// The room left of a row's words for its check mark.
+pub(super) const WORKSPACE_GUTTER: f32 = 32.0;
+pub(super) const WORKSPACE_RESET_MS: i64 = 3000;
 
 // Type: the sizes, in design pixels (a window at 96 DPI). Labels are never below `T_CAPTION`.
 

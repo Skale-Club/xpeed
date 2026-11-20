@@ -92,6 +92,9 @@ pub struct View<'a> {
     pub phone_viewers: u32,
     /// The language list under the language button is open.
     pub lang_open: bool,
+    /// The workspace menu under the header's dashboard pill is open, and until when (ms) its reset waits for the second click.
+    pub(super) workspace_open: bool,
+    pub(super) workspace_reset_until: i64,
     /// The diagnostics were copied a moment ago: the Monitor tab says so for two seconds.
     pub copied: bool,
     /// The background parts that stopped for good, named (empty when none): the Monitor tab says so in red.

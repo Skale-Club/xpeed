@@ -138,6 +138,10 @@ pub enum Msg {
     PanelDashQualifying,
     PanelDashPractice,
     PanelDashTimeTrial,
+    /// The workspace picker under the header's dashboard pill: follow the session, edit the layout, reset the workspace.
+    PanelPickAuto,
+    PanelPickEdit,
+    PanelPickReset,
     /// The mark of a dashboard picked from the session, not by hand.
     PanelDashAuto,
     /// The mark in the header while a phone is watching the panel.
@@ -722,7 +726,10 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
         PanelDashRace => t(s("Race"), s("Corrida"), s("Carrera")),
         PanelDashQualifying => t(s("Qualifying"), s("Classificação"), s("Clasificación")),
         PanelDashPractice => t(s("Practice"), s("Treino"), s("Práctica")),
-        PanelDashTimeTrial => t(s("Time trial"), s("Contra o relógio"), s("Contrarreloj")),
+        PanelDashTimeTrial => t(s("Hot lap"), s("Hot lap"), s("Hot lap")),
+        PanelPickAuto => t(s("Automatic"), s("Automático"), s("Automático")),
+        PanelPickEdit => t(s("Edit layout (E)"), s("Editar layout (E)"), s("Editar diseño (E)")),
+        PanelPickReset => t(s("Reset this workspace"), s("Restaurar este painel"), s("Restablecer este panel")),
         PanelDashAuto => t(s("Auto"), s("Auto"), s("Auto")),
         PanelPhone => t(s("Phone"), s("Celular"), s("Móvil")),
         PanelEditLayout => t(s("Edit layout"), s("Editar layout"), s("Editar diseño")),
@@ -1302,6 +1309,9 @@ mod tests {
             Msg::PanelDashQualifying,
             Msg::PanelDashPractice,
             Msg::PanelDashTimeTrial,
+            Msg::PanelPickAuto,
+            Msg::PanelPickEdit,
+            Msg::PanelPickReset,
             Msg::PanelDashAuto,
             Msg::PanelPhone,
             Msg::PanelEditLayout,

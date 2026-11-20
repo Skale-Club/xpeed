@@ -99,6 +99,9 @@ mod waiting_view;
 mod widgets;
 mod widgets_view;
 mod window;
+mod workspace_menu;
+#[cfg(test)]
+mod workspace_menu_tests;
 
 use art::*;
 use chrome::*;
@@ -120,6 +123,7 @@ use waiting_view::*;
 use widgets::*;
 use widgets_view::*;
 use window::*;
+use workspace_menu::*;
 
 pub(crate) use coach_look::*;
 pub use demo::demo;

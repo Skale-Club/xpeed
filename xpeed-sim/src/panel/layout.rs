@@ -553,6 +553,17 @@ pub(super) fn pick_layout_with(views: &Views, dashboard: DashboardId, bw: f32, b
         .unwrap_or(Layout::Classic)
 }
 
+/// The views that give Practice the base rows (`Layout::default_rows`) in every shape, as it had them before its wide shapes got
+/// one more row: the tests of the layout's own rules (which shape fits which window) run on these.
+#[cfg(test)]
+pub(super) fn base_views() -> Views {
+    let mut views = Views::default();
+    for (layout, _) in LAYOUT_KEYS {
+        views.set(DashboardId::Practice, layout, SavedView::from_rows(layout.default_rows()));
+    }
+    views
+}
+
 /// `pick_layout_in` for the Practice dashboard.
 #[cfg(test)]
 pub(super) fn pick_layout(bw: f32, bh: f32, slots: &Slots) -> Layout {

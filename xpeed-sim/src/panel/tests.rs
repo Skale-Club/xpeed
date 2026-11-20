@@ -468,6 +468,8 @@ fn view<'a>(f: &'a Fixture, live: Option<&'a Live>, tab: Tab, scale: f32, lang: 
         edit_xf: Default::default(),
         layout: Default::default(),
         lang_open: false,
+        workspace_open: false,
+        workspace_reset_until: 0,
         copied: false,
         failed: "",
         update: &f.update,
@@ -1109,7 +1111,7 @@ fn writes_the_design_preview_page() {
         ),
         (
             "preview-time-trial.png",
-            "Time trial: the delta bar on top, the sectors, the laps (1920 × 1080)",
+            "Hot lap: the delta bar on top, the sectors, the laps (1920 × 1080)",
             DashboardId::TimeTrial,
             1920,
             1080,
@@ -1146,7 +1148,7 @@ fn writes_the_design_preview_page() {
         ),
         (
             "preview-time-trial-no-reference.png",
-            "Time trial with no reference lap yet (1920 × 1080)",
+            "Hot lap with no reference lap yet (1920 × 1080)",
             DashboardId::TimeTrial,
         ),
     ] {
@@ -1333,6 +1335,76 @@ fn writes_the_design_preview_page() {
         ),
     ] {
         let pixels = edit_screens(ui, reading, mouse, w, h);
+        save(&pixels, w, h, file);
+        figures.push_str(&format!(
+            "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"{w}\" height=\"{h}\"></figure>\n"
+        ));
+    }
+    // The workspace menu under the dashboard pill (Race and Qualifying have a saved view, so a dot), the Hot lap name in the pill
+    // (Spanish, by hand), and Practice with the row its wide shapes got.
+    let mut with_views = fixture();
+    for dash in [DashboardId::Race, DashboardId::Qualifying] {
+        let base = SavedView::default_for(dash, Layout::Wide);
+        let taller = resize_row(&base, Layout::Wide, 0, base.rows[0].h + 20.0).unwrap();
+        with_views.views.set(dash, Layout::Wide, taller);
+    }
+    let workspace_screen = |manual: Option<DashboardId>, lang: Lang, open: bool, hover: Option<WorkspaceItem>| {
+        let mut v = view(&with_views, Some(&full), Tab::Dash, 1.0, lang);
+        v.dashboard = manual;
+        v.recent_laps = &full_laps;
+        v.workspace_open = open;
+        // Hovering the reset shows it waiting for its second click.
+        if hover == Some(WorkspaceItem::Reset) {
+            v.workspace_reset_until = v.now_ms + WORKSPACE_RESET_MS;
+        }
+        let menu = workspace_menu(1536, 1.0, manual, v.dashboard_in_use(), &with_views.views);
+        let rows = menu.map(|m| m.rows).unwrap_or_default();
+        let row = hover.and_then(|item| rows.iter().find(|r| r.item == item));
+        v.mouse = row.map(|r| ((r.rect.left + r.rect.right) / 2, (r.rect.top + r.rect.bottom) / 2));
+        render(&v, 1536, 864)
+    };
+    let hot_lap_row = Some(WorkspaceItem::Pick(DashboardId::TimeTrial));
+    for (file, caption, pixels) in [
+        (
+            "preview-workspaces.png",
+            "The workspace menu, open under the dashboard pill: a check on the one in use, a dot on the ones with a saved view, \
+             then Edit layout and Reset (1536 \u{d7} 864)",
+            workspace_screen(Some(DashboardId::Race), Lang::En, true, hot_lap_row),
+        ),
+        (
+            "preview-workspaces-reset.png",
+            "Automatic (the session picked the workspace) and a reset waiting for its second click, in Portuguese (1536 \u{d7} 864)",
+            workspace_screen(None, Lang::Pt, true, Some(WorkspaceItem::Reset)),
+        ),
+        (
+            "preview-workspaces-hot-lap.png",
+            "Hot lap, picked by hand, in the pill (Spanish): the name is the same in every language (1536 \u{d7} 864)",
+            workspace_screen(Some(DashboardId::TimeTrial), Lang::Es, false, None),
+        ),
+    ] {
+        save(&pixels, 1536, 864, file);
+        figures.push_str(&format!(
+            "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"1536\" height=\"864\"></figure>\n"
+        ));
+    }
+    for (file, caption, w, h) in [
+        (
+            "preview-practice-wide.png",
+            "Practice, Wide: the rows it always had and one more, the sectors, the tyre wear and the reference lap (1680 \u{d7} 1050)",
+            1680,
+            1050,
+        ),
+        (
+            "preview-practice-ultrawide.png",
+            "Practice, Ultrawide: the same extra row (2560 \u{d7} 1080)",
+            2560,
+            1080,
+        ),
+    ] {
+        let mut v = view(&f, Some(&full), Tab::Dash, 1.0, Lang::En);
+        v.dashboard = Some(DashboardId::Practice);
+        v.recent_laps = &full_laps;
+        let pixels = render(&v, w, h);
         save(&pixels, w, h, file);
         figures.push_str(&format!(
             "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"{w}\" height=\"{h}\"></figure>\n"
@@ -2973,7 +3045,15 @@ fn every_layout_puts_every_card_the_game_can_fill_inside_the_canvas_without_over
                     .iter()
                     .filter(|c| **c == Pane::Inputs || catalog::ALL[..7].iter().any(|w| w.pane == **c))
                     .count();
-                assert_eq!(plan.cards.len(), practice, "{layout:?}: every card of Practice has a place");
+                // The two wide shapes have a row more: the sectors, the tyre wear and the reference lap, when the game gives them.
+                let extra = match layout {
+                    Layout::Wide | Layout::Ultrawide => [Pane::Sectors, Pane::TyreTrend, Pane::DeltaRef]
+                        .into_iter()
+                        .filter(|p| s.cards.contains(p))
+                        .count(),
+                    _ => 0,
+                };
+                assert_eq!(plan.cards.len(), practice + extra, "{layout:?}: every card of Practice has a place");
             }
             for (i, (card, area)) in plan.cards.iter().enumerate() {
                 assert!(inside_box(*area, 0.0, 0.0, plan.w, plan.h), "{layout:?} {card:?} inside the canvas");
@@ -2997,8 +3077,11 @@ fn every_layout_puts_every_card_the_game_can_fill_inside_the_canvas_without_over
 #[test]
 fn each_screen_shape_gets_the_layout_that_fills_it() {
     let s = slots(every_cap());
+    // On the base rows (Practice as it was before its wide shapes got a row): the rule is the layout's own.
+    let base = base_views();
+    let layout_of = |bw: f32, bh: f32| pick_layout_with(&base, DashboardId::Practice, bw, bh, &s);
     // The window's body: the window less the header (66) and the margins (16 around).
-    let pick = |w: f32, h: f32| pick_layout(w - 32.0, h - 66.0 - 16.0, &s);
+    let pick = |w: f32, h: f32| layout_of(w - 32.0, h - 66.0 - 16.0);
     assert_eq!(pick(2560.0, 1080.0), Layout::Ultrawide);
     assert_eq!(pick(3440.0, 1440.0), Layout::Ultrawide);
     assert_eq!(pick(1920.0, 1080.0), Layout::Wide);
@@ -3013,9 +3096,33 @@ fn each_screen_shape_gets_the_layout_that_fills_it() {
     // Whatever the shape, the dashboard scales to a size that can be read.
     for (w, h) in [(2560.0, 1080.0), (1920.0, 1080.0), (1024.0, 768.0), (430.0, 900.0), (960.0, 600.0)] {
         let (bw, bh) = (w - 32.0, h - 82.0);
+        let layout = layout_of(bw, bh);
+        let (cw, ch) = layout.size_with(&base, DashboardId::Practice, &s);
+        assert!((bw / cw).min(bh / ch) >= 0.5, "{w}x{h} {layout:?}");
+    }
+}
+
+#[test]
+fn practice_with_its_extra_row_takes_the_shape_that_fills_the_window_and_stays_readable() {
+    let s = slots(every_cap());
+    let body = |w: f32, h: f32| (w - 32.0, h - 66.0 - 16.0);
+    for (w, h, shape) in [(1680.0, 1050.0, Layout::Wide), (2560.0, 1080.0, Layout::Ultrawide)] {
+        let (bw, bh) = body(w, h);
+        assert_eq!(pick_layout(bw, bh, &s), shape, "{w}x{h}");
+    }
+    // The common 16:9 windows take Wide or Ultrawide (the extra row makes Wide taller), never smaller than they read at.
+    for (w, h) in [(1536.0, 864.0), (1920.0, 1080.0), (1280.0, 720.0), (2560.0, 1440.0)] {
+        let (bw, bh) = body(w, h);
         let layout = pick_layout(bw, bh, &s);
         let (cw, ch) = layout.size(&s);
-        assert!((bw / cw).min(bh / ch) >= 0.5, "{w}x{h} {layout:?}");
+        assert!((bw / cw).min(bh / ch) >= layout.min_scale(), "{w}x{h} {layout:?}");
+    }
+    // A game that gives none of the extra cards has the canvas it always had.
+    let few = slots(crate::game::Caps::LAP_TIME.or(crate::game::Caps::SPEED).or(crate::game::Caps::GEAR));
+    for layout in [Layout::Wide, Layout::Ultrawide] {
+        let base = base_views();
+        let (kept, always) = (layout.size(&few), layout.size_with(&base, DashboardId::Practice, &few));
+        assert_eq!(kept, always, "{layout:?}");
     }
 }
 
@@ -3053,25 +3160,30 @@ fn a_phone_with_few_cards_gets_one_column_at_a_size_text_reads_at() {
 #[test]
 fn the_layout_only_changes_when_the_window_crosses_a_threshold_by_a_margin() {
     let s = slots(every_cap());
+    let base = base_views();
+    let sticky = |width: f32, bh: f32, current: Option<Layout>| {
+        pick_layout_sticky_with(&base, DashboardId::Practice, width, bh, &s, current)
+    };
+    let plain = |bw: f32, bh: f32| pick_layout_with(&base, DashboardId::Practice, bw, bh, &s);
     let (mut sticky_flips, mut plain_flips, mut edges) = (0, 0, 0);
     for bh in [600.0, 760.0, 900.0, 1080.0] {
         let widths: Vec<f32> = (600..2800).map(|w| w as f32).collect();
         for pair in widths.windows(2) {
-            let (was, now) = (pick_layout(pair[0], bh, &s), pick_layout(pair[1], bh, &s));
+            let (was, now) = (plain(pair[0], bh), plain(pair[1], bh));
             if was == now {
                 continue;
             }
             edges += 1;
-            let mut current = Some(pick_layout_sticky(DashboardId::Practice, pair[0] - 4.0, bh, &s, None));
-            let mut plain = current;
+            let mut current = Some(sticky(pair[0] - 4.0, bh, None));
+            let mut last = current;
             for step in 0..40 {
                 let width = pair[1] + if step % 2 == 0 { 4.0 } else { -6.0 };
-                let next = pick_layout_sticky(DashboardId::Practice, width, bh, &s, current);
+                let next = sticky(width, bh, current);
                 sticky_flips += usize::from(Some(next) != current);
                 current = Some(next);
-                let best = pick_layout(width, bh, &s);
-                plain_flips += usize::from(Some(best) != plain);
-                plain = Some(best);
+                let best = plain(width, bh);
+                plain_flips += usize::from(Some(best) != last);
+                last = Some(best);
             }
         }
     }
@@ -3080,15 +3192,9 @@ fn the_layout_only_changes_when_the_window_crosses_a_threshold_by_a_margin() {
         plain_flips > sticky_flips * 3,
         "the margin stops the flipping: {sticky_flips} against {plain_flips}"
     );
-    assert_eq!(
-        pick_layout_sticky(DashboardId::Practice, 1920.0, 1080.0, &s, None),
-        pick_layout(1920.0, 1080.0, &s)
-    );
+    assert_eq!(sticky(1920.0, 1080.0, None), plain(1920.0, 1080.0));
     // The smallest layout is left as soon as another one reads.
-    assert_eq!(
-        pick_layout_sticky(DashboardId::Practice, 1888.0, 998.0, &s, Some(Layout::Classic)),
-        Layout::Wide
-    );
+    assert_eq!(sticky(1888.0, 998.0, Some(Layout::Classic)), Layout::Wide);
 }
 
 #[test]
@@ -3885,7 +3991,7 @@ fn a_card_the_game_cannot_fill_is_not_there() {
 #[test]
 fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
     let wide = builtin(DashboardId::Practice).rows_for(Layout::Wide);
-    assert_eq!(wide.len(), 2);
+    assert_eq!(wide.len(), 3, "the two rows it always had and one more");
     assert_eq!(
         wide[0].cards,
         [
@@ -3897,6 +4003,27 @@ fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
         ]
     );
     assert_eq!(wide[1].cards, [(Pane::Laps, 2.25), (Pane::Track, 1.0), (Pane::Alerts, 1.05)]);
+    let extra_row = [(Pane::Sectors, 1.0), (Pane::TyreTrend, 1.0), (Pane::DeltaRef, 1.0)];
+    assert_eq!(wide[2].cards, extra_row, "the sectors, the tyre wear and the reference lap");
+    // Practice is the rows it always had (`default_rows`) in every shape; the two wide shapes have that row after them as well.
+    for layout in ALL_LAYOUTS {
+        let practice = builtin(DashboardId::Practice).rows_for(layout);
+        let base = layout.default_rows();
+        if !matches!(layout, Layout::Wide | Layout::Ultrawide) {
+            assert!(std::ptr::eq(practice, base), "{layout:?}: Practice has the rows it always had");
+            continue;
+        }
+        assert_eq!(practice.len(), base.len() + 1, "{layout:?}: one more row");
+        for (kept, always) in practice.iter().zip(base) {
+            assert_eq!(kept.h, always.h, "{layout:?}: the old rows are as tall as they were");
+            assert_eq!(kept.cards, always.cards, "{layout:?}: the old rows hold what they held");
+        }
+        let extra = &practice[base.len()];
+        assert_eq!(extra.cards, extra_row, "{layout:?}");
+        let least = extra.cards.iter().map(|c| least_height(c.0)).fold(0.0, f32::max);
+        assert!((220.0..=240.0).contains(&extra.h), "{layout:?}: {} tall", extra.h);
+        assert!(extra.h >= least, "{layout:?}: {} tall, the cards need {least}", extra.h);
+    }
     let later_nine = [
         Pane::Flag,
         Pane::FuelCalc,
@@ -3909,10 +4036,6 @@ fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
         Pane::Gaps,
     ];
     for layout in ALL_LAYOUTS {
-        assert!(
-            std::ptr::eq(builtin(DashboardId::Practice).rows_for(layout), layout.default_rows()),
-            "{layout:?}: Practice has the rows it always had"
-        );
         let mut used: Vec<Pane> = Vec::new();
         for dash in DashboardId::ALL {
             let rows = builtin(dash).rows_for(layout);
@@ -5409,13 +5532,17 @@ fn the_reference_card_is_there_when_the_game_gives_the_distance_or_the_speed_and
 }
 
 #[test]
-fn the_reference_card_is_on_qualifying_and_time_trial_in_every_layout_but_classic() {
+fn the_reference_card_is_on_qualifying_and_hot_lap_in_every_layout_but_classic_and_on_practice_in_the_wide_ones() {
     let s = slots(every_cap());
     for layout in ALL_LAYOUTS {
         for dash in DashboardId::ALL {
             let plan = layout.plan_in(dash, &s, usize::MAX);
             let area = plan.area(Pane::DeltaRef);
-            let wanted = matches!(dash, DashboardId::Qualifying | DashboardId::TimeTrial) && layout != Layout::Classic;
+            let wanted = match dash {
+                DashboardId::Qualifying | DashboardId::TimeTrial => layout != Layout::Classic,
+                DashboardId::Practice => matches!(layout, Layout::Wide | Layout::Ultrawide),
+                DashboardId::Race => false,
+            };
             assert_eq!(area.is_some(), wanted, "{dash:?} {layout:?}");
             if let Some(area) = area {
                 assert!(
@@ -5803,6 +5930,82 @@ fn the_edit_button_sits_before_the_version_and_the_pills_keep_clear_of_it() {
     let mut editing = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
     editing.edit = Some(&ui);
     assert!(edit_button(1536, &editing).is_none());
+}
+
+#[test]
+fn the_workspace_menu_is_drawn_with_its_check_its_dot_and_a_reset_that_waits_for_its_click() {
+    let live = live_reading();
+    let (w, h) = (1536, 864);
+    let mut f = fixture();
+    let base = SavedView::default_for(DashboardId::Qualifying, Layout::Wide);
+    let taller = resize_row(&base, Layout::Wide, 0, base.rows[0].h + 20.0).unwrap();
+    f.views.set(DashboardId::Qualifying, Layout::Wide, taller);
+    let draw = |f: &Fixture, open: bool, armed: bool| {
+        let mut v = view(f, Some(&live), Tab::Dash, 1.0, Lang::En);
+        v.dashboard = Some(DashboardId::Race);
+        v.workspace_open = open;
+        if armed {
+            v.workspace_reset_until = v.now_ms + 1_000;
+        }
+        render(&v, w, h)
+    };
+    let (closed, open) = (draw(&f, false, false), draw(&f, true, false));
+    assert_ne!(closed, open, "the menu is drawn when it is open");
+    let menu = workspace_menu(w, 1.0, Some(DashboardId::Race), DashboardId::Race, &f.views).unwrap();
+    let rect_of = |item: WorkspaceItem| menu.rows.iter().find(|r| r.item == item).unwrap().rect;
+    // The yellow dot is at the right of the Qualifying row (it has a saved view) and not of the Race row (it has none).
+    let dot = |item: WorkspaceItem| {
+        let r = rect_of(item);
+        (r.right - 12 - MARK_DOT as i32 / 2, (r.top + r.bottom) / 2)
+    };
+    let (qx, qy) = dot(WorkspaceItem::Pick(DashboardId::Qualifying));
+    assert_eq!(pixel(&open, w, qx, qy), PRIMARY, "the dot of the workspace with a saved view");
+    let (rx, ry) = dot(WorkspaceItem::Pick(DashboardId::Race));
+    assert_ne!(pixel(&open, w, rx, ry), PRIMARY, "no dot on a workspace without one");
+    // The check is yellow in the gutter of the workspace in use only.
+    let gutter = |item: WorkspaceItem| {
+        let r = rect_of(item);
+        region_of(&open, w, (r.left, r.top, r.left + WORKSPACE_GUTTER as i32, r.bottom))
+    };
+    assert!(has_color(&gutter(WorkspaceItem::Pick(DashboardId::Race)), PRIMARY) > 0, "the check");
+    assert_eq!(has_color(&gutter(WorkspaceItem::Pick(DashboardId::Qualifying)), PRIMARY), 0);
+    assert_eq!(has_color(&gutter(WorkspaceItem::Pick(DashboardId::Practice)), PRIMARY), 0);
+    // The pill's edge changes while the menu is open.
+    let pill = dashboard_hit(w, 1.0).unwrap();
+    let pill_region = |pixels: &[u8]| region_of(pixels, w, (pill.left, pill.top, pill.right, pill.bottom));
+    assert_ne!(pill_region(&closed), pill_region(&open));
+    // The reset is dim while the workspace in use has no saved view, and lights up (red, with its question) when it has one and
+    // has been clicked once.
+    let reset = rect_of(WorkspaceItem::Reset);
+    let reset_region = |pixels: &[u8]| region_of(pixels, w, (reset.left, reset.top, reset.right, reset.bottom));
+    let mut own = fixture();
+    let race_base = SavedView::default_for(DashboardId::Race, Layout::Wide);
+    let race_taller = resize_row(&race_base, Layout::Wide, 0, race_base.rows[0].h + 20.0).unwrap();
+    own.views.set(DashboardId::Race, Layout::Wide, race_taller);
+    let (enabled, armed) = (draw(&own, true, false), draw(&own, true, true));
+    assert_ne!(reset_region(&open), reset_region(&enabled), "off and on look different");
+    assert_ne!(
+        reset_region(&enabled),
+        reset_region(&armed),
+        "waiting for the second click looks different"
+    );
+}
+
+#[test]
+fn the_workspace_menu_paints_in_every_language_and_size_and_only_where_the_pill_is() {
+    let live = live_reading();
+    let f = fixture();
+    for lang in Lang::ALL {
+        for (w, h) in [(2560, 1080), (1920, 1080), (1536, 864), (1280, 720), (1024, 768), (720, 480), (430, 900)] {
+            let mut v = view(&f, Some(&live), Tab::Dash, 1.0, lang);
+            v.workspace_reset_until = v.now_ms + 1_000;
+            let closed = render(&v, w, h);
+            v.workspace_open = true;
+            let open = render(&v, w, h);
+            let menu = workspace_menu(w, 1.0, None, v.dashboard_in_use(), &f.views);
+            assert_eq!(closed != open, menu.is_some(), "{lang:?} {w}x{h}: it is there when the pill is");
+        }
+    }
 }
 
 #[test]

@@ -481,7 +481,7 @@ fn moving_a_card_onto_itself_changes_nothing_and_a_move_that_empties_a_row_remov
     }
     // Practice Wide: the second row's three cards go one by one to the first row's end: the row goes with the last.
     let layout = Layout::Wide;
-    let mut view = SavedView::default_for(DashboardId::Practice, layout);
+    let mut view = SavedView::from_rows(layout.default_rows());
     assert_eq!(view.rows.len(), 2);
     let last_of_first = Pos { row: 0, card: 4 };
     view = move_card(&view, layout, Pos { row: 1, card: 0 }, Target::Beside(last_of_first, Side::Right)).unwrap_or(view);
@@ -495,7 +495,7 @@ fn moving_a_card_onto_itself_changes_nothing_and_a_move_that_empties_a_row_remov
     assert_eq!(moved.rows.last().unwrap().cards[0].0, stack.rows[0].cards[0].0);
     assert_eq!(moved.rows[0].cards[0].0, stack.rows[1].cards[0].0);
     // A row's card made a row of its own: one more row.
-    let wide = SavedView::default_for(DashboardId::Practice, Layout::Wide);
+    let wide = SavedView::from_rows(Layout::Wide.default_rows());
     let split = move_card(&wide, Layout::Wide, Pos { row: 0, card: 1 }, Target::NewRow(1)).unwrap();
     assert_eq!(split.rows.len(), wide.rows.len() + 1);
     assert_eq!(split.rows[1].cards.len(), 1);
@@ -592,7 +592,7 @@ fn the_view_never_has_more_than_twelve_rows_or_loses_its_last_card() {
 #[test]
 fn adding_fills_the_last_row_then_opens_a_new_one_and_refuses_a_card_already_there() {
     let layout = Layout::Wide;
-    let view = SavedView::default_for(DashboardId::Practice, layout);
+    let view = SavedView::from_rows(layout.default_rows());
     let addable_now = addable(&view);
     assert_eq!(addable_now.len(), catalog::ALL.len() - view.panes().len());
     assert!(addable_now.iter().all(|p| !view.panes().contains(p)));

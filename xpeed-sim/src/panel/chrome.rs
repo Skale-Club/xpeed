@@ -13,8 +13,66 @@ pub fn paint(hdc: HDC, width: i32, height: i32, view: &View) {
     }
     if view.lang_open {
         lang_list(&mut g, width, view);
+    } else if view.workspace_open {
+        workspace_list(&mut g, width, view);
     } else {
         tooltip(&mut g, width, view);
+    }
+}
+
+/// The workspace menu, open under the dashboard pill (`workspace_menu` says what is in it and where): Automatic, the four
+/// workspaces (a check on the one in use, a yellow mark on one with a saved view), a divider, Edit layout and Reset. The row under
+/// the mouse is lit; a row that is off is dim; a reset waiting for its second click says so, in red.
+pub(super) fn workspace_list(g: &mut Painter, width: i32, view: &View) {
+    let Some(menu) = workspace_menu(width, view.scale, view.dashboard, view.dashboard_in_use(), view.views) else {
+        return;
+    };
+    g.place(view.scale, 0, 0);
+    let semi = FW_SEMIBOLD as i32;
+    g.round(menu.list, POPOVER, Some(BORDER));
+    g.fill(menu.divider, BORDER);
+    for row in &menu.rows {
+        let armed = row.item == WorkspaceItem::Reset && row.enabled && view.now_ms < view.workspace_reset_until;
+        let hot = row.enabled && view.mouse.is_some_and(|(mx, my)| inside(&row.rect, mx, my));
+        if hot {
+            g.fill(row.rect, ROW_HOVER);
+        }
+        let gutter = g.px(WORKSPACE_GUTTER);
+        if row.checked {
+            let mark = rect(row.rect.left, row.rect.top, row.rect.left + gutter, row.rect.bottom);
+            check_icon(g, mark, PRIMARY);
+        }
+        let ink = if !row.enabled {
+            dim(FOREGROUND)
+        } else if armed {
+            DESTRUCTIVE
+        } else if row.checked {
+            PRIMARY
+        } else {
+            FOREGROUND
+        };
+        let label = text(view.lang, &if armed { Msg::EditResetAsk } else { workspace_msg(row.item) });
+        let words = rect(row.rect.left + gutter, row.rect.top, row.rect.right - g.px(S4), row.rect.bottom);
+        let room = (words.right - words.left) as f32 / g.s;
+        let size = g.fitted(&label, room, T_BODY, T_CAPTION, semi, Face::Ui);
+        g.text(&label, words, size, semi, Face::Ui, ink, DT_LEFT);
+        if row.dotted {
+            let dot = g.px(MARK_DOT);
+            let (x, y) = (row.rect.right - g.px(S3) - dot, (row.rect.top + row.rect.bottom - dot) / 2);
+            g.fill(rect(x, y, x + dot, y + dot), PRIMARY);
+        }
+    }
+}
+
+/// A check mark in a box (pixels), upright and square like the other icons: a short stroke down to the right, a long one up.
+pub(super) fn check_icon(g: &mut Painter, r: RECT, color: COLORREF) {
+    let (cx, cy) = ((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+    let (t, step) = (g.px(2.6), 1.6);
+    let short = (0..3).map(|i| (-6.0 + i as f32 * step, -0.5 + i as f32 * step));
+    let long = (0..6).map(|i| (-1.2 + i as f32 * step, 2.3 - i as f32 * step));
+    for (dx, dy) in short.chain(long) {
+        let (x, y) = (cx + g.px(dx), cy + g.px(dy));
+        g.fill(rect(x, y, x + t, y + t), color);
     }
 }
 
@@ -164,7 +222,8 @@ pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
                 name
             };
             let pill = rect(r.left, r.top, r.right, r.bottom);
-            g.round(pill, SURFACE, None);
+            // A click opens the workspace menu: the pill's edge is yellow while it is open.
+            g.round(pill, SURFACE, view.workspace_open.then_some(PRIMARY));
             // A dashboard with a layout of the driver's own saved has a small yellow mark after its name.
             if view.views.is_modified(view.dashboard_in_use()) {
                 let (dot, room) = (g.px(MARK_DOT), g.px(S4));

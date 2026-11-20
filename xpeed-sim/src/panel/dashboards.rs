@@ -1,7 +1,8 @@
 //! The dashboards: which widgets the panel shows and where, as data.
 //!
 //! A dashboard is an id and, per window shape (`Layout`), its rows of widgets with the share of the row each takes. The
-//! Practice keeps the original seven cards; Race, Qualifying and Time trial each hold their own mix of the catalog's
+//! Practice keeps the original seven cards (and, in the two wide shapes, one more row); Race, Qualifying and Hot lap (the
+//! `time_trial` id) each hold their own mix of the catalog's
 //! widgets (the flag, the fuel strategy, the tyre wear, the sectors, the delta bar, the session and the rivals: relative,
 //! standings, gaps). The smallest window (Classic) leaves the rivals out. Which one is on screen is picked from
 //! the session (`pick`), or by hand with `D`, remembered per game in `dashboards.json`.
@@ -77,7 +78,7 @@ const QUALIFYING: Dashboard = Dashboard {
 };
 const PRACTICE: Dashboard = Dashboard {
     id: DashboardId::Practice,
-    rows: builtin_rows,
+    rows: practice_rows,
 };
 const TIME_TRIAL: Dashboard = Dashboard {
     id: DashboardId::TimeTrial,
@@ -94,10 +95,61 @@ pub(super) fn builtin(id: DashboardId) -> &'static Dashboard {
     }
 }
 
-/// Practice: the rows the panel always had.
-fn builtin_rows(layout: Layout) -> &'static [Row] {
-    layout.default_rows()
+/// Practice: the rows the panel always had (`Layout::default_rows`); the two wide shapes have one more row after them (the
+/// sectors, the tyre wear and the reference lap: what a practice run is for).
+fn practice_rows(layout: Layout) -> &'static [Row] {
+    match layout {
+        Layout::Wide => PRACTICE_WIDE,
+        Layout::Ultrawide => PRACTICE_ULTRAWIDE,
+        _ => layout.default_rows(),
+    }
 }
+
+/// The height of Practice's extra row: a little over the tallest least height of its cards (the sectors, 228).
+const PRACTICE_EXTRA_H: f32 = 232.0;
+
+const PRACTICE_WIDE: &[Row] = &[
+    Row {
+        h: 300.0,
+        cards: &[
+            (Pane::Times, 1.0),
+            (Pane::Centre, 0.74),
+            (Pane::Inputs, 0.56),
+            (Pane::Fuel, 0.95),
+            (Pane::Tyres, 1.05),
+        ],
+    },
+    Row {
+        h: 262.0,
+        cards: &[(Pane::Laps, 2.25), (Pane::Track, 1.0), (Pane::Alerts, 1.05)],
+    },
+    Row {
+        h: PRACTICE_EXTRA_H,
+        cards: &[(Pane::Sectors, 1.0), (Pane::TyreTrend, 1.0), (Pane::DeltaRef, 1.0)],
+    },
+];
+
+const PRACTICE_ULTRAWIDE: &[Row] = &[
+    Row {
+        h: 300.0,
+        cards: &[
+            (Pane::Times, 1.0),
+            (Pane::Centre, 0.68),
+            (Pane::Inputs, 0.52),
+            (Pane::Fuel, 1.0),
+            (Pane::Tyres, 1.1),
+            (Pane::Alerts, 1.0),
+        ],
+    },
+    Row {
+        h: 262.0,
+        cards: &[(Pane::Laps, 2.6), (Pane::Track, 1.0)],
+    },
+    Row {
+        h: PRACTICE_EXTRA_H,
+        cards: &[(Pane::Sectors, 1.0), (Pane::TyreTrend, 1.0), (Pane::DeltaRef, 1.0)],
+    },
+];
 
 fn race_rows(layout: Layout) -> &'static [Row] {
     match layout {

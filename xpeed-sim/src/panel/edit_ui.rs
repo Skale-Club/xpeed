@@ -420,9 +420,16 @@ pub(super) fn edit_rows(view: &SavedView, plan: &Plan) -> Vec<Vec<(Pane, Area)>>
         .collect()
 }
 
-/// The place of the × of a card.
+/// The place of the × of a card: a small tab at the card's top right that sits over the gap above the card and the card's top
+/// padding (it ends where the card's inside begins, `inner`), so it never covers the caption line or what stands at its right.
 pub(super) fn edit_remove_rect((x, y, w, _): Area) -> Area {
-    (x + w - S1 - EDIT_X_SIZE, y + S1, EDIT_X_SIZE, EDIT_X_SIZE)
+    (x + w - S1 - EDIT_X_SIZE, y + S3 - EDIT_X_SIZE, EDIT_X_SIZE, EDIT_X_SIZE)
+}
+
+/// The line of a card where its caption (and a figure or a word at its right) is drawn: the first line of the card's inside.
+pub(super) fn card_title_line(area: Area) -> Area {
+    let (x, y, w, _) = inner(area);
+    (x, y, w, CAPTION_H)
 }
 
 fn within((x, y, w, h): Area, px: f32, py: f32) -> bool {
