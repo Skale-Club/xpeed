@@ -42,8 +42,23 @@ pub(super) fn header_hits(width: i32, scale: f32) -> [RECT; 5] {
 pub(super) fn version_hit(width: i32, scale: f32) -> Option<RECT> {
     let p = |v: f32| (v * scale).round() as i32;
     let [_, mon, lang, _, _] = header_hits(width, scale);
-    let right = lang.left - p(14.0);
+    let right = header_edge(width, scale) - p(14.0);
     (right - p(60.0) > mon.right + p(12.0)).then(|| rect(right - p(120.0), lang.top, right, lang.bottom))
+}
+
+/// Where the header's "Edit layout" button sits (pixels): a square button left of the language button, when the window is wide
+/// enough to have it beside the tabs and the dashboard's name.
+pub(super) fn edit_hit(width: i32, scale: f32) -> Option<RECT> {
+    let p = |v: f32| (v * scale).round() as i32;
+    let [_, _, lang, _, _] = header_hits(width, scale);
+    let (side, gap) = (p(38.0), p(8.0));
+    (width as f32 / scale >= EDIT_BUTTON_MIN_W).then(|| rect(lang.left - gap - side, lang.top, lang.left - gap, lang.bottom))
+}
+
+/// The left edge of the header's right-hand buttons (pixels): what the version and the pills keep clear of.
+fn header_edge(width: i32, scale: f32) -> i32 {
+    let [_, _, lang, _, _] = header_hits(width, scale);
+    edit_hit(width, scale).map_or(lang.left, |edit| edit.left)
 }
 
 /// Where the dashboard's name sits in the header (pixels): after the tabs, when the window leaves room before the
@@ -58,8 +73,7 @@ pub(super) fn dashboard_hit(width: i32, scale: f32) -> Option<RECT> {
 /// How far right the header's pills may reach (pixels): before the version, or the language button without the version.
 fn header_limit(width: i32, scale: f32) -> i32 {
     let p = |v: f32| (v * scale).round() as i32;
-    let [_, _, lang, _, _] = header_hits(width, scale);
-    version_hit(width, scale).map_or(lang.left - p(14.0), |v| v.left + p(60.0))
+    version_hit(width, scale).map_or(header_edge(width, scale) - p(14.0), |v| v.left + p(60.0))
 }
 
 /// Where the "Phone" mark sits in the header (pixels): after the dashboard's name, when the window leaves room for both.

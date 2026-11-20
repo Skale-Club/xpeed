@@ -464,6 +464,8 @@ fn view<'a>(f: &'a Fixture, live: Option<&'a Live>, tab: Tab, scale: f32, lang: 
         carousel_step: Default::default(),
         dashboard: None,
         views: &f.views,
+        edit: None,
+        edit_xf: Default::default(),
         layout: Default::default(),
         lang_open: false,
         copied: false,
@@ -1227,6 +1229,104 @@ fn writes_the_design_preview_page() {
     figures.push_str("<figure><figcaption>Waiting for a game, with the covers from the Xpeed server</figcaption><img data-src=\"preview-covers.png\" width=\"1280\" height=\"720\"></figure>\n");
     for (file, caption, reading, tab, lang, w, h, scale) in shots {
         let pixels = render(&view(&f, reading, tab, scale, lang), w, h);
+        save(&pixels, w, h, file);
+        figures.push_str(&format!(
+            "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"{w}\" height=\"{h}\"></figure>\n"
+        ));
+    }
+    // Edit mode: the cards and what the mouse is doing to them. A reading without rivals shows the cards the game cannot fill dimmed.
+    let edit_screens = |ui: &EditUi, reading: &Live, mouse: Option<(i32, i32)>, w: i32, h: i32| {
+        let mut v = view(&f, Some(reading), Tab::Dash, 1.0, Lang::En);
+        v.dashboard = Some(ui.session.dashboard);
+        v.recent_laps = &full_laps;
+        v.edit = Some(ui);
+        v.mouse = mouse;
+        render(&v, w, h)
+    };
+    let race_wide = || EditUi::new(DashboardId::Race, Layout::Wide, SavedView::default_for(DashboardId::Race, Layout::Wide));
+    let mut idle = race_wide();
+    idle.hover = Hover::Card(Pos { row: 1, card: 0 });
+    let mut carrying = race_wide();
+    let plan = carrying.plan();
+    let from = card_area(&carrying.session.current, &plan, Pos { row: 0, card: 0 }).unwrap();
+    let onto = card_area(&carrying.session.current, &plan, Pos { row: 0, card: 2 }).unwrap();
+    carrying.drag = Some(Drag::Card {
+        from: Pos { row: 0, card: 0 },
+        start: (from.0 + from.2 / 2.0, from.1 + from.3 / 2.0),
+        at: (onto.0 + onto.2 * 0.15, onto.1 + onto.3 / 2.0),
+        moved: true,
+    });
+    let mut over_split = race_wide();
+    over_split.hover = Hover::Line(Boundary::Split { row: 0, left: 1 });
+    let mut listing = race_wide();
+    listing.add_open = true;
+    let mut refused = race_wide();
+    refused.note = Some((EditNote::Refused(Refused::TooNarrow), 1_500 + EDIT_NOTE_MS));
+    let mut phone = EditUi::new(
+        DashboardId::Race,
+        Layout::Portrait,
+        SavedView::default_for(DashboardId::Race, Layout::Portrait),
+    );
+    phone.hover = Hover::Card(Pos { row: 0, card: 0 });
+    let bar = edit_toolbar(1920, 1.0);
+    let third = edit_list(&bar, (1920, 1080), 1.0, addable(&listing.session.current).len()).items[2];
+    for (file, caption, ui, reading, mouse, w, h) in [
+        (
+            "preview-edit-idle.png",
+            "Edit mode, Race on a wide window: a card the game cannot fill is dimmed (no rivals here), every card has its \u{d7} (1920 \u{d7} 1080)",
+            &idle,
+            &no_rivals,
+            None,
+            1920,
+            1080,
+        ),
+        (
+            "preview-edit-drag.png",
+            "A card carried over the left third of another: a bar shows where it lands (1920 \u{d7} 1080)",
+            &carrying,
+            &full,
+            None,
+            1920,
+            1080,
+        ),
+        (
+            "preview-edit-split.png",
+            "The mouse on the line between two cards: it lights, the cursor is the resize one (1920 \u{d7} 1080)",
+            &over_split,
+            &full,
+            None,
+            1920,
+            1080,
+        ),
+        (
+            "preview-edit-add.png",
+            "The add list, open under Add panel (1920 \u{d7} 1080)",
+            &listing,
+            &full,
+            Some(((third.left + third.right) / 2, (third.top + third.bottom) / 2)),
+            1920,
+            1080,
+        ),
+        (
+            "preview-edit-refused.png",
+            "A refused edit says why in the toolbar for three seconds (1920 \u{d7} 1080)",
+            &refused,
+            &full,
+            None,
+            1920,
+            1080,
+        ),
+        (
+            "preview-edit-phone.png",
+            "Edit mode on a phone held upright: the toolbar takes two rows (430 \u{d7} 900)",
+            &phone,
+            &full,
+            None,
+            430,
+            900,
+        ),
+    ] {
+        let pixels = edit_screens(ui, reading, mouse, w, h);
         save(&pixels, w, h, file);
         figures.push_str(&format!(
             "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"{w}\" height=\"{h}\"></figure>\n"
@@ -5540,4 +5640,161 @@ fn the_phone_mark_sits_after_the_dashboard_name_when_there_is_room_and_only_then
     assert!(phone_hit(540, 1.0).is_none(), "a narrow window has no room for it");
     let tight = (500..1536).find(|w| dashboard_hit(*w, 1.0).is_some()).unwrap();
     assert!(phone_hit(tight, 1.0).is_none(), "room for the name only");
+}
+
+// The edit mode's drawing (the state machine is in `edit_ui_tests.rs`).
+
+/// The colour of a pixel of `render`'s picture.
+fn pixel(pixels: &[u8], width: i32, x: i32, y: i32) -> COLORREF {
+    let i = ((y * width + x) * 4) as usize;
+    u32::from(pixels[i + 2]) | u32::from(pixels[i + 1]) << 8 | u32::from(pixels[i]) << 16
+}
+
+fn middle_of(ui: &EditUi, row: usize, card: usize) -> (f32, f32) {
+    let (x, y, w, h) = card_area(&ui.session.current, &ui.plan(), Pos { row, card }).unwrap();
+    (x + w / 2.0, y + h / 2.0)
+}
+
+#[test]
+fn edit_mode_paints_at_every_shape_with_its_toolbar_and_a_cross_on_every_card() {
+    let laps = rich_laps();
+    let live = full_reading();
+    let f = fixture();
+    let s = slots(live.caps);
+    for dash in DashboardId::ALL {
+        for (w, h) in [
+            (2560, 1080),
+            (1920, 1080),
+            (1536, 864),
+            (1024, 768),
+            (1280, 1024),
+            (960, 600),
+            (720, 480),
+            (540, 1080),
+            (430, 900),
+        ] {
+            let layout = pick_layout_with(&f.views, dash, w as f32 - 32.0, h as f32 - HEADER_H - EDIT_BAR_H, &s);
+            let ui = EditUi::new(dash, layout, SavedView::default_for(dash, layout));
+            let mut v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+            v.dashboard = Some(dash);
+            v.recent_laps = &laps;
+            v.edit = Some(&ui);
+            let pixels = render(&v, w, h);
+            let what = format!("{dash:?} {layout:?} {w}x{h}");
+            assert!(has_color(&pixels, CARD) > 1000, "{what}: cards are drawn");
+            // The toolbar: the Save button is yellow just inside its left edge.
+            let bar = edit_toolbar(w, 1.0);
+            let save_button = bar.buttons[3].1;
+            let at = pixel(&pixels, w, save_button.left + 4, (save_button.top + save_button.bottom) / 2);
+            assert_eq!(at, PRIMARY, "{what}: the toolbar and its Save button are drawn");
+            // Every card has its x: its fill just inside the left edge of the square.
+            let (scale, ox, oy) = v.edit_xf.get().expect("edit mode says where it drew the canvas");
+            let plan = ui.plan();
+            assert_eq!(plan.cards.len(), ui.session.current.panes().len());
+            for (pane, card) in &plan.cards {
+                let (x, y, _, size) = edit_remove_rect(*card);
+                let (px, py) = (ox + (x * scale) as i32 + 3, oy + ((y + size / 2.0) * scale) as i32);
+                if px < w && py < h {
+                    assert_eq!(pixel(&pixels, w, px, py), SURFACE, "{what}: the x of {pane:?}");
+                }
+            }
+            v.edit = None;
+            assert_ne!(pixels, render(&v, w, h), "{what}: edit mode looks different");
+        }
+    }
+}
+
+#[test]
+fn a_card_the_game_cannot_fill_is_on_the_edit_canvas_all_the_same() {
+    let f = fixture();
+    let mut live = full_reading();
+    live.caps = every_cap().minus(crate::game::Caps::RIVALS.or(crate::game::Caps::RIVALS_WORLD).or(crate::game::Caps::SPOTTER));
+    let ui = EditUi::new(DashboardId::Race, Layout::Wide, SavedView::default_for(DashboardId::Race, Layout::Wide));
+    let mut v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+    v.dashboard = Some(DashboardId::Race);
+    let normal = render(&v, 1920, 1080);
+    v.edit = Some(&ui);
+    let editing = render(&v, 1920, 1080);
+    assert_ne!(normal, editing);
+    let s = slots(live.caps);
+    let missing: Vec<Pane> = ui.session.current.panes().into_iter().filter(|p| !s.cards.contains(p)).collect();
+    assert!(!missing.is_empty(), "the Race view holds cards this game cannot fill");
+    assert_eq!(ui.plan().cards.len(), ui.session.current.panes().len());
+    assert!(ui.plan().cards.len() > Layout::Wide.plan_with(&f.views, DashboardId::Race, &s, usize::MAX).cards.len());
+}
+
+#[test]
+fn leaving_edit_mode_draws_the_dashboard_exactly_as_before() {
+    let f = fixture();
+    let live = full_reading();
+    let laps = rich_laps();
+    for (w, h) in [(1920, 1080), (1024, 768), (430, 900)] {
+        let frame = |edit: Option<&EditUi>| {
+            let mut v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+            v.dashboard = Some(DashboardId::Race);
+            v.recent_laps = &laps;
+            v.edit = edit;
+            render(&v, w, h)
+        };
+        let before = frame(None);
+        let mut ui = EditUi::new(DashboardId::Race, Layout::Wide, SavedView::default_for(DashboardId::Race, Layout::Wide));
+        let at = middle_of(&ui, 0, 0);
+        ui.press(EditHit::Canvas(at.0, at.1), (1.0, 0, 0), 0);
+        ui.mouse_moved(EditHit::Canvas(at.0 + 90.0, at.1 + 200.0), (at.0 + 90.0, at.1 + 200.0));
+        assert_ne!(before, frame(Some(&ui)), "{w}x{h}: edit mode is on screen");
+        // Esc: the drag lets go, the second Esc cancels, and nothing of the session is left on the dashboard.
+        assert_eq!(ui.key(EditKey::Escape), None);
+        assert_eq!(ui.key(EditKey::Escape), Some(EditEnd::Cancel));
+        assert_eq!(before, frame(None), "{w}x{h}: the same pixels after a cancelled edit");
+    }
+}
+
+#[test]
+fn the_edit_button_sits_before_the_version_and_the_pills_keep_clear_of_it() {
+    let edit = edit_hit(1536, 1.0).expect("room in a normal window");
+    let [_, _, lang, _, _] = header_hits(1536, 1.0);
+    assert!(edit.right < lang.left && edit.right - edit.left == lang.right - lang.left, "a square button before the language");
+    let version = version_hit(1536, 1.0).unwrap();
+    assert!(version.right <= edit.left, "the version does not run into it");
+    let name = dashboard_hit(1536, 1.0).unwrap();
+    assert!(name.right < edit.left, "nor does the dashboard's name");
+    assert!(edit_hit(540, 1.0).is_none(), "a narrow window has the E key and no button");
+    // Shown only while the dashboard is, and not while editing.
+    let f = fixture();
+    let live = live_reading();
+    let v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+    assert_eq!(edit_button(1536, &v).map(|r| (r.left, r.top)), Some((edit.left, edit.top)));
+    assert!(edit_button(1536, &view(&f, None, Tab::Dash, 1.0, Lang::En)).is_none(), "no game, no edit");
+    assert!(edit_button(1536, &view(&f, Some(&live), Tab::Monitor, 1.0, Lang::En)).is_none());
+    let ui = EditUi::new(DashboardId::Race, Layout::Wide, SavedView::default_for(DashboardId::Race, Layout::Wide));
+    let mut editing = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+    editing.edit = Some(&ui);
+    assert!(edit_button(1536, &editing).is_none());
+}
+
+#[test]
+fn a_dashboard_with_a_saved_view_shows_a_dot_after_its_name() {
+    let mut f = fixture();
+    let live = live_reading();
+    let (w, h) = (1536, 864);
+    let plain = {
+        let mut v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+        v.dashboard = Some(DashboardId::Race);
+        render(&v, w, h)
+    };
+    let base = SavedView::default_for(DashboardId::Race, Layout::Wide);
+    let taller = resize_row(&base, Layout::Wide, 0, base.rows[0].h + 20.0).unwrap();
+    f.views.set(DashboardId::Race, Layout::Wide, taller);
+    assert!(f.views.is_modified(DashboardId::Race));
+    let mut v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+    v.dashboard = Some(DashboardId::Race);
+    let marked = render(&v, w, h);
+    let pill = dashboard_hit(w, 1.0).unwrap();
+    let dot = (pill.right - 12 - MARK_DOT as i32 / 2, (pill.top + pill.bottom) / 2);
+    assert_eq!(pixel(&marked, w, dot.0, dot.1), PRIMARY, "the dot is yellow in the pill");
+    assert_ne!(pixel(&plain, w, dot.0, dot.1), PRIMARY);
+    // Another dashboard has none.
+    let mut other = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+    other.dashboard = Some(DashboardId::Practice);
+    assert_ne!(pixel(&render(&other, w, h), w, dot.0, dot.1), PRIMARY);
 }

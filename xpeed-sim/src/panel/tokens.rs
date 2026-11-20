@@ -213,6 +213,34 @@ pub(super) fn tint(base: COLORREF, colour: COLORREF, amount: f32) -> COLORREF {
     mix(base, colour, amount)
 }
 
+// The edit mode (plans/companion-dashboard-editing.md): sizes in design units, times in milliseconds.
+
+/// The edit toolbar's height in one row, a button's height, and the widths of its buttons (add, reset, cancel, save). A window
+/// narrower than `EDIT_ONE_ROW_W` gives the title a row of its own and shares the width between the buttons.
+pub(super) const EDIT_BAR_H: f32 = 44.0;
+pub(super) const EDIT_BTN_H: f32 = 32.0;
+pub(super) const EDIT_BTN_W: [f32; 4] = [128.0, 172.0, 96.0, 96.0];
+pub(super) const EDIT_ONE_ROW_W: f32 = 760.0;
+/// The header's Edit button needs a window at least this wide (design units).
+pub(super) const EDIT_BUTTON_MIN_W: f32 = 640.0;
+/// The × that takes a card out, how far from a line the mouse still grabs it (design units of the canvas) and how far it has
+/// to go before a press on a card is a move.
+pub(super) const EDIT_X_SIZE: f32 = 22.0;
+pub(super) const EDIT_GRAB: f32 = 8.0;
+pub(super) const EDIT_DRAG_MIN: f32 = 6.0;
+/// How long a message, or a reset waiting for its second click, lasts.
+pub(super) const EDIT_NOTE_MS: i64 = 3000;
+/// The add list: a row's height and a column's width.
+pub(super) const EDIT_ROW_H: f32 = 30.0;
+pub(super) const EDIT_COL_W: f32 = 220.0;
+/// An insertion bar's thickness, the amount of yellow over the card a drop would swap with, and the shade over the card being
+/// dragged.
+pub(super) const EDIT_LINE: f32 = 4.0;
+pub(super) const EDIT_DROP_VEIL: f32 = 0.25;
+pub(super) const EDIT_SOURCE_VEIL: f32 = 0.55;
+/// The mark after the name of a dashboard that has a saved view.
+pub(super) const MARK_DOT: f32 = 6.0;
+
 // Type: the sizes, in design pixels (a window at 96 DPI). Labels are never below `T_CAPTION`.
 
 /// Captions, labels, notes and units.

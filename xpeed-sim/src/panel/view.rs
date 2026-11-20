@@ -84,6 +84,10 @@ pub struct View<'a> {
     pub(super) dashboard: Option<DashboardId>,
     /// The views the driver saved for the dashboards (the built-in rows where there is none).
     pub(super) views: &'a Views,
+    /// The layout being edited (edit mode), else `None`: the dashboard is drawn for editing and the toolbar is shown.
+    pub(super) edit: Option<&'a EditUi>,
+    /// Where edit mode drew the canvas in this frame (scale and origin, pixels), for the mouse that follows.
+    pub(super) edit_xf: std::cell::Cell<Option<Xf>>,
     /// How many phones are watching the panel through the Xpeed server (none unless "Show the panel on my phone" is on).
     pub phone_viewers: u32,
     /// The language list under the language button is open.

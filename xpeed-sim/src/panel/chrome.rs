@@ -75,8 +75,11 @@ pub(super) fn tooltip(g: &mut Painter, width: i32, view: &View) {
     let Some((mx, my)) = view.mouse else { return };
     let [_, _, lang, full, top] = header_hits(width, view.scale);
     let version = version_hit(width, view.scale).filter(|v| inside(v, mx, my));
+    let edit = edit_button(width, view).filter(|e| inside(e, mx, my));
     let (r, label) = if let Some(v) = version {
         (v, format!("Build {}", env!("XPEED_BUILD")))
+    } else if let Some(e) = edit {
+        (e, text(view.lang, &Msg::PanelEditLayout))
     } else if inside(&lang, mx, my) {
         (lang, text(view.lang, &Msg::MenuLanguage))
     } else if inside(&full, mx, my) {
@@ -162,13 +165,27 @@ pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
             };
             let pill = rect(r.left, r.top, r.right, r.bottom);
             g.round(pill, SURFACE, None);
-            g.caps(&label, pill, T_CAPTION, FOREGROUND_2, DT_CENTER);
+            // A dashboard with a layout of the driver's own saved has a small yellow mark after its name.
+            if view.views.is_modified(view.dashboard_in_use()) {
+                let (dot, room) = (g.px(MARK_DOT), g.px(S4));
+                let y = (pill.top + pill.bottom - dot) / 2;
+                g.fill(rect(pill.right - g.px(S3) - dot, y, pill.right - g.px(S3), y + dot), PRIMARY);
+                let words = rect(pill.left, pill.top, pill.right - room, pill.bottom);
+                g.caps(&label, words, T_CAPTION, FOREGROUND_2, DT_CENTER);
+            } else {
+                g.caps(&label, pill, T_CAPTION, FOREGROUND_2, DT_CENTER);
+            }
         }
         // A phone is watching through the server: a small pill after the name.
         if let Some(r) = phone_hit(width, view.scale).filter(|_| view.phone_viewers > 0) {
             g.round(r, SURFACE, None);
             g.caps(&text(view.lang, &Msg::PanelPhone), r, T_CAPTION, PRIMARY, DT_CENTER);
         }
+    }
+    // Edit layout: a square button with a pencil, while the dashboard is on (edit mode has its own toolbar).
+    if let Some(r) = edit_button(width, view) {
+        g.round(r, CARD, Some(BORDER));
+        pencil_icon(g, r, FOREGROUND);
     }
     // The version, small, left of the icon buttons, where every tab shows it.
     let version = concat!("v", env!("CARGO_PKG_VERSION"));
@@ -208,4 +225,26 @@ pub(super) fn pin_icon(g: &mut Painter, r: RECT, color: COLORREF) {
     ] {
         g.fill(rect(cx + p(x0), cy + p(y0), cx + p(x1).max(p(x0) + 1), cy + p(y1)), color);
     }
+}
+
+/// The header's Edit button, when it is on offer: the dashboard tab shows a game's dashboard, and nothing is being edited.
+pub(super) fn edit_button(width: i32, view: &View) -> Option<RECT> {
+    let on = view.tab == Tab::Dash && view.edit.is_none() && dashboard_shown(view.live, &view.snapshot.game, view.now_ms);
+    edit_hit(width, view.scale).filter(|_| on)
+}
+
+/// A pencil on a line in a box (pixels), upright and square like the other icons: its body runs up to the right, its point
+/// at the lower left.
+pub(super) fn pencil_icon(g: &mut Painter, r: RECT, color: COLORREF) {
+    let (cx, cy) = ((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+    let (t, step) = (g.px(2.6), 1.6);
+    for i in 0..=8 {
+        let k = i as f32 * step;
+        let (x, y) = (cx + g.px(-6.5 + k), cy + g.px(5.0 - k));
+        g.fill(rect(x, y, x + t, y + t), color);
+    }
+    // The point and the line it writes.
+    g.fill(rect(cx + g.px(-7.5), cy + g.px(5.5), cx + g.px(-4.5), cy + g.px(8.5)), color);
+    let line_top = cy + g.px(7.0);
+    g.fill(rect(cx + g.px(-2.0), line_top, cx + g.px(8.0), (cy + g.px(8.5)).max(line_top + 1)), color);
 }

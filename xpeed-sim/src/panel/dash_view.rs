@@ -42,6 +42,9 @@ pub(super) fn dashboard_screen(g: &mut Painter, body: RECT, view: &View) {
         m: &m,
         slots: &slots,
     };
+    if let Some(ui) = view.edit {
+        return edit_screen(g, body, &d, ui);
+    }
     let in_use = view.dashboard_in_use();
     let layout = pick_layout_sticky_with(
         view.views,
@@ -58,30 +61,35 @@ pub(super) fn dashboard_screen(g: &mut Painter, body: RECT, view: &View) {
     header(g, &d, plan.w);
     for &(card, area) in &plan.cards {
         card_frame(g, area);
-        match card {
-            Pane::Times => times_card(g, &d, area),
-            Pane::Centre => centre_card(g, &d, area),
-            Pane::Inputs => inputs_card(g, &d, area),
-            Pane::Fuel => fuel_card(g, &d, area),
-            Pane::Tyres => tyres_card(g, &d, area),
-            Pane::Laps => laps_card(g, &d, area),
-            Pane::Track => track_card(g, &d, area),
-            Pane::Alerts => alerts_card(g, &d, area),
-            Pane::Flag => digiflag_card(g, &d, area),
-            Pane::FuelCalc => fuel_strategy_card(g, &d, area),
-            Pane::TyreTrend => tyre_wear_card(g, &d, area),
-            Pane::Sectors => sector_times_card(g, &d, area),
-            Pane::DeltaBar => delta_card(g, &d, area),
-            Pane::Session => session_card(g, &d, area),
-            Pane::Relative => relative_card(g, &d, area),
-            Pane::Standings => standings_card(g, &d, area),
-            Pane::Gaps => gaps_card(g, &d, area),
-            Pane::Radar => radar_card(g, &d, area),
-            Pane::DeltaRef => delta_ref_card(g, &d, area),
-        }
+        draw_pane(g, &d, card, area);
     }
     if let Some(target) = banner_target(&plan) {
         banner(g, &d, target);
+    }
+}
+
+/// Draws one card's content (its frame is the caller's).
+pub(super) fn draw_pane(g: &mut Painter, d: &Dash, card: Pane, area: Area) {
+    match card {
+        Pane::Times => times_card(g, d, area),
+        Pane::Centre => centre_card(g, d, area),
+        Pane::Inputs => inputs_card(g, d, area),
+        Pane::Fuel => fuel_card(g, d, area),
+        Pane::Tyres => tyres_card(g, d, area),
+        Pane::Laps => laps_card(g, d, area),
+        Pane::Track => track_card(g, d, area),
+        Pane::Alerts => alerts_card(g, d, area),
+        Pane::Flag => digiflag_card(g, d, area),
+        Pane::FuelCalc => fuel_strategy_card(g, d, area),
+        Pane::TyreTrend => tyre_wear_card(g, d, area),
+        Pane::Sectors => sector_times_card(g, d, area),
+        Pane::DeltaBar => delta_card(g, d, area),
+        Pane::Session => session_card(g, d, area),
+        Pane::Relative => relative_card(g, d, area),
+        Pane::Standings => standings_card(g, d, area),
+        Pane::Gaps => gaps_card(g, d, area),
+        Pane::Radar => radar_card(g, d, area),
+        Pane::DeltaRef => delta_ref_card(g, d, area),
     }
 }
 

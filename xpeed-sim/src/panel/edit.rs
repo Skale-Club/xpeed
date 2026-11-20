@@ -5,7 +5,8 @@
 //! card onto itself changes nothing (the view comes back as it was). The plan the hit tests read is the edit mode's: every card
 //! of the view is on it (the ones the game cannot fill too, drawn greyed), so its rows and cards are the view's rows and cards.
 //!
-//! Not every function is used until the panel's edit mode is built on top of them.
+//! The edit mode (`edit_ui.rs`) is built on top of these; a few helpers (`cancel`, the `Refused` cases only tests reach) are
+//! still only used by tests.
 #![allow(dead_code)]
 
 use super::*;

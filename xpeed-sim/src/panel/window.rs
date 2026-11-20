@@ -42,6 +42,9 @@ pub(super) struct State {
     pub(super) mouse: Option<(i32, i32)>,
     /// The buttons of the last frame, to know what a click hit.
     pub(super) buttons: Vec<(Action, RECT)>,
+    /// The layout being edited (edit mode), and where its canvas was drawn in the last frame.
+    pub(super) edit: Option<EditUi>,
+    pub(super) edit_xf: Option<Xf>,
     /// The covers' carousel on the waiting screen.
     pub(super) carousel: Carousel,
     /// How far the games list is scrolled (design units), its bar in the last frame, and the thumb being dragged
@@ -100,6 +103,10 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
     }
     let memory = state.buffer.as_ref().map_or(null_mut(), |b| b.dc);
 
+    // Edit mode is for the dashboard tab with a game on it: leaving either drops the edit (nothing was saved).
+    if state.edit.is_some() && (state.tab != Tab::Dash || waiting_now(state)) {
+        state.edit = None;
+    }
     let ctx = &state.ctx;
     let snapshot = ctx.shared.snapshot();
     let live = ctx.shared.live();
@@ -167,6 +174,8 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         carousel_step: Default::default(),
         dashboard: live.as_ref().and_then(|l| state.choices.get(l.game)),
         views: &state.views,
+        edit: state.edit.as_ref(),
+        edit_xf: Default::default(),
         layout: std::cell::Cell::new(state.layout),
         phone_viewers: ctx.shared.phone_viewers(),
         lang_open: state.lang_open,
@@ -180,6 +189,7 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
     };
     paint(memory, w, h, &view);
     state.layout = view.layout.get();
+    state.edit_xf = view.edit_xf.get();
     state.buttons = view.buttons.take();
     state.scroll = view.scroll.get();
     if view.carousel_step.get() > 0.0 {
@@ -222,6 +232,7 @@ pub(super) unsafe fn clickable(hwnd: HWND, state: &State, x: i32, y: i32) -> boo
     let mut client = rect(0, 0, 0, 0);
     GetClientRect(hwnd, &mut client);
     header_hits(client.right, scale_of(hwnd)).iter().any(|r| inside(r, x, y))
+        || edit_start_hit(hwnd, state, client.right, x, y)
         || state.buttons.iter().any(|(_, r)| inside(r, x, y))
         || (state.tab == Tab::Monitor && state.scroll.is_some_and(|bar| inside(&bar.thumb, x, y)))
 }
@@ -460,6 +471,19 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
             0
         }
         WM_LBUTTONUP => {
+            if state.edit.as_ref().is_some_and(|ui| ui.drag.is_some()) {
+                let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
+                if let Some((_, pt)) = edit_probe(hwnd, state, x, y) {
+                    if let Some(ui) = state.edit.as_mut() {
+                        ui.released(pt, now_ms());
+                    }
+                }
+                // Whatever the drag was, it is over (the capture going away must not find it still there).
+                if let Some(ui) = state.edit.as_mut() {
+                    ui.cancel_drag();
+                }
+                ReleaseCapture();
+            }
             if state.drag.take().is_some() {
                 ReleaseCapture();
             }
@@ -476,6 +500,9 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
         }
         WM_CAPTURECHANGED => {
             state.drag = None;
+            if let Some(ui) = state.edit.as_mut() {
+                ui.cancel_drag();
+            }
             // The capture went elsewhere mid-drag: settle where it is.
             if let Some((_, _, start, true)) = state.press.take() {
                 state.carousel.let_go(start, now_ms());
@@ -521,6 +548,10 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
             } else if inside(&top, x, y) {
                 state.on_top = !state.on_top;
                 set_on_top(hwnd, state.on_top);
+            } else if edit_start_hit(hwnd, state, client.right, x, y) {
+                begin_edit(state);
+            } else if state.edit.is_some() {
+                edit_press(hwnd, state, x, y);
             } else if waiting_now(state) && y > (HEADER_H * scale_of(hwnd)) as i32 {
                 // The carousel: it follows the mouse while dragged; a press that does not move is a click, on release.
                 state.press = Some((x, y, state.carousel.at(now_ms()), false));
@@ -580,6 +611,15 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
                 TrackMouseEvent(&mut track);
             }
             state.mouse = Some((x, y));
+            if let Some((hit, pt)) = edit_probe(hwnd, state, x, y) {
+                if let Some(ui) = state.edit.as_mut() {
+                    ui.mouse_moved(hit, pt);
+                    // A captured mouse gets no WM_SETCURSOR, so the cursor of a drag is set here.
+                    if ui.drag.is_some() {
+                        apply_cursor(edit_cursor(ui, hit));
+                    }
+                }
+            }
             if let Some((x0, y0, start, dragged)) = state.press {
                 // A few pixels before it counts as a drag, so a shaky click stays a click.
                 let dx = x - x0;
@@ -599,7 +639,14 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
             let mut at = POINT { x: 0, y: 0 };
             GetCursorPos(&mut at);
             ScreenToClient(hwnd, &mut at);
-            if clickable(hwnd, state, at.x, at.y) {
+            let edit_cursor_here = match (state.edit.as_ref(), edit_probe(hwnd, state, at.x, at.y)) {
+                (Some(ui), Some((hit, _))) => Some(edit_cursor(ui, hit)).filter(|c| *c != EditCursor::Arrow),
+                _ => None,
+            };
+            if let Some(cursor) = edit_cursor_here {
+                apply_cursor(cursor);
+                1
+            } else if clickable(hwnd, state, at.x, at.y) {
                 SetCursor(LoadCursorW(null_mut(), IDC_HAND));
                 1
             } else {
@@ -608,6 +655,9 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
         }
         WM_MOUSELEAVE => {
             state.mouse = None;
+            if let Some(ui) = state.edit.as_mut() {
+                ui.mouse_left();
+            }
             0
         }
         WM_ACTIVATE if wparam & 0xffff != 0 => {
@@ -638,7 +688,10 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
             // pair is one more press (two quick clicks move it two covers).
             let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
             if y > (HEADER_H * scale_of(hwnd)) as i32 {
-                if waiting_now(state) {
+                if state.edit.is_some() {
+                    // Two quick clicks (Reset, a ×) are two presses, never full screen.
+                    edit_press(hwnd, state, x, y);
+                } else if waiting_now(state) {
                     state.press = Some((x, y, state.carousel.at(now_ms()), false));
                     SetCapture(hwnd);
                 } else {
@@ -651,7 +704,28 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
         WM_KEYDOWN => {
             const VK_ESCAPE: usize = 0x1b;
             const VK_F11: usize = 0x7a;
+            if state.edit.is_some() && !state.lang_open {
+                let key = match wparam {
+                    VK_ESCAPE => Some(EditKey::Escape),
+                    0x0d => Some(EditKey::Enter),
+                    0x53 if GetKeyState(0x11) < 0 => Some(EditKey::CtrlS),
+                    _ => None,
+                };
+                if let Some(key) = key {
+                    let end = state.edit.as_mut().and_then(|ui| ui.key(key));
+                    if let Some(end) = end {
+                        finish_edit(state, end);
+                    }
+                    InvalidateRect(hwnd, null(), 0);
+                    return 0;
+                }
+                // D (another dashboard) and E (edit) do nothing while a layout is being edited.
+                if wparam == 0x44 || wparam == 0x45 {
+                    return 0;
+                }
+            }
             match wparam {
+                0x45 => begin_edit(state),
                 0x31 => state.tab = Tab::Dash,
                 0x32 => state.tab = Tab::Monitor,
                 0x54 => {
@@ -808,6 +882,8 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             buffer: None,
             mouse: None,
             buttons: Vec::new(),
+            edit: None,
+            edit_xf: None,
             carousel: Carousel::new(now_ms()),
             games_scroll: 0.0,
             scroll: None,
@@ -891,4 +967,98 @@ fn switch_dashboard(state: &mut State) {
         // Not being able to keep the choice only means it is forgotten at the next start.
         let _ = state.choices.save(&home);
     }
+}
+
+/// `E` or the header's pencil: edits the layout of the dashboard in use, in the window shape it is drawn in.
+fn begin_edit(state: &mut State) {
+    if state.tab != Tab::Dash || state.edit.is_some() || waiting_now(state) {
+        return;
+    }
+    let (Some(layout), Some(live)) = (state.layout, state.ctx.shared.live()) else {
+        return;
+    };
+    let dashboard = pick(live.session_kind, state.choices.get(live.game));
+    state.edit = Some(EditUi::new(dashboard, layout, state.views.rows_for(dashboard, layout)));
+}
+
+/// Whether the point is on the header's Edit button (it is only there when nothing is being edited).
+fn edit_start_hit(hwnd: HWND, state: &State, width: i32, x: i32, y: i32) -> bool {
+    state.tab == Tab::Dash
+        && state.edit.is_none()
+        && !waiting_now(state)
+        && edit_hit(width, scale_of(hwnd)).is_some_and(|r| inside(&r, x, y))
+}
+
+/// What the point is in edit mode, and where it is on the canvas (design units; the transform frozen at the press while
+/// something is dragged). Nothing before the first frame of edit mode has said where the canvas is.
+unsafe fn edit_probe(hwnd: HWND, state: &State, x: i32, y: i32) -> Option<(EditHit, (f32, f32))> {
+    let ui = state.edit.as_ref()?;
+    let xf = ui.frozen.or(state.edit_xf)?;
+    let mut client = rect(0, 0, 0, 0);
+    GetClientRect(hwnd, &mut client);
+    let hit = edit_hit(ui, (client.right, client.bottom), scale_of(hwnd), xf, x, y);
+    Some((hit, edit_point(xf, x, y)))
+}
+
+/// A press in edit mode: a button, a row of the list, a ×, or the start of a drag (the mouse is captured until it comes up).
+unsafe fn edit_press(hwnd: HWND, state: &mut State, x: i32, y: i32) {
+    let Some((hit, _)) = edit_probe(hwnd, state, x, y) else {
+        return;
+    };
+    let Some(xf) = state.edit_xf else {
+        return;
+    };
+    let Some(ui) = state.edit.as_mut() else {
+        return;
+    };
+    let end = ui.press(hit, xf, now_ms());
+    if ui.drag.is_some() {
+        SetCapture(hwnd);
+    }
+    if let Some(end) = end {
+        finish_edit(state, end);
+    }
+}
+
+/// How an edit ends. Saving and resetting write `dashboards.json`; when that fails the message says so and editing goes on.
+fn finish_edit(state: &mut State, end: EditEnd) {
+    let home = crate::config::home_dir();
+    let Some(ui) = state.edit.as_mut() else {
+        return;
+    };
+    match end {
+        EditEnd::Cancel => state.edit = None,
+        EditEnd::Save => match save_edit(&state.views, &ui.session, home.as_deref()) {
+            Ok(views) => {
+                state.views = views;
+                state.edit = None;
+            }
+            Err(why) => {
+                crate::applog::line(&format!("could not save the layout: {why}"));
+                ui.save_failed(now_ms());
+            }
+        },
+        EditEnd::Reset => match reset_edit(&state.views, ui.session.dashboard, home.as_deref()) {
+            Ok(views) => {
+                state.views = views;
+                let default = SavedView::default_for(ui.session.dashboard, ui.session.layout);
+                ui.restart(default);
+            }
+            Err(why) => {
+                crate::applog::line(&format!("could not reset the layout: {why}"));
+                ui.save_failed(now_ms());
+            }
+        },
+    }
+}
+
+unsafe fn apply_cursor(cursor: EditCursor) {
+    let shape = match cursor {
+        EditCursor::Arrow => IDC_ARROW,
+        EditCursor::Hand => IDC_HAND,
+        EditCursor::SizeWe => IDC_SIZEWE,
+        EditCursor::SizeNs => IDC_SIZENS,
+        EditCursor::SizeAll => IDC_SIZEALL,
+    };
+    SetCursor(LoadCursorW(null_mut(), shape));
 }

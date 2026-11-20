@@ -359,6 +359,30 @@ impl Painter {
         }
     }
 
+    /// The outline of a box with the panel's one corner, `width` design units thick, inside `r` (nothing is filled): the hover
+    /// and the ghost of the edit mode.
+    pub(super) fn outline(&self, r: RECT, color: COLORREF, width: f32) {
+        let thick = (width * self.s).max(1.0);
+        let (x, y, w, h) = (r.left as f32, r.top as f32, (r.right - r.left) as f32, (r.bottom - r.top) as f32);
+        let half = thick / 2.0;
+        let drawn = smooth(self.hdc, |graphics| unsafe {
+            let path = rounded_path(x + half, y + half, w - thick, h - thick, (R_CORNER * self.s - half).max(0.0));
+            let mut pen = null_mut();
+            GdipCreatePen1(argb(color), thick, UnitPixel, &mut pen);
+            GdipDrawPath(graphics, pen, path);
+            GdipDeletePen(pen);
+            GdipDeletePath(path);
+        });
+        if drawn {
+            return;
+        }
+        let t = thick.round().max(1.0) as i32;
+        self.fill(rect(r.left, r.top, r.right, r.top + t), color);
+        self.fill(rect(r.left, r.bottom - t, r.right, r.bottom), color);
+        self.fill(rect(r.left, r.top, r.left + t, r.bottom), color);
+        self.fill(rect(r.right - t, r.top, r.right, r.bottom), color);
+    }
+
     /// The rev bar in design units: the dome filled `share` (0..1) of the way with the green-to-red gradient,
     /// divided in tenths; all blue when `flash_on` (time to shift).
     pub(super) fn rev_bar(&self, x: f32, y: f32, w: f32, h: f32, share: f32, flash_on: bool) {
