@@ -61,6 +61,31 @@ pub struct SavedLap {
     pub game: String,
     pub track: String,
     pub car: String,
+    /// The lap's speed (km/h) at `SPEED_POINTS` even steps along it, for the Monitor's mini graph (owner-approved module
+    /// 10, 2026-11-19); empty when the lap has no speed.
+    pub speed_kmh: Vec<u16>,
+}
+
+/// How many points of a lap's speed the Monitor keeps.
+pub const SPEED_POINTS: usize = 48;
+
+/// A lap's speed samples (m/s) as `SPEED_POINTS` averages in km/h, the samples split evenly; samples that are not
+/// numbers are left out, and a lap with fewer samples than points keeps none.
+pub fn speed_profile(values: &[f32]) -> Vec<u16> {
+    if values.len() < SPEED_POINTS {
+        return Vec::new();
+    }
+    (0..SPEED_POINTS)
+        .map(|k| {
+            let part = &values[k * values.len() / SPEED_POINTS..(k + 1) * values.len() / SPEED_POINTS];
+            let (sum, count) = part.iter().filter(|v| v.is_finite()).fold((0.0, 0), |(s, n), v| (s + v, n + 1));
+            if count == 0 {
+                0
+            } else {
+                (sum / count as f32 * 3.6).round().clamp(0.0, f32::from(u16::MAX)) as u16
+            }
+        })
+        .collect()
 }
 
 /// Something worth a short word to the person (a balloon from the tray icon). The tray puts it in their language.
@@ -589,7 +614,33 @@ pub fn saved_lap(number: u32, time_ms: u32) -> SavedLap {
         game: "Assetto Corsa".into(),
         track: "Monza".into(),
         car: "Ferrari 488 GT3".into(),
+        speed_kmh: demo_speed(number),
     }
+}
+
+/// A believable lap of speeds for tests, a little different for each `seed`.
+#[cfg(test)]
+fn demo_speed(seed: u32) -> Vec<u16> {
+    (0..SPEED_POINTS)
+        .map(|i| {
+            let x = i as f32 / SPEED_POINTS as f32 * std::f32::consts::TAU * 3.0 + seed as f32 * 0.4;
+            (180.0 + 100.0 * x.sin()) as u16
+        })
+        .collect()
+}
+
+#[cfg(test)]
+#[test]
+fn a_lap_speed_is_kept_as_even_averages_in_kmh() {
+    let ramp: Vec<f32> = (0..480).map(|i| i as f32 / 10.0).collect();
+    let profile = speed_profile(&ramp);
+    assert_eq!(profile.len(), SPEED_POINTS);
+    // The first tenth of a lap of 480 samples: 0.0 to 0.9 m/s, 0.45 m/s on average, 1.6 km/h.
+    assert_eq!((profile[0], profile[SPEED_POINTS - 1]), (2, 171));
+    assert!(speed_profile(&[10.0; 10]).is_empty(), "too few samples");
+    let mut gaps = vec![10.0; 96];
+    gaps[0] = f32::NAN;
+    assert_eq!(speed_profile(&gaps)[0], 36, "a sample that is not a number is left out");
 }
 
 #[cfg(test)]

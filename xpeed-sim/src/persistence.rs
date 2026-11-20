@@ -284,6 +284,7 @@ mod tests {
             game: lap.game.clone(),
             track: String::new(),
             car: String::new(),
+            speed_kmh: Vec::new(),
         }
     }
 

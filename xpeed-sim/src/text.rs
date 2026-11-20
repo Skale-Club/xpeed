@@ -299,6 +299,8 @@ pub enum Msg {
     ActivityGameUnsupported(String),
     PanelNoLaps,
     PanelLapsCount(u32),
+    /// Beside "Laps saved" (module 10): how many, on which track, with which car (the newest lap's).
+    PanelLapsWhere(u32, String, String),
     PanelHint,
     StateWaiting,
     StateConnected,
@@ -930,6 +932,14 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             s("Nenhuma volta gravada desde que o Xpeed Companion abriu."),
             s("Ninguna vuelta guardada desde que se abrió Xpeed Companion."),
         ),
+        PanelLapsWhere(n, track, car) => {
+            let unit = |one: &'static str, many: &'static str| if *n == 1 { one } else { many };
+            t(
+                format!("{n} {} · {track} · {car}", unit("lap", "laps")),
+                format!("{n} {} · {track} · {car}", unit("volta", "voltas")),
+                format!("{n} {} · {track} · {car}", unit("vuelta", "vueltas")),
+            )
+        }
         PanelLapsCount(n) => t(
             format!("{n} lap(s) saved since Xpeed Companion started"),
             format!("{n} volta(s) gravada(s) desde que o Xpeed Companion abriu"),
@@ -1195,6 +1205,7 @@ mod tests {
             Msg::ActivityGameUnsupported("Stock Car Extreme".into()),
             Msg::PanelNoLaps,
             Msg::PanelLapsCount(2),
+            Msg::PanelLapsWhere(3, "Monza".into(), "Ferrari 296 GT3".into()),
             Msg::PanelHint,
             Msg::StateWaiting,
             Msg::StateConnected,

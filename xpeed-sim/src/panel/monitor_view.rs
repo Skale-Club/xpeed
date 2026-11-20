@@ -298,7 +298,13 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
         );
     } else {
         // The count beside the title only when both fit on the line (in a small window they would run into each other).
-        let count = text(view.lang, &Msg::PanelLapsCount(view.snapshot.laps_saved));
+        // How many, and the newest lap's track and car when the game gave them.
+        let newest = view.recent_laps.last().filter(|l| !l.track.is_empty() && !l.car.is_empty());
+        let count = match newest {
+            Some(lap) => Msg::PanelLapsWhere(view.snapshot.laps_saved, lap.track.clone(), lap.car.clone()),
+            None => Msg::PanelLapsCount(view.snapshot.laps_saved),
+        };
+        let count = text(view.lang, &count);
         let title = text(view.lang, &Msg::PanelLaps).to_uppercase();
         let need = g.width_of(&count, T_CAPTION, normal, Face::Ui) + g.width_of(&title, T_CAPTION, semi, Face::Label) * 1.3 + S6;
         if need <= col - 40.0 {
@@ -307,6 +313,13 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
         }
         let lap_row = 34.0;
         let room = ((laps_h - 52.0) / lap_row).floor().max(0.0) as usize;
+        // One speed scale for the laps shown, so their mini graphs compare.
+        let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+        for lap in view.recent_laps.iter().rev().take(room) {
+            for &v in &lap.speed_kmh {
+                (lo, hi) = (lo.min(f32::from(v)), hi.max(f32::from(v)));
+            }
+        }
         for (i, saved) in view.recent_laps.iter().rev().take(room).enumerate() {
             let y = 44.0 + lap_row * i as f32;
             if i > 0 {
@@ -327,6 +340,12 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
             };
             let r = g.r(right + col / 2.0, y, col / 2.0 - 20.0, lap_row);
             g.text(&time, r, size, semi, Face::Num, color, DT_RIGHT);
+            // The lap's speed between its name and its time: yellow the newest, quiet the others.
+            let (spark_x, spark_w) = (right + 96.0, col / 2.0 - 96.0);
+            if spark_w >= 40.0 {
+                let ink = if i == 0 && !invalid { PRIMARY } else { MUTED_TEXT };
+                g.sparkline((spark_x, y + 9.0, spark_w, lap_row - 18.0), &saved.speed_kmh, (lo, hi), ink);
+            }
             if invalid {
                 // The digits are set a little wider than the plain measure: leave room.
                 let used = g.width_of(&time, size, semi, Face::Num) * 1.18 + S2;

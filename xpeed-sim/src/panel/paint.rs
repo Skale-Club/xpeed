@@ -707,6 +707,36 @@ impl Painter {
         }
     }
 
+    /// A lap's speed as a thin line in `area` (owner-approved module 10, 2026-11-19): `lo` at the bottom, `hi` at the
+    /// top, so laps drawn with the same pair compare.
+    pub(super) fn sparkline(&self, (x, y, w, h): Area, values: &[u16], (lo, hi): (f32, f32), color: COLORREF) {
+        if values.len() < 2 || hi <= lo {
+            return;
+        }
+        let r = self.r(x, y, w, h);
+        let (px, py, pw, ph) = (r.left as f32, r.top as f32, (r.right - r.left) as f32, (r.bottom - r.top) as f32);
+        let last = (values.len() - 1) as f32;
+        let points: Vec<PointF> = values
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| PointF {
+                X: px + pw * i as f32 / last,
+                Y: py + ph * (1.0 - ((f32::from(v) - lo) / (hi - lo)).clamp(0.0, 1.0)),
+            })
+            .collect();
+        let line_w = (1.4 * self.s).max(1.0);
+        smooth(self.hdc, |graphics| unsafe {
+            let mut pen = null_mut();
+            GdipCreatePen1(argb(color), line_w, UnitPixel, &mut pen);
+            let mut path = null_mut();
+            GdipCreatePath(FillModeAlternate, &mut path);
+            GdipAddPathLine2(path, points.as_ptr(), points.len() as i32);
+            GdipDrawPath(graphics, pen, path);
+            GdipDeletePath(path);
+            GdipDeletePen(pen);
+        });
+    }
+
     /// A tick (a done step, owner-approved module 9, 2026-11-19): two strokes of `color` inside `area`.
     pub(super) fn tick(&self, (x, y, w, h): Area, color: COLORREF) {
         let r = self.r(x, y, w, h);
