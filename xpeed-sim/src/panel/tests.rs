@@ -2857,8 +2857,12 @@ fn every_layout_puts_every_card_the_game_can_fill_inside_the_canvas_without_over
         ] {
             let plan = layout.plan(&s);
             if layout != Layout::Classic {
-                let first_seven = s.cards.iter().filter(|c| catalog::ALL[..7].iter().any(|w| w.pane == **c)).count();
-                assert_eq!(plan.cards.len(), first_seven, "{layout:?}: every card of Practice has a place");
+                let practice = s
+                    .cards
+                    .iter()
+                    .filter(|c| **c == Pane::Inputs || catalog::ALL[..7].iter().any(|w| w.pane == **c))
+                    .count();
+                assert_eq!(plan.cards.len(), practice, "{layout:?}: every card of Practice has a place");
             }
             for (i, (card, area)) in plan.cards.iter().enumerate() {
                 assert!(inside_box(*area, 0.0, 0.0, plan.w, plan.h), "{layout:?} {card:?} inside the canvas");
@@ -3273,7 +3277,7 @@ fn the_update_card_is_always_there_with_check_now_try_again_and_a_bar_while_busy
 #[test]
 fn the_widget_ids_are_a_contract() {
     let ids: Vec<&str> = catalog::ALL.iter().map(|w| w.id).collect();
-    assert_eq!(ids.len(), 18);
+    assert_eq!(ids.len(), 19);
     assert_eq!(
         ids[..7],
         ["times", "centre", "fuel", "tyres", "laps", "track", "alerts"],
@@ -3287,7 +3291,8 @@ fn the_widget_ids_are_a_contract() {
     assert_eq!(ids[12], "session");
     assert_eq!(ids[13..16], ["relative", "standings", "gaps"], "the rivals widgets of phase 4");
     assert_eq!(ids[16], "radar", "the radar follows them");
-    assert_eq!(ids[17], "delta_ref", "the reference card of phase 5 comes last");
+    assert_eq!(ids[17], "delta_ref", "the reference card of phase 5 follows them");
+    assert_eq!(ids[18], "inputs", "the pedals card of the panel upgrade comes last");
     for w in catalog::ALL {
         assert_eq!(catalog::by_id(w.id), Some(w.pane));
         assert_eq!(catalog::id_of(w.pane), w.id);
@@ -3772,7 +3777,13 @@ fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
     assert_eq!(wide.len(), 2);
     assert_eq!(
         wide[0].cards,
-        [(Pane::Times, 1.0), (Pane::Centre, 1.3), (Pane::Fuel, 0.95), (Pane::Tyres, 1.05)]
+        [
+            (Pane::Times, 1.0),
+            (Pane::Centre, 0.74),
+            (Pane::Inputs, 0.56),
+            (Pane::Fuel, 0.95),
+            (Pane::Tyres, 1.05),
+        ]
     );
     assert_eq!(wide[1].cards, [(Pane::Laps, 2.25), (Pane::Track, 1.0), (Pane::Alerts, 1.05)]);
     let later_nine = [
@@ -3831,13 +3842,13 @@ fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
             .map(|(p, _)| catalog::id_of(*p))
             .collect()
     };
-    assert_eq!(ids(DashboardId::Race, 0), ["times", "centre", "flag", "tyres"]);
+    assert_eq!(ids(DashboardId::Race, 0), ["times", "centre", "inputs", "flag", "tyres"]);
     assert_eq!(ids(DashboardId::Race, 1), ["relative", "standings", "gaps", "radar", "session"]);
     assert_eq!(ids(DashboardId::Race, 2), ["fuel_calc", "tyre_trend", "track", "alerts"]);
-    assert_eq!(ids(DashboardId::Qualifying, 0), ["times", "centre", "sectors", "tyres"]);
+    assert_eq!(ids(DashboardId::Qualifying, 0), ["times", "centre", "inputs", "sectors", "tyres"]);
     assert_eq!(ids(DashboardId::Qualifying, 1), ["delta_bar", "delta_ref", "standings", "session"]);
     assert_eq!(ids(DashboardId::TimeTrial, 0), ["delta_bar"]);
-    assert_eq!(ids(DashboardId::TimeTrial, 1), ["times", "centre", "sectors", "tyres"]);
+    assert_eq!(ids(DashboardId::TimeTrial, 1), ["times", "centre", "inputs", "sectors", "tyres"]);
     assert_eq!(ids(DashboardId::TimeTrial, 2), ["laps", "delta_ref", "track"]);
 }
 

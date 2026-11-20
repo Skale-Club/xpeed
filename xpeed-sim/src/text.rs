@@ -895,8 +895,6 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             s("O desgaste por volta aparece depois de uma volta limpa, sem parada no pit."),
             s("El desgaste por vuelta aparece tras una vuelta limpia, sin parada en boxes."),
         ),
-        AlertDrsAvailable => t(s("DRS available"), s("DRS liberado"), s("DRS disponible")),
-        AlertDrsOpen => t(s("DRS open"), s("DRS aberto"), s("DRS abierto")),
         AlertEngine => t(s("Engine"), s("Motor"), s("Motor")),
         AlertFuel => t(s("Fuel"), s("Tanque"), s("Depósito")),
         AlertHandbrake => t(s("Handbrake"), s("Freio mão"), s("Freno mano")),

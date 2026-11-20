@@ -264,8 +264,6 @@ pub struct Live {
     pub state: crate::game::CarState,
     /// Fuel used per lap (litres), from the laps driven in this run; `None` until one full lap is known.
     pub fuel_per_lap_l: Option<f32>,
-    /// The fuel the last complete clean lap used (litres); `None` until one is known.
-    pub fuel_last_lap_l: Option<f32>,
     /// The share of the tread each tyre (front left, front right, rear left, rear right) wears per lap, averaged over the
     /// last clean laps; a tyre the game gives no wear for is NaN. `None` until one clean lap is known.
     pub tyre_wear_per_lap: Option<[f32; 4]>,
@@ -778,7 +776,6 @@ impl Tracker {
             tyres: frame.tyres,
             state: frame.state,
             fuel_per_lap_l: (!self.fuel_laps.is_empty()).then(|| self.fuel_laps.iter().sum::<f32>() / self.fuel_laps.len() as f32),
-            fuel_last_lap_l: self.fuel_laps.last().copied(),
             tyre_wear_per_lap: tyre_wear_average(&self.tyre_wear_laps),
             fuel_tank_l: (self.fuel_tank > 0.0).then_some(self.fuel_tank),
             fuel_last_lap_l: self.fuel_laps.last().copied(),

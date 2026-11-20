@@ -108,6 +108,11 @@ pub(super) const ALL: &[Widget] = &[
         pane: Pane::DeltaRef,
         needs: "the lap time and the distance into the lap, and a reference lap from the Xpeed server",
     },
+    Widget {
+        id: "inputs",
+        pane: Pane::Inputs,
+        needs: "the throttle, the brake or the clutch",
+    },
 ];
 
 /// The widget with this id.

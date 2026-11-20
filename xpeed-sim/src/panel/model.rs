@@ -416,7 +416,8 @@ pub(super) struct Cell {
 
 /// One of the fuel card's use numbers: a small caps label, the figure, and a short note in its own colour (owner-approved
 /// module 6, 2026-11-19).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct FuelStat {
     pub(super) label: String,
     pub(super) value: String,
@@ -426,7 +427,8 @@ pub(super) struct FuelStat {
 
 /// The fuel card's stint planner: how much fuel a run of so many laps takes at the average use, against what is in
 /// the car, and how far a full tank goes (owner-approved module 6, 2026-11-19).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct FuelPlanner {
     pub(super) title: String,
     /// `at 2.90 L/lap`.

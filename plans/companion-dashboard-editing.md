@@ -60,6 +60,18 @@ Classic).
    default workspaces reviewed.
 5. Verify in CI and the preview, record in the Journal.
 
+## Automated tests (owner: "many automated tests for the possibilities")
+
+- **Exhaustive:** every edit operation (move, swap, insert beside, new row, resize width, resize height, remove, add) applied at
+  every reachable position of every built-in workspace × every window shape; after each, the invariants hold: no card twice,
+  catalog ids only, shares and heights within their minimums, ≤ 6 cards a row and ≤ 12 rows, the centre card's minimum (gear
+  stays big), the plan has no overlap and stays inside the canvas.
+- **Random sequences:** thousands of edits from a fixed-seed generator (no new crate), invariants checked after every step;
+  undoing by Cancel restores the view exactly.
+- **Persistence:** save → load is identity for every workspace × shape; reset restores the default; a damaged, truncated, wrong-type,
+  unknown-id, duplicated-card, huge or empty `dashboards.json` never fails and falls back per view.
+- **Drawing:** every workspace (default and edited) painted at every window size without panics; edit-mode screens in the preview.
+
 ## Not in scope tonight
 
 Editing on the phone (it follows the Portrait view), sharing workspaces between computers or through the account, custom

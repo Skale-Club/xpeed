@@ -74,7 +74,7 @@ pub(super) fn flag_model(lang: Lang, flag: Option<crate::game::Flag>, show: Show
 // The fuel strategy.
 
 /// The numbers of laps the fuel table answers for.
-pub(super) const FUEL_PLAN_LAPS: [u32; 4] = [5, 10, 15, 20];
+pub(super) const FUEL_CALC_PLAN_LAPS: [u32; 4] = [5, 10, 15, 20];
 
 /// One line of the fuel table: for `laps` laps, the litres needed (a lap of margin included) and the litres to put in on
 /// top of what is in the tank. Nothing without a use per lap (or, for the litres to add, without the fuel now).
@@ -88,7 +88,7 @@ pub(super) struct FuelPlanRow {
 pub(super) fn fuel_plan_rows(fuel_l: Option<f32>, per_lap_l: Option<f32>) -> [FuelPlanRow; 4] {
     let per = per_lap_l.filter(|p| p.is_finite() && *p > 0.0);
     let fuel = fuel_l.filter(|f| f.is_finite());
-    FUEL_PLAN_LAPS.map(|laps| {
+    FUEL_CALC_PLAN_LAPS.map(|laps| {
         let needed_l = per.map(|p| p * (laps + 1) as f32);
         FuelPlanRow {
             laps,
@@ -224,6 +224,7 @@ pub(super) fn fuel_calc_model(input: &FuelCalcInput) -> FuelCalcModel {
         value: value.unwrap_or_else(none),
         role,
         show,
+        frac: None,
     };
     let rows = fuel_plan_rows(fuel_l, per_lap)
         .iter()
