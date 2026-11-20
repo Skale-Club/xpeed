@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getSessions } from '@/lib/db';
 import { useCarsContext } from '@/contexts/CarsContext';
-import { Car, Calendar, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
+import { Car, Calendar, RotateCcw } from 'lucide-react';
 import { subDays } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import type { Session } from '@/types/session';
@@ -45,13 +45,6 @@ const Index = () => {
   const [dateRange, setDateRange] = useState('30d');
   const allSessions = useMemo(() => (history.data ?? []) as unknown as Session[], [history.data]);
   const { t } = useTranslation();
-  // Technical sections are closed by default; remember the choice on this device.
-  const [showTechnical, setShowTechnical] = useState<boolean>(() => {
-    try { return localStorage.getItem('xpeed.home.technical') === '1'; } catch { return false; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem('xpeed.home.technical', showTechnical ? '1' : '0'); } catch { /* ignore */ }
-  }, [showTechnical]);
 
   // First-run redirect: brand-new users with 0 cars should land in the
   // onboarding wizard, not on a blank dashboard. We honor a localStorage flag
@@ -177,49 +170,39 @@ const Index = () => {
           )}
         </div>
 
-        {/* Everything technical stays one tap away, closed by default */}
+        {/* The car's dashboards: open by default, they are what makes this screen useful */}
         {allSessions.length > 0 && (
-          <div className="border-t border-border pt-4">
-            <button
-              type="button"
-              onClick={() => setShowTechnical((v) => !v)}
-              className="inline-flex min-h-10 items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-              aria-expanded={showTechnical}
-            >
-              {showTechnical ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-              {t('home.technical', 'Technical details')}
-            </button>
-
-            {showTechnical && (
-              <div className="space-y-6 mt-4">
-                <Select value={dateRange} onValueChange={setDateRange}>
-                  <SelectTrigger className="h-8 w-[170px] justify-start gap-1.5 rounded-lg border-border bg-card py-0 pl-2.5 pr-2 text-xs focus-visible:ring-1 focus-visible:ring-offset-0 [&>span]:flex-1" aria-label={t('home.range.label', 'Period')}>
-                    <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="7d">{t('home.range.7d', 'Last 7 days')}</SelectItem>
-                    <SelectItem value="30d">{t('home.range.30d', 'Last 30 days')}</SelectItem>
-                    <SelectItem value="90d">{t('home.range.90d', 'Last 3 months')}</SelectItem>
-                    <SelectItem value="all">{t('home.range.all', 'All time')}</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                {filteredSessions.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{t('home.range.none', 'No trips in this period.')}</p>
-                ) : (
-                  <>
-                    <AdaptiveMetricsSection
-                      engineType={selectedCar?.engine_type}
-                      latestSession={allSessions[0] ?? null}
-                    />
-
-                    <DashboardCharts sessions={filteredSessions} engineType={selectedCar?.engine_type} />
-                  </>
-                )}
+          <section className="space-y-4 border-t border-border pt-5" aria-labelledby="home-driving">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <h3 id="home-driving" className="text-lg font-semibold">{t('home.yourCar', 'Your car over time')}</h3>
+                <p className="text-sm text-muted-foreground">{t('home.yourCarHint', 'Key readings from your latest trip and how they changed trip after trip.')}</p>
               </div>
+              <Select value={dateRange} onValueChange={setDateRange}>
+                <SelectTrigger className="h-8 w-[170px] justify-start gap-1.5 rounded-lg border-border bg-card py-0 pl-2.5 pr-2 text-xs focus-visible:ring-1 focus-visible:ring-offset-0 [&>span]:flex-1" aria-label={t('home.range.label', 'Period')}>
+                  <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="7d">{t('home.range.7d', 'Last 7 days')}</SelectItem>
+                  <SelectItem value="30d">{t('home.range.30d', 'Last 30 days')}</SelectItem>
+                  <SelectItem value="90d">{t('home.range.90d', 'Last 3 months')}</SelectItem>
+                  <SelectItem value="all">{t('home.range.all', 'All time')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <AdaptiveMetricsSection
+              engineType={selectedCar?.engine_type}
+              latestSession={allSessions[0] ?? null}
+            />
+
+            {filteredSessions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('home.range.none', 'No trips in this period.')}</p>
+            ) : (
+              <DashboardCharts sessions={filteredSessions} engineType={selectedCar?.engine_type} />
             )}
-          </div>
+          </section>
         )}
       </div>
     </AppLayout>

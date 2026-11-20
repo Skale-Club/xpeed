@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getAccessToken } from '@/lib/auth/google';
 import { publicAppUrl } from '@/lib/trips';
-import { parseFrame, type LiveFrame } from './live-frame';
+import { parseFrame, type LiveFrame, type LiveScreen } from './live-frame';
 import { emptySse, feedSse } from './live-sse';
 
 export type LiveState =
@@ -40,10 +40,20 @@ const sleep = (ms: number, signal: AbortSignal) =>
     signal.addEventListener('abort', stop, { once: true });
   });
 
-export function useLiveStream(enabled = true): LiveStream {
+/** The stream's address, with the room the page has for the panel when it knows it (`?w=&h=&dpr=`, CSS pixels). */
+export function streamUrl(screen?: LiveScreen | null): string {
+  const base = `${publicAppUrl()}${STREAM_PATH}`;
+  if (!screen) return base;
+  const q = new URLSearchParams({ w: String(Math.round(screen.w)), h: String(Math.round(screen.h)), dpr: String(Math.round(screen.dpr * 100) / 100) });
+  return `${base}?${q}`;
+}
+
+/** `screen` is the room the page has for the panel: a new one opens the stream again, so the Companion draws for it. */
+export function useLiveStream(enabled = true, screen: LiveScreen | null = null): LiveStream {
   const [state, setState] = useState<LiveState>('connecting');
   const [frame, setFrame] = useState<LiveFrame | null>(null);
   const latest = useRef<LiveFrame | null>(null);
+  const url = streamUrl(screen);
 
   useEffect(() => {
     if (!enabled) return;
@@ -90,7 +100,7 @@ export function useLiveStream(enabled = true): LiveStream {
           if (life.signal.aborted) return;
           if (!token) { setState('signin'); return; }
           hear();
-          const response = await fetch(`${publicAppUrl()}${STREAM_PATH}`, {
+          const response = await fetch(url, {
             headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
             cache: 'no-store',
             signal: lap.signal,
@@ -141,7 +151,7 @@ export function useLiveStream(enabled = true): LiveStream {
       life.abort();
       if (flushTimer) clearTimeout(flushTimer);
     };
-  }, [enabled]);
+  }, [enabled, url]);
 
   return { state, frame };
 }

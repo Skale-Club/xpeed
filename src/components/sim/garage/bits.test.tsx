@@ -10,7 +10,8 @@ describe('a tile', () => {
     render(<StatTile testId="x" label="Best valid lap" value="1:39.000" sub="Ferrari 499P" mono />);
     expect(screen.getByTestId('x-tile')).toHaveTextContent('Best valid lap');
     expect(screen.getByTestId('x')).toHaveTextContent('1:39.000');
-    expect(screen.getByTestId('x').className).toMatch(/font-mono/);
+    // Numbers and lap times are in the display face since Dashboards 2027 (phase 3, owner approved 2026-11-20).
+    expect(screen.getByTestId('x').className).toMatch(/font-display/);
     expect(screen.getByTestId('x-sub')).toHaveTextContent('Ferrari 499P');
   });
   it('shows a skeleton in place of the value while the number is being worked out, never a zero', () => {

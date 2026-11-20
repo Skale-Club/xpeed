@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Car, Plus, ChevronDown, Shield, LogOut, Loader2, User } from 'lucide-react';
+import { Car, Plus, ChevronDown, ChevronsUpDown, Check, Shield, LogOut, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCarsContext } from '@/contexts/CarsContext';
@@ -9,11 +9,12 @@ import { BrandLockup } from '@/components/BrandLockup';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useModes } from '@/contexts/ModesContext';
 import { ModeSwitch } from '@/components/ModeSwitch';
-import { ADVANCED_ITEMS, NAV, SETTINGS_ITEM, TABS } from '@/lib/mode-nav';
+import { ADVANCED_ITEMS, NAV, SETTINGS_ITEM, TABS, groupNav } from '@/lib/mode-nav';
 import { MODE_HOME, isActivePath } from '@/lib/modes';
 import { useQueryClient } from '@tanstack/react-query';
 import { logout } from '@/lib/logout';
 import { formatPhone } from '@/lib/phone';
+import { initialsOf } from '@/lib/initials';
 import { AddVehicleForm } from '@/components/AddVehicleForm';
 import { CountryFlag } from '@/components/CountryFlag';
 import { CarBrandLogo } from '@/components/car/CarBrandLogo';
@@ -35,6 +36,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -51,12 +53,13 @@ import { Button } from '@/components/ui/button';
 // The menu of each mode is in lib/mode-nav.ts. On phones the first three places
 // live in the bottom tab bar, so the menu ("More") only lists the rest.
 
-// Active page: yellow text and a short yellow bar at the left edge, no fill
-// (same language as the phone tab bar).
+// Active page (Dashboards 2027, phase 2, owner approved 2026-11-20; before: yellow text and a yellow bar, no fill):
+// a raised fill with a faint top light, white text, the icon in yellow. Other items keep a quiet grey icon.
 const ACTIVE_ITEM =
-  'relative h-9 rounded-lg data-[active=true]:bg-transparent data-[active=true]:font-semibold data-[active=true]:text-primary ' +
-  'data-[active=true]:before:absolute data-[active=true]:before:left-0 data-[active=true]:before:top-1.5 data-[active=true]:before:bottom-1.5 ' +
-  'data-[active=true]:before:w-[3px] data-[active=true]:before:rounded-full data-[active=true]:before:bg-primary';
+  'h-9 rounded-[9px] text-sidebar-foreground/90 [&>svg]:text-muted-foreground ' +
+  'data-[active=true]:bg-sidebar-accent data-[active=true]:font-semibold data-[active=true]:text-sidebar-accent-foreground ' +
+  'data-[active=true]:shadow-[inset_0_1px_0_hsl(0_0%_100%/0.05)] data-[active=true]:[&>svg]:text-primary';
+
 
 export function AppSidebar() {
   const location = useLocation();
@@ -91,7 +94,8 @@ export function AppSidebar() {
   const adminActive = location.pathname.startsWith('/admin');
 
   return (
-    <Sidebar collapsible="icon">
+    // inset: the page content floats beside the menu as a card (Dashboards 2027, phase 2); phones keep the slide-in menu.
+    <Sidebar collapsible="icon" variant="inset">
       {/* Logo */}
       <SidebarHeader className="border-b border-sidebar-border">
         <Link to={MODE_HOME[mode]} className="flex items-center gap-3 px-2 py-2" onClick={handleNavClick} aria-label="Xpeed">
@@ -154,34 +158,38 @@ export function AppSidebar() {
         )}
       </SidebarHeader>
 
-      {/* Navigation */}
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel className="group-data-[collapsible=icon]:hidden">
-            {t('nav.navigation', 'Navigation')}
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navItems.map((item) => {
-                const active = isActivePath(item.to, location.pathname);
-                const label = t(item.i18nKey, item.i18nKey.split('.').pop() ?? '');
-                return (
-                  <SidebarMenuItem key={item.to}>
-                    <SidebarMenuButton asChild isActive={active} tooltip={label} className={ACTIVE_ITEM}>
-                      <Link to={item.to} onClick={handleNavClick}>
-                        <item.icon />
-                        <span>{label}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+      {/* Navigation: short titled groups (lib/mode-nav.ts), then the untitled tools (Scanner, Settings). */}
+      <SidebarContent className="gap-0">
+        {groupNav(navItems).map((section, index) => (
+          <SidebarGroup key={section.group ?? `tools-${index}`} className="py-1.5" data-testid={`nav-group-${section.group ?? 'tools'}`}>
+            {section.group && (
+              <SidebarGroupLabel className="h-7 text-2xs font-semibold uppercase tracking-[0.1em] text-muted-foreground/80 group-data-[collapsible=icon]:hidden">
+                {t(`nav.groups.${section.group}`, section.group)}
+              </SidebarGroupLabel>
+            )}
+            <SidebarGroupContent>
+              <SidebarMenu className="gap-0.5">
+                {section.items.map((item) => {
+                  const active = isActivePath(item.to, location.pathname);
+                  const label = t(item.i18nKey, item.i18nKey.split('.').pop() ?? '');
+                  return (
+                    <SidebarMenuItem key={item.to}>
+                      <SidebarMenuButton asChild isActive={active} tooltip={label} className={ACTIVE_ITEM}>
+                        <Link to={item.to} onClick={handleNavClick}>
+                          <item.icon />
+                          <span>{label}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
 
-      {/* Footer: Admin (if admin) + Language + User */}
+      {/* Footer: Admin (if admin) + the account (its menu has the language) */}
       <SidebarFooter className="border-t border-sidebar-border">
         <SidebarMenu>
           {/* Admin Panel — only visible to admins */}
@@ -196,48 +204,41 @@ export function AppSidebar() {
             </SidebarMenuItem>
           )}
 
-          {/* Language Switcher */}
+          {/* The account: initials, name and contact; its menu holds the language and Sign out. */}
           <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <SidebarMenuButton tooltip={currentLang.label}>
-                  <CountryFlag iso={currentLang.iso} className="!h-4 !w-5" />
-                  <span className="group-data-[collapsible=icon]:hidden">{currentLang.label}</span>
-                </SidebarMenuButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="start" className="w-44">
-                {LANGUAGES.map((l) => (
-                  <DropdownMenuItem
-                    key={l.code}
-                    onClick={() => i18n.changeLanguage(l.code)}
-                    className={`gap-2 ${currentLang.code === l.code ? 'bg-accent' : ''}`}
-                  >
-                    <CountryFlag iso={l.iso} />
-                    {l.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarMenuItem>
-
-          {/* User Menu */}
-          <SidebarMenuItem>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <SidebarMenuButton tooltip={displayName} className="h-auto py-1.5">
-                  <User />
-                  <span className="min-w-0">
-                    <span className="block truncate">{displayName}</span>
+                <SidebarMenuButton tooltip={displayName} className="h-auto gap-2.5 rounded-xl border border-sidebar-border py-2 group-data-[collapsible=icon]:border-0" data-testid="account-menu">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border-strong bg-gradient-to-br from-surface-overlay to-surface text-2xs font-semibold text-foreground" aria-hidden="true">
+                    {initialsOf(displayName)}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold">{displayName}</span>
                     {contact && contact !== displayName && (
                       <span className="block truncate text-xs text-sidebar-foreground/60">{contact}</span>
                     )}
                   </span>
+                  <ChevronsUpDown className="!h-3.5 !w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="start" className="w-52">
+              <DropdownMenuContent side="top" align="start" className="w-56">
                 <div className="px-2 py-1.5 text-xs text-muted-foreground truncate">
                   {contact}
                 </div>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">{t('nav.language', 'Language')}</DropdownMenuLabel>
+                {LANGUAGES.map((l) => (
+                  <DropdownMenuItem
+                    key={l.code}
+                    onClick={() => i18n.changeLanguage(l.code)}
+                    className="gap-2"
+                    data-testid={`language-${l.code}`}
+                  >
+                    <CountryFlag iso={l.iso} />
+                    <span className="flex-1">{l.label}</span>
+                    {currentLang.code === l.code && <Check className="h-3.5 w-3.5 text-primary" aria-hidden="true" />}
+                  </DropdownMenuItem>
+                ))}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} disabled={isLoggingOut}>
                   {isLoggingOut ? (

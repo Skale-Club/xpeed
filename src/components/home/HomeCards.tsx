@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle2, AlertTriangle, AlertCircle, ChevronRight, Loader2, Route } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { accentColor, type Accent } from '@/lib/chart-theme';
 import { Button } from '@/components/ui/button';
 import { useSettings } from '@/contexts/SettingsContext';
 import type { VehicleIssue } from '@/lib/db-issues';
@@ -25,7 +26,7 @@ export function CarHealthCard({ problems, loading = false, error = false, onRetr
 
   if (loading || error) {
     return (
-      <Card data-testid="car-health" className={error ? 'border-destructive/30 bg-destructive/[0.07]' : undefined} role={error ? 'alert' : 'status'}>
+      <Card data-testid="car-health" className={error ? 'rounded-panel border-destructive/30 bg-destructive/[0.07]' : 'rounded-panel'} role={error ? 'alert' : 'status'}>
         <CardContent className="flex items-center gap-4 p-4 sm:p-5">
           <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${error ? 'bg-destructive/15 text-destructive' : 'bg-muted text-muted-foreground'}`}>
             {error ? <AlertCircle className="h-6 w-6" /> : <Loader2 className="h-6 w-6 animate-spin" />}
@@ -56,7 +57,7 @@ export function CarHealthCard({ problems, loading = false, error = false, onRetr
   const circle = urgent ? 'bg-destructive/15' : problems.length ? 'bg-warn/15' : 'bg-success/15';
 
   return (
-    <Card data-testid="car-health" className={surface}>
+    <Card data-testid="car-health" className={`rounded-panel ${surface}`}>
       <CardContent className="flex items-center gap-4 p-4 sm:p-5">
         <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${circle} ${tone}`}>
           <Icon className="h-6 w-6" />
@@ -88,7 +89,7 @@ export function LastTripSummary({ session }: { session: Session }) {
   ].filter(Boolean);
 
   return (
-    <Card>
+    <Card className="rounded-panel">
       <CardContent className="p-0">
         <Link to={`/session/${session.id}`} className="flex items-center gap-3 p-4 hover:bg-accent/40 rounded-lg" data-testid="last-trip">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
@@ -114,18 +115,23 @@ export function TripTotals({ sessions }: { sessions: Session[] }) {
   const { distanceUnit } = useSettings();
   const km = sessions.reduce((sum, s) => sum + (tripDistanceKm(s) ?? 0), 0);
   const seconds = sessions.reduce((sum, s) => sum + (s.duration_seconds ?? 0), 0);
-  const items = [
-    [t('home.totals.trips', 'Trips'), String(sessions.length)],
-    [t('home.totals.distance', 'Distance'), formatDistance(km, distanceUnit) ?? '—'],
-    [t('home.totals.time', 'Time driving'), formatDuration(seconds) ?? '—'],
+  // Each total has its colour (Dashboards 2027, phase 4: colour in breaks); the number is in the display face.
+  const items: Array<[string, string, Accent]> = [
+    [t('home.totals.trips', 'Trips'), String(sessions.length), 'blue'],
+    [t('home.totals.distance', 'Distance'), formatDistance(km, distanceUnit) ?? '—', 'green'],
+    [t('home.totals.time', 'Time driving'), formatDuration(seconds) ?? '—', 'purple'],
   ];
   return (
-    <div className="grid grid-cols-3 gap-2" data-testid="trip-totals">
-      {items.map(([label, value]) => (
-        <Card key={label}>
-          <CardContent className="px-1.5 py-4 text-center">
-            <p className="whitespace-nowrap text-base font-bold tracking-tight tabular-nums sm:text-lg">{value}</p>
-            <p className="mt-0.5 text-2xs text-muted-foreground">{label}</p>
+    <div className="grid grid-cols-3 gap-2.5" data-testid="trip-totals">
+      {items.map(([label, value, accent]) => (
+        <Card key={label} className="relative overflow-hidden rounded-panel">
+          <span className="pointer-events-none absolute inset-0" style={{ background: `radial-gradient(120% 80% at 100% 0%, ${accentColor(accent, 0.1)}, transparent 60%)` }} aria-hidden="true" />
+          <CardContent className="relative px-2 py-4 text-center">
+            <p className="whitespace-nowrap font-display text-lg font-semibold tracking-tight tabular-nums sm:text-xl">{value}</p>
+            <p className="mt-1 flex items-center justify-center gap-1.5 text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: accentColor(accent) }} aria-hidden="true" />
+              {label}
+            </p>
           </CardContent>
         </Card>
       ))}

@@ -37,6 +37,23 @@
       "port": 5011
     },
     {
+      "name": "xpeed-screens-admin",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "node_modules/vite/bin/vite.js",
+        "--config",
+        "vite.harness.config.ts",
+        "--port",
+        "5013",
+        "--strictPort"
+      ],
+      "env": {
+        "VITE_ENABLE_VIRTUAL": "true",
+        "VITE_HARNESS_ADMIN": "true"
+      },
+      "port": 5013
+    },
+    {
       "name": "xpeed-screens-new-driver",
       "runtimeExecutable": "node",
       "runtimeArgs": [

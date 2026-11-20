@@ -53,11 +53,28 @@ test('chat endpoint keeps Virtual requests scoped and preserves the Real path', 
       assert.deepEqual(sent.messages.slice(1), [{ role: 'assistant', content: 'Earlier advice' }, { role: 'user', content: request.message }]);
     });
     await t.test('rejects incomplete, mixed and invalid mode requests before quota/provider', async () => {
-      for (const invalid of [{ ...body(), messageId: undefined }, { ...body(), sessionId: undefined },
+      for (const invalid of [{ ...body(), messageId: undefined }, { ...body(), conversationId: undefined },
         { ...body(), mode: 'real' }, { ...body(), mode: 'other' }, { ...body(), carProfileId: ids.car }]) {
         reset(); assert.equal((await call(invalid)).status, 400);
         assert.equal(state.spent, 0); assert.equal(state.providerCalls.length, 0);
       }
+    });
+    await t.test('without a session it is the general Virtual assistant, never a session coach thread', async () => {
+      reset();
+      const rows = fixture(); rows.chat_conversations[0].sim_session_id = null; state.db = fakeDb(rows);
+      const response = await call({ ...body(), sessionId: undefined });
+      assert.equal(response.status, 200); assert.equal(state.spent, 1); assert.equal(state.carReads, 0);
+      const sent = state.providerCalls[0];
+      assert.match(sent.messages[0].content, /racing assistant for the Virtual side/);
+      assert(!JSON.stringify(sent).includes('FORGED_'));
+      assert.deepEqual(sent.messages.slice(1), [{ role: 'assistant', content: 'Earlier advice' }, { role: 'user', content: request.message }]);
+      // A session coach thread cannot be used as the general assistant (nor the other way round).
+      reset(); const coachThread = await call({ ...body(), sessionId: undefined });
+      assert.equal(coachThread.status, 404); assert.equal(state.spent, 0); assert.equal(state.providerCalls.length, 0);
+      reset(); state.db = fakeDb(rows); const generalAsCoach = await call(body());
+      assert.equal(generalAsCoach.status, 404); assert.equal(state.spent, 0); assert.equal(state.providerCalls.length, 0);
+      reset(); state.environment = 'development'; state.db = fakeDb(rows);
+      assert.equal((await call({ ...body(), sessionId: undefined })).status, 503); assert.equal(state.providerCalls.length, 0);
     });
     await t.test('another user/session, deleted context and DB failures spend nothing', async () => {
       for (const configure of [

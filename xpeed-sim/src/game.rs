@@ -342,6 +342,9 @@ pub struct Frame {
     pub sectors_ms: [Option<u32>; 2],
     /// What kind of session this is, when the game says.
     pub session_kind: Option<SessionKind>,
+    /// The session is a hot lap or time attack: timed laps alone on track. Its `session_kind` stays practice (the lap
+    /// file and the site know no other kind for it); the panel uses this to pick the Hot lap dashboard and name it.
+    pub time_trial: bool,
     /// A short word for the weather ("dry", "rain"), when the game gives it.
     pub weather: Option<String>,
     /// Air and track temperature in °C, when the game gives them.
@@ -551,6 +554,7 @@ impl Frame {
         }
         if off(Caps::SESSION_KIND) {
             self.session_kind = None;
+            self.time_trial = false;
         }
         if off(Caps::WEATHER) {
             self.weather = None;
@@ -658,6 +662,7 @@ impl Frame {
             track_length_m: None,
             sectors_ms: [None; 2],
             session_kind: None,
+            time_trial: false,
             weather: None,
             air_temp_c: None,
             track_temp_c: None,
@@ -947,6 +952,7 @@ mod tests {
             "track_variant",
             "track_length_m",
             "session_kind",
+            "time_trial",
             "weather",
             "tyre_compound",
             "state",

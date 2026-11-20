@@ -27,7 +27,7 @@ use crate::config::{self, Config, FuelUnit, PressureUnit, SpeedUnit, TempUnit, U
 use crate::heartbeat;
 use crate::icon::{self, Light};
 use crate::outbox::{Backoff, Observer, Uploader};
-use crate::panel::{self, Account};
+use crate::panel::{self, Account, Pref, Prefs, UnitKind};
 use crate::phone;
 use crate::present;
 use crate::status::{Cloud, Game, Notice, Shared};
@@ -59,6 +59,8 @@ const WM_UPDATE_READY: u32 = WM_APP + 9;
 const WM_PANEL_FAILED: u32 = WM_APP + 10;
 /// The person asked to look for a new version now ("Check now" / "Try again" in the panel's update card).
 const WM_CHECK_UPDATES: u32 = WM_APP + 11;
+/// The panel's Settings screen changed a choice the menu also has (`wparam`: the menu command, `CMD_AUTOSTART` and the others).
+const WM_PANEL_SETTING: u32 = WM_APP + 12;
 
 /// Guards the tray's window procedure: a panic must not unwind out of an `extern "system"` function (that aborts the whole
 /// program, recording included).
@@ -408,6 +410,11 @@ impl App {
             label: self.account_label.clone(),
             lang: self.lang,
             units: self.units,
+            prefs: Prefs {
+                autostart: win::autostart_enabled(win::RUN_KEY, win::RUN_NAME),
+                auto_update: self.updater.automatic(),
+                phone_view: self.phone_view,
+            },
         };
     }
 
@@ -757,6 +764,8 @@ impl App {
             },
             _ => {}
         }
+        // An open panel shows the choices as they are now (its Settings screen has the same switches as this menu).
+        self.sync_account();
     }
 }
 
@@ -841,6 +850,13 @@ unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPA
             app.check_now();
             0
         }
+        WM_PANEL_SETTING => {
+            // Only the choices the Settings screen offers, never another command of the menu.
+            if is_panel_setting(wparam) {
+                app.command(wparam);
+            }
+            0
+        }
         WM_ACCOUNT => {
             if let Ok(Some(config)) = config::load(&app.config_path) {
                 app.account_label = config.account;
@@ -903,6 +919,51 @@ pub fn update_now_of_running() -> bool {
 pub fn check_updates_of_running() -> bool {
     let running = find_running();
     !running.is_null() && unsafe { PostMessageW(running, WM_CHECK_UPDATES, 0, 0) } != 0
+}
+
+/// The menu command of a choice the Settings screen offers.
+fn pref_command(pref: Pref) -> usize {
+    match pref {
+        Pref::Autostart => CMD_AUTOSTART,
+        Pref::AutoUpdate => CMD_AUTO_UPDATE,
+        Pref::PhoneView => CMD_PHONE_VIEW,
+    }
+}
+
+/// The menu command of the unit at `index` of its kind, when there is one.
+fn unit_command(kind: UnitKind, index: usize) -> Option<usize> {
+    let (base, count) = match kind {
+        UnitKind::Speed => (CMD_UNIT_SPEED, SpeedUnit::ALL.len()),
+        UnitKind::Temperature => (CMD_UNIT_TEMPERATURE, TempUnit::ALL.len()),
+        UnitKind::Pressure => (CMD_UNIT_PRESSURE, PressureUnit::ALL.len()),
+        UnitKind::Fuel => (CMD_UNIT_FUEL, FuelUnit::ALL.len()),
+    };
+    (index < count).then_some(base + index)
+}
+
+/// Whether a command the panel sent is one of the Settings screen's choices.
+fn is_panel_setting(id: usize) -> bool {
+    [Pref::Autostart, Pref::AutoUpdate, Pref::PhoneView]
+        .into_iter()
+        .any(|pref| pref_command(pref) == id)
+        || UnitKind::ALL
+            .into_iter()
+            .any(|kind| (0..10).any(|i| unit_command(kind, i) == Some(id)))
+}
+
+/// Tells the tray of this program that the Settings screen switched a choice. False when there is none (the panel demo).
+pub fn pref_of_running(pref: Pref) -> bool {
+    let running = find_running();
+    !running.is_null() && unsafe { PostMessageW(running, WM_PANEL_SETTING, pref_command(pref), 0) } != 0
+}
+
+/// Tells the tray of this program that the Settings screen picked a unit. False when there is none (the panel demo).
+pub fn unit_of_running(kind: UnitKind, index: usize) -> bool {
+    let Some(id) = unit_command(kind, index) else {
+        return false;
+    };
+    let running = find_running();
+    !running.is_null() && unsafe { PostMessageW(running, WM_PANEL_SETTING, id, 0) } != 0
 }
 
 /// Tells the tray of this program that the panel's window failed again and again and stopped drawing, so it shows a

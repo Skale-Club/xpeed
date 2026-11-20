@@ -997,6 +997,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     };
 
     let session = match live.session_kind {
+        _ if live.time_trial => Some(say(Msg::PanelDashTimeTrial)),
         Some(crate::game::SessionKind::Practice) => Some(say(Msg::PanelSessionPractice)),
         Some(crate::game::SessionKind::Qualifying) => Some(say(Msg::PanelSessionQualifying)),
         Some(crate::game::SessionKind::Race) => Some(say(Msg::PanelSessionRace)),

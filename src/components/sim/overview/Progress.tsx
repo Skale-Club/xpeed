@@ -14,6 +14,7 @@ import { trackPath } from '@/lib/sim/routes';
 import { useGames } from '@/lib/sim/games';
 import type { V1Improvement, V1Stats, V1StatsPair } from '@/lib/sim/v1-client';
 import { SimCarIdentity } from '../SimCarIdentity';
+import { TrackLayoutThumb } from '../TrackLayoutThumb';
 import { useWhen } from '../use-when';
 import { Panel, Quiet } from './parts';
 import { useDashFormat } from './use-format';
@@ -44,11 +45,14 @@ function Improvements({ items }: { items: readonly V1Improvement[] }) {
                 title={t('modes.overview.analyze', 'Analyze this lap')}
                 className="flex items-center justify-between gap-3 py-2 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <div className="min-w-0 space-y-0.5">
-                  <p className="truncate text-sm font-medium">{item.trackName}</p>
-                  <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                    <SimCarIdentity name={item.carName} className="text-xs" />
-                    <span>{games.name(item.game)} · {when(Date.parse(item.achievedAt))}</span>
+                <div className="flex min-w-0 items-center gap-3">
+                  <TrackLayoutThumb trackId={item.trackId} name={item.trackName} className="h-11 w-11" />
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="truncate text-sm font-medium">{item.trackName}</p>
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                      <SimCarIdentity name={item.carName} className="text-xs" />
+                      <span>{games.name(item.game)} · {when(Date.parse(item.achievedAt))}</span>
+                    </div>
                   </div>
                 </div>
                 <span className="flex shrink-0 items-center gap-3 text-right">
@@ -91,9 +95,12 @@ function PairChart({ pair }: { pair: V1StatsPair }) {
 
   return (
     <li className="space-y-1 rounded-lg border border-border p-3" data-testid="progress-pair">
-      <Link to={trackPath(pair.trackId)} className="block min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={t('modes.overview.dash.openTrack', 'Open the track page')}>
-        <p className="truncate text-sm font-medium">{pair.trackName}</p>
-        <p className="truncate text-xs text-muted-foreground">{pair.carName} · {t('modes.overview.dash.lapsN', '{{count}} laps', { count: pair.laps })}</p>
+      <Link to={trackPath(pair.trackId)} className="flex min-w-0 items-center gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={t('modes.overview.dash.openTrack', 'Open the track page')}>
+        <TrackLayoutThumb trackId={pair.trackId} name={pair.trackName} className="h-11 w-11" />
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium">{pair.trackName}</span>
+          <span className="block truncate text-xs text-muted-foreground">{pair.carName} · {t('modes.overview.dash.lapsN', '{{count}} laps', { count: pair.laps })}</span>
+        </span>
       </Link>
       {range && axis && last ? (
         <div className="h-24" role="img" aria-label={alt} data-testid="pair-chart">

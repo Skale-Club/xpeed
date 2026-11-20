@@ -5,7 +5,7 @@ import { sampleFrame } from '@/components/sim/live/live-fixture';
 const auth = vi.hoisted(() => ({ token: vi.fn<() => Promise<string | null>>() }));
 vi.mock('@/lib/auth/google', () => ({ getAccessToken: auth.token }));
 
-import { BACKOFF_MS, SILENCE_MS, STREAM_PATH, useLiveStream } from './use-live-stream';
+import { BACKOFF_MS, streamUrl, SILENCE_MS, STREAM_PATH, useLiveStream } from './use-live-stream';
 
 const encoder = new TextEncoder();
 
@@ -195,5 +195,14 @@ describe('useLiveStream', () => {
     expect(signal.aborted).toBe(true);
     await tick(60_000);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the room the page has for the panel', () => {
+  it('goes in the stream address, so the Companion draws the picture for this screen', () => {
+    expect(streamUrl(null)).toMatch(/\/api\/sim\/live\/stream$/);
+    const url = new URL(streamUrl({ w: 828.4, h: 330, dpr: 2.625 }), 'http://x');
+    expect(url.pathname).toBe('/api/sim/live/stream');
+    expect(Object.fromEntries(url.searchParams)).toEqual({ w: '828', h: '330', dpr: '2.63' });
   });
 });

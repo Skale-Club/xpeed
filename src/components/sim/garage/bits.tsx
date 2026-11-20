@@ -27,7 +27,8 @@ export function StatTile({ label, value, sub, loading = false, testId, children 
   testId: string;
   children?: ReactNode;
 }) {
-  return <UiStatTile label={label} value={value} hint={loading ? undefined : sub} loading={loading} testId={`${testId}-tile`} valueTestId={testId} subTestId={`${testId}-sub`} footer={children} />;
+  // Dashboards 2027, phase 3 (owner approved 2026-11-20): the shared `feature` look, as on the Overview.
+  return <UiStatTile size="feature" label={label} value={value} hint={loading ? undefined : sub} loading={loading} testId={`${testId}-tile`} valueTestId={testId} subTestId={`${testId}-sub`} footer={children} />;
 }
 
 type GridColumns = NonNullable<Parameters<typeof StatGrid>[0]['columns']>;

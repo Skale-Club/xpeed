@@ -56,11 +56,11 @@ function toChatMessage(row: {
     };
 }
 
-// Get conversations for the current user's Real assistant or one Virtual session.
+// Get conversations for the current user's Real assistant, the Virtual assistant or one Virtual session.
 export async function getConversations(scope?: ChatScope): Promise<ChatConversation[]> {
     const data = await readAllPages<Parameters<typeof toConversation>[0]>((from, to) => {
         const query = supabase.from('chat_conversations').select('*').eq('mode', scope?.mode ?? 'real');
-        return (scope ? query.eq('sim_session_id', scope.sessionId) : query.is('sim_session_id', null))
+        return (scope?.sessionId ? query.eq('sim_session_id', scope.sessionId) : query.is('sim_session_id', null))
             .order('updated_at', { ascending: false }).order('id', { ascending: false })
             .range(from, to);
     }, 'Failed to fetch conversations');

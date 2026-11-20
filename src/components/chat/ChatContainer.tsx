@@ -41,7 +41,7 @@ interface UIMessage {
 
 export function ChatContainer(props: ChatContainerProps) {
     return props.scope
-        ? <ChatDialog key={props.scope.sessionId} {...props} />
+        ? <ChatDialog key={props.scope.sessionId ?? 'virtual'} {...props} />
         : <RealChatDialog {...props} />;
 }
 
@@ -52,8 +52,27 @@ function RealChatDialog(props: ChatContainerProps) {
 
 type ChatCars = Partial<Pick<ReturnType<typeof useCarsContext>, 'selectedCar' | 'cars'>>;
 
-function ChatWelcome({ virtual, carName, selectPrompt }: { virtual: boolean; carName?: string; selectPrompt: (prompt: string) => void }) {
+function ChatWelcome({ virtual, coach, carName, selectPrompt }: { virtual: boolean; coach: boolean; carName?: string; selectPrompt: (prompt: string) => void }) {
     const { t } = useTranslation();
+    if (virtual && !coach) {
+        return (
+            <div className="flex min-h-full flex-col items-center justify-center gap-4 p-2 text-center">
+                <BrandLogo alt="" className="h-12 w-12" />
+                <h3 className="text-lg font-semibold">{t('modes.assistant.welcome')}</h3>
+                <p className="max-w-md text-sm leading-relaxed text-muted-foreground">{t('modes.assistant.intro')}</p>
+                <div className="flex flex-wrap justify-center gap-2">
+                    {(['practice', 'progress', 'companion'] as const).map((question) => {
+                        const prompt = t(`modes.assistant.questions.${question}`);
+                        return (
+                            <Button key={question} variant="outline" size="sm" className="h-auto min-h-9 whitespace-normal py-2" onClick={() => selectPrompt(prompt)}>
+                                {prompt}
+                            </Button>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    }
     if (virtual) {
         return (
             <div className="flex min-h-full flex-col items-center justify-center gap-4 p-2 text-center">
@@ -108,6 +127,8 @@ function ChatDialog({ isOpen, onClose, scope, restoreFocus, selectedCar, cars = 
     const sending = useRef(false);
     const skipLoad = useRef<string | null>(null);
     const virtual = !!scope;
+    // A Virtual scope with a session is that session's coach; without one, the general Virtual assistant.
+    const coachSession = scope?.sessionId ?? null;
     const chatCarId = currentConversation ? currentConversation.car_profile_id : selectedCar?.id;
 
     const chatCar = cars.find(car => car.id === chatCarId) ?? (selectedCar?.id === chatCarId ? selectedCar : null);
@@ -219,7 +240,7 @@ function ChatDialog({ isOpen, onClose, scope, restoreFocus, selectedCar, cars = 
             const responseText = scope
                 ? await chatViaEdge([], text, {}, undefined, {
                     mode: scope.mode,
-                    sessionId: scope.sessionId,
+                    ...(scope.sessionId ? { sessionId: scope.sessionId } : {}),
                     conversationId,
                     messageId: savedQuestion.id,
                 })
@@ -253,11 +274,12 @@ function ChatDialog({ isOpen, onClose, scope, restoreFocus, selectedCar, cars = 
             console.error('Chat error:', error);
             const kind = error instanceof AiError ? error.kind : 'unavailable';
             if (!scope || version === viewVersion.current) {
+                const virtualKeys = scope?.sessionId ? 'modes.coach' : 'modes.assistant';
                 const errorMessage = kind === 'limit_reached' ? 'assistant.limitReached'
-                    : kind === 'context_not_found' ? 'modes.coach.contextNotFound'
+                    : kind === 'context_not_found' ? `${virtualKeys}.contextNotFound`
                     : kind === 'development_disabled' ? 'assistant.providerErrors.developmentDisabled'
-                    : kind === 'not_configured' ? scope ? 'modes.coach.notConfigured' : 'assistant.notConfigured'
-                    : kind === 'unavailable' && scope ? 'modes.coach.replyFailed'
+                    : kind === 'not_configured' ? scope ? `${virtualKeys}.notConfigured` : 'assistant.notConfigured'
+                    : kind === 'unavailable' && scope ? `${virtualKeys}.replyFailed`
                     : 'assistant.replyFailed';
                 toast({ title: t('assistant.errorTitle'), description: t(errorMessage), variant: 'destructive' });
             }
@@ -335,9 +357,11 @@ function ChatDialog({ isOpen, onClose, scope, restoreFocus, selectedCar, cars = 
                             <BrandLogo alt="" />
                             <div className="min-w-0">
                                 <DialogPrimitive.Title asChild>
-                                    <CardTitle className="text-lg">{scope ? t('modes.coach.title') : 'Xpeed'}</CardTitle>
+                                    <CardTitle className="text-lg">{scope?.sessionId ? t('modes.coach.title') : scope ? t('modes.assistant.title') : 'Xpeed'}</CardTitle>
                                 </DialogPrimitive.Title>
-                                {scope ? (
+                                {scope && !scope.sessionId ? (
+                                    <p className="truncate text-xs text-muted-foreground">{t('modes.assistant.subtitle')}</p>
+                                ) : scope?.sessionId ? (
                                     <Link
                                         to={sessionPath(scope.sessionId)}
                                         onClick={onClose}
@@ -394,7 +418,7 @@ function ChatDialog({ isOpen, onClose, scope, restoreFocus, selectedCar, cars = 
                                 <p>{t('assistant.historyFailed')}</p>
                                 <Button variant="outline" onClick={()=>setHistoryAttempt(value=>value+1)}>{t('problems.retry','Try again')}</Button>
                             </div> : historyLoading ? <p role="status">{t('common.loading','Loading…')}</p> : messages.length === 0 && !loading ? (
-                                <ChatWelcome virtual={virtual} carName={chatCar?.name} selectPrompt={setInput} />
+                                <ChatWelcome virtual={virtual} coach={!!coachSession} carName={chatCar?.name} selectPrompt={setInput} />
                             ) : (
                                 <MessageList
                                     messages={messages}
@@ -410,7 +434,7 @@ function ChatDialog({ isOpen, onClose, scope, restoreFocus, selectedCar, cars = 
                             onSend={handleSendMessage}
                             isLoading={loading}
                             disabled={historyLoading||historyFailed}
-                            placeholder={scope ? t('modes.coach.placeholder') : undefined}
+                            placeholder={scope?.sessionId ? t('modes.coach.placeholder') : scope ? t('modes.assistant.placeholder') : undefined}
                         />
                     </div>)}
                 </CardContent>

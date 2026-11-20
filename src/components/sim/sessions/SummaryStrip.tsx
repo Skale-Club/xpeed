@@ -18,13 +18,15 @@ export function SessionsSummaryStrip({ summary, showBest, more }: { summary: Ses
     <TileGrid testId="sessions-summary">
       <StatTile
         testId="sum-sessions"
+        accent="sky"
         label={t('sessionsDash.summary.sessions', 'Sessions')}
         value={`${format.number(summary.sessions)}${plus}`}
         sub={more ? t('sessionsDash.summary.soFar', 'so far: load more for the rest') : t('sessionsDash.summary.inView', 'in this view')}
       />
-      <StatTile testId="sum-laps" label={t('sessionsDash.summary.laps', 'Laps')} value={`${format.number(summary.laps)}${plus}`} />
+      <StatTile testId="sum-laps" accent="blue" label={t('sessionsDash.summary.laps', 'Laps')} value={`${format.number(summary.laps)}${plus}`} />
       <StatTile
         testId="sum-time"
+        accent="purple"
         label={t('sessionsDash.summary.time', 'Session time')}
         value={`${formatDuration(summary.timeMs, format.lang)}${plus}`}
         hint={t('sessionsDash.summary.timeHint', 'Time driven in these sessions.')}
@@ -32,6 +34,7 @@ export function SessionsSummaryStrip({ summary, showBest, more }: { summary: Ses
       {showBest ? (
         <StatTile
           testId="sum-best"
+          accent="yellow"
           label={t('sessionsDash.summary.best', 'Best lap')}
           value={summary.bestLapMs !== null ? formatLapTime(summary.bestLapMs) : '–'}
           mono
@@ -41,6 +44,7 @@ export function SessionsSummaryStrip({ summary, showBest, more }: { summary: Ses
       ) : (
         <StatTile
           testId="sum-pairs"
+          accent="pink"
           label={t('sessionsDash.summary.tracksCars', 'Tracks · cars')}
           value={`${format.number(summary.tracks)} · ${format.number(summary.cars)}`}
           hint={t('sessionsDash.summary.pickBest', 'Pick a track and a car to see the best lap.')}

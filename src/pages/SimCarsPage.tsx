@@ -1,4 +1,3 @@
-import { CarFront } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
 import { SimCars } from '@/components/sim/SimCars';
@@ -10,7 +9,7 @@ export default function SimCarsPage() {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <PageHeader icon={CarFront} title={t('modes.nav.cars', 'Game cars')} />
+        <PageHeader size="lg" title={t('modes.nav.cars', 'Game cars')} />
         <SimCars />
       </div>
     </AppLayout>

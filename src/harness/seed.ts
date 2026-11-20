@@ -19,6 +19,7 @@ function rows(sessionId: string, minutes: number, base: { speed: number; rpm: nu
       'Engine RPM (rpm)': Math.max(0, Math.round(base.rpm + 500 * Math.sin(i / 4))),
       'Engine coolant temperature (°C)': Math.min(base.coolant, 40 + i * 2),
       'Hybrid battery remaining life (%)': 60 + Math.round(5 * Math.sin(i / 10)),
+      'Mass air flow (g/s)': Math.max(0, Math.round((base.rpm / 250 + 2 * Math.sin(i / 5)) * 100) / 100),
     },
     created_at: daysAgo(1),
   }));
@@ -30,11 +31,13 @@ function summary(speedAvg: number, coolantMax: number) {
       { canonical_key: 'vehicle_speed', parameter_key: 'Vehicle speed (km/h)', label: 'Vehicle Speed', unit: 'km/h', min: 0, max: speedAvg * 2, avg: speedAvg, count: 60 },
       { canonical_key: 'coolant_temp', parameter_key: 'Engine coolant temperature (°C)', label: 'Coolant Temp', unit: '°C', min: 40, max: coolantMax, avg: coolantMax - 6, count: 60 },
       { canonical_key: 'engine_rpm', parameter_key: 'Engine RPM (rpm)', label: 'Engine RPM', unit: 'rpm', min: 0, max: 3200, avg: 1300, count: 60 },
+      { canonical_key: 'maf', parameter_key: 'Mass air flow (g/s)', label: 'MAF', unit: 'g/s', min: 2, max: 9, avg: 5, count: 60 },
     ],
     headerMapping: {
       'Vehicle speed (km/h)': { canonical_key: 'vehicle_speed', label: 'Vehicle Speed', unit: 'km/h' },
       'Engine coolant temperature (°C)': { canonical_key: 'coolant_temp', label: 'Coolant Temp', unit: '°C' },
       'Engine RPM (rpm)': { canonical_key: 'engine_rpm', label: 'Engine RPM', unit: 'rpm' },
+      'Mass air flow (g/s)': { canonical_key: 'maf', label: 'MAF', unit: 'g/s' },
     },
     timeColumn: { type: 'seconds', key: 'Time (s)' },
   };

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Suspense, lazy, useEffect } from 'react';
+import { Suspense, lazy, useEffect, type CSSProperties } from 'react';
 import { restoreUpdatePosition } from '@/lib/update-position';
 import { useTranslation } from 'react-i18next';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
@@ -13,6 +13,8 @@ import { BrandLockup } from '@/components/BrandLockup';
 import { PullToRefresh } from '@/components/PullToRefresh';
 import { usePageRefresh } from '@/contexts/PageRefreshContext';
 import { HeaderControls } from '@/components/header/HeaderControls';
+import { PageTrail } from '@/components/header/PageTrail';
+import { QuickNav } from '@/components/header/QuickNav';
 import { ModeSwitch } from '@/components/ModeSwitch';
 // Only the Virtual side shows it, so the Real side never downloads it.
 const CompanionStatus = lazy(() => import('@/components/sim/CompanionStatus').then((m) => ({ default: m.CompanionStatus })));
@@ -26,21 +28,29 @@ export default function AppLayout({ children, refreshDisabled = false }: { child
   const { mode } = useModes();
   useEffect(restoreUpdatePosition, []);
   return (
-    <SidebarProvider>
+    // 17rem: the inset menu keeps 8 px around itself, so the car's name still fits whole (it did at 16rem without the inset).
+    <SidebarProvider style={{ '--sidebar-width': '17rem' } as CSSProperties}>
       <AppSidebar />
       {/* min-w-0: long words (file names, codes) must wrap instead of widening the page on phones. */}
-      <SidebarInset className="min-w-0">
+      {/* Wider screens: the content is a card floating beside the menu, one step lighter than the page (Dashboards 2027, phase 2). */}
+      <SidebarInset className="min-w-0 md:peer-data-[variant=inset]:rounded-panel md:peer-data-[variant=inset]:border md:peer-data-[variant=inset]:border-border/70 md:peer-data-[variant=inset]:bg-surface-inset md:peer-data-[variant=inset]:shadow-card">
         <PullToRefresh onRefresh={refresh} disabled={refreshDisabled}>
-        <header className="sticky top-0 z-40 flex h-14 items-center gap-2 border-b border-border/60 bg-background/80 px-3 backdrop-blur-xl sm:gap-3 sm:px-4">
+        <header className="sticky top-0 z-40 flex h-14 items-center gap-2 border-b border-border/60 bg-background/80 px-3 backdrop-blur-xl sm:gap-3 sm:px-4 md:rounded-t-panel md:bg-surface-inset/85">
           {/* Phones navigate with the tab bar at the bottom; the logo goes home. */}
           <Link to={MODE_HOME[mode]} className="flex shrink-0 items-center gap-2 md:hidden" aria-label="Xpeed">
             <BrandLockup logoClassName="h-7 w-7" nameClassName="text-base" />
           </Link>
           <SidebarTrigger className="hidden md:inline-flex" />
-          {/* The car's connection and notifications belong to the Real mode. */}
-          {mode === 'real' && <HeaderControls />}
-          {/* Virtual: whether the Windows app is online, as one quiet dot and a name. */}
-          {mode === 'virtual' && <Suspense fallback={null}><CompanionStatus /></Suspense>}
+          {/* Where you are: the mode and the page's menu entry. */}
+          <PageTrail />
+          <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
+            {/* Go to any page of the mode; Ctrl K. */}
+            <QuickNav />
+            {/* The car's connection and notifications belong to the Real mode. */}
+            {mode === 'real' && <HeaderControls />}
+            {/* Virtual: whether the Windows app is online, as one quiet dot and a name. */}
+            {mode === 'virtual' && <Suspense fallback={null}><CompanionStatus /></Suspense>}
+          </div>
         </header>
         <AppUpdateBanner />
         {/* Virtual: while the example is on (made-up laps), every page says so. */}
@@ -65,7 +75,8 @@ export default function AppLayout({ children, refreshDisabled = false }: { child
       </SidebarInset>
 
       <MobileTabBar />
-      {mode === 'real' && <ChatBubble />}
+      {/* The assistant: about the car on Real, about the driver's racing on Virtual. */}
+      <ChatBubble mode={mode} />
       <NewCarDialog />
       <InstallPrompt />
     </SidebarProvider>

@@ -523,7 +523,7 @@ Xpeed Companion pushes the dashboard it is drawing and the phone page reads it, 
 account is kept, in this process's memory** (at most 1000 accounts, least recently used out; frames older than 30 s are forgotten); nothing is written to the database or storage, and
 `model` (the panel's `DashModel` as camelCase JSON) is opaque: never read beyond being an object, never logged. Code: `api/sim/live.ts`, `api/sim/_live.ts`.
 
-- `POST /api/sim/live` (device key, see `ENVIO-DE-VOLTAS.md` 2f): `{ v: 1, seq, sentAt, game, dashboard, rows, model }`, at most 64 KB, 25 a second per device. `200 { viewers }`.
+- `POST /api/sim/live` (device key, see `ENVIO-DE-VOLTAS.md` 2f): `{ v: 1, seq, sentAt, game, dashboard, rows, image?, model }` (`image`: the panel itself drawn by the Companion for the watching phone's screen, a JPEG data URL; `400 invalid_image`), at most 256 KB, 25 a second per device. `200 { viewers, screen }` (`screen`: the newest watching phone's `{ w, h, dpr }`, which its page passes as `GET /api/sim/live/stream?w=&h=&dpr=`, or `null`).
 - `GET /api/sim/live/stream` (the signed-in person: the same bearer token as every other signed-in route here): `text/event-stream` (`Cache-Control: no-cache, no-transform`, `X-Accel-Buffering: no`).
   Read it with `fetch` and the `Authorization` header, as a stream (EventSource cannot send headers). The first bytes are `retry: 2000`. Then, at once, `event: frame` with the latest frame when it is
   younger than 5 s (else `event: idle`); `event: frame` with `data: <frame JSON plus receivedAt>` for every newer frame, at most 15 a second (newer frames replace one still waiting);

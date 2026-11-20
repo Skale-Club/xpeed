@@ -307,6 +307,8 @@ fn nan_share(lap: &Lap) -> Option<String> {
 pub fn prepare(lap: &Lap) -> (Lap, Vec<Finding>) {
     let findings = check(lap);
     let mut out = lap.clone();
+    // The names people know the car and the track by, when the game gave folder names (Assetto Corsa).
+    crate::names::fill(&mut out);
     if out.recorder.is_none() {
         out.recorder = Some(Recorder::current(&lap.game, None));
     }

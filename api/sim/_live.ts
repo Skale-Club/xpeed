@@ -3,8 +3,8 @@
 // Pure and testable: no network, no module-level state except the one hub the routes share (`liveHub`). Tests use fake timers.
 // Contract: docs/telemetria-virtual-2026-11-10/ENVIO-DE-VOLTAS.md (2f) and docs/platform/API-V1.md (Live dashboard relay).
 
-/** The body of a frame may not be larger than this. */
-export const MAX_LIVE_BYTES = 64 * 1024;
+/** The body of a frame may not be larger than this: the panel's picture is most of it. */
+export const MAX_LIVE_BYTES = 256 * 1024;
 export const MAX_LIVE_ROWS = 30;
 /** A row is a handful of widgets; this is only a sanity bound. */
 export const MAX_LIVE_ROW_WIDGETS = 12;
@@ -33,31 +33,56 @@ export interface LiveFrame {
   game: string;
   dashboard: LiveDashboard;
   rows: string[][];
+  /** The panel drawn for the watching phone's screen, as a JPEG data URL (Companion 0.16+, only while a phone watches). */
+  image?: string;
   model: Record<string, unknown>;
 }
+
+/** The room a watching phone gives the panel: CSS pixels and pixels per CSS pixel, as its page says when it opens the stream. */
+export interface LiveScreen { w: number; h: number; dpr: number }
+
+/** The screen a page says, or null when a part of it is not a sane number. */
+export function readScreen(w: unknown, h: unknown, dpr: unknown): LiveScreen | null {
+  const side = (v: unknown) => {
+    const n = typeof v === 'string' ? Number(v) : v;
+    return typeof n === 'number' && Number.isInteger(n) && n >= 50 && n <= 10_000 ? n : null;
+  };
+  const width = side(w);
+  const height = side(h);
+  const ratio = typeof dpr === 'string' ? Number(dpr) : dpr;
+  if (width === null || height === null) return null;
+  return { w: width, h: height, dpr: typeof ratio === 'number' && Number.isFinite(ratio) && ratio > 0 && ratio <= 8 ? ratio : 1 };
+}
+
+const IMAGE = /^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/;
 
 const GAME = /^[a-z][a-z0-9_]{0,31}$/;
 const WIDGET = /^[a-z_]{2,24}$/;
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** Rows of widget ids: at most `MAX_LIVE_ROWS`, none empty, each id a catalog-shaped word. */
+const validRows = (rows: unknown): rows is string[][] =>
+  Array.isArray(rows) && rows.length <= MAX_LIVE_ROWS
+  && rows.every((row) => Array.isArray(row) && row.length > 0 && row.length <= MAX_LIVE_ROW_WIDGETS
+    && row.every((id) => typeof id === 'string' && WIDGET.test(id)));
 
 /** The frame in a body, or the word for what is wrong with it. `model` is only checked to be an object. */
 export function readFrame(text: string): { ok: true; value: LiveFrame } | { ok: false; why: string } {
   let input: unknown;
   try { input = JSON.parse(text); } catch { return { ok: false, why: 'invalid_json' }; }
   if (!isObject(input)) return { ok: false, why: 'invalid_request' };
-  const { v, seq, sentAt, game, dashboard, rows, model } = input;
+  const { v, seq, sentAt, game, dashboard, rows, image, model } = input;
   if (v !== 1) return { ok: false, why: 'invalid_version' };
   if (typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0) return { ok: false, why: 'invalid_seq' };
   if (typeof sentAt !== 'number' || !Number.isFinite(sentAt) || sentAt < 0) return { ok: false, why: 'invalid_sent_at' };
   if (typeof game !== 'string' || !GAME.test(game)) return { ok: false, why: 'invalid_game' };
   if (typeof dashboard !== 'string' || !(LIVE_DASHBOARDS as readonly string[]).includes(dashboard)) return { ok: false, why: 'invalid_dashboard' };
-  if (!Array.isArray(rows) || rows.length > MAX_LIVE_ROWS) return { ok: false, why: 'invalid_rows' };
-  for (const row of rows) {
-    if (!Array.isArray(row) || row.length === 0 || row.length > MAX_LIVE_ROW_WIDGETS) return { ok: false, why: 'invalid_rows' };
-    if (!row.every((id) => typeof id === 'string' && WIDGET.test(id))) return { ok: false, why: 'invalid_rows' };
-  }
+  if (!validRows(rows)) return { ok: false, why: 'invalid_rows' };
+  if (image !== undefined && (typeof image !== 'string' || !IMAGE.test(image))) return { ok: false, why: 'invalid_image' };
   if (!isObject(model)) return { ok: false, why: 'invalid_model' };
-  return { ok: true, value: { v: 1, seq, sentAt, game, dashboard: dashboard as LiveDashboard, rows: rows as string[][], model } };
+  const value: LiveFrame = { v: 1, seq, sentAt, game, dashboard: dashboard as LiveDashboard, rows, model };
+  if (image !== undefined) value.image = image;
+  return { ok: true, value };
 }
 
 /** What a stream is told: `frame` carries the frame JSON plus `receivedAt`; `idle` carries `{}`. `data` is always one line. */
@@ -69,6 +94,8 @@ export interface Subscription { close(): void }
 
 interface Sub {
   emit: (event: LiveEvent) => void;
+  /** The phone's screen, as its page said; the Companion draws the picture for the newest stream's. */
+  screen: LiveScreen | null;
   lastSentAt: number;
   pending: StoredFrame | null;
   timer: ReturnType<typeof setTimeout> | null;
@@ -171,19 +198,22 @@ export function createLiveHub(options: LiveHubOptions = {}) {
      * Keeps `frame` as the owner's latest and hands it to their streams. Null when the hub is full of watched owners (try again later);
      * `stored` is false when the frame was older than one already kept from the same device (a late arrival: dropped, not an error).
      */
-    publish(userId: string, deviceId: string, frame: LiveFrame): { stored: boolean; viewers: number } | null {
+    publish(userId: string, deviceId: string, frame: LiveFrame): { stored: boolean; viewers: number; screen: LiveScreen | null } | null {
       const owner = touch(userId);
       if (!owner) return null;
       const t = now();
+      // The screen of the newest stream that said one (a Set keeps the order streams opened in).
+      let screen: LiveScreen | null = null;
+      for (const sub of owner.subs) if (sub.screen) screen = sub.screen;
       const prev = owner.seqs.get(deviceId);
-      if (prev && frame.seq < prev.seq && !(frame.seq < RESTART_SEQ && t - prev.at > RESTART_GAP_MS)) return { stored: false, viewers: owner.subs.size };
+      if (prev && frame.seq < prev.seq && !(frame.seq < RESTART_SEQ && t - prev.at > RESTART_GAP_MS)) return { stored: false, viewers: owner.subs.size, screen };
       owner.seqs.delete(deviceId);
       owner.seqs.set(deviceId, { seq: frame.seq, at: t });
       if (owner.seqs.size > MAX_DEVICES_PER_OWNER) owner.seqs.delete(owner.seqs.keys().next().value as string);
       const stored: StoredFrame = { frame, deviceId, receivedAt: t, json: JSON.stringify({ ...frame, receivedAt: t }) };
       owner.latest = stored;
       for (const sub of owner.subs) offer(sub, stored);
-      return { stored: true, viewers: owner.subs.size };
+      return { stored: true, viewers: owner.subs.size, screen };
     },
 
     /** The owner's latest frame when it is no older than `maxAgeMs`. */
@@ -201,12 +231,12 @@ export function createLiveHub(options: LiveHubOptions = {}) {
      * A stream for the owner. `emit` is called at once with the latest frame when it is younger than 5 s, else with `idle` (nothing has
      * arrived for 5 s, which is what idle says). Null when the owner already has the most streams (or the hub is full).
      */
-    subscribe(userId: string, emit: (event: LiveEvent) => void): Subscription | null {
+    subscribe(userId: string, emit: (event: LiveEvent) => void, screen: LiveScreen | null = null): Subscription | null {
       const existing = owners.get(userId);
       if (existing && existing.subs.size >= maxStreams) return null;
       const owner = touch(userId);
       if (!owner) return null;
-      const sub: Sub = { emit, lastSentAt: Number.NEGATIVE_INFINITY, pending: null, timer: null, idleTimer: null, closed: false };
+      const sub: Sub = { emit, screen, lastSentAt: Number.NEGATIVE_INFINITY, pending: null, timer: null, idleTimer: null, closed: false };
       owner.subs.add(sub);
       const latest = owner.latest;
       if (latest && now() - latest.receivedAt < IDLE_AFTER_MS) {

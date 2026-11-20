@@ -181,7 +181,7 @@ export function TripCard() {
 
 
   return (
-    <Card className={recording?.active ? 'border-destructive/30' : undefined}>
+    <Card className={recording?.active ? 'rounded-panel border-destructive/30' : 'rounded-panel'}>
       <CardContent className="space-y-4 p-4 sm:p-5">
         <div className="flex flex-wrap items-center gap-2">
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10">

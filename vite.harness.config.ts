@@ -90,6 +90,42 @@ export default defineConfig(async (env: ConfigEnv) => {
               return res.end(String(error));
             }
           }
+          // The phone view (/virtual/live): a live stream of the sample frame (src/components/sim/live/live-fixture.ts) with the picture of the
+          // panel Xpeed Companion draws for the phone (the JPEGs its test `writes_the_phone_pictures` saves to HARNESS_PHONE_PICTURES, by default
+          // ~/.cargo-target/xpeed-phone-png), upright or on its side as the page's `?w=&h=` says. No picture there: the frame has none (rows).
+          // GET /api/sim/live/__dashboard?d=qualifying switches the dashboard.
+          if (path === '/live/__dashboard') {
+            const d = new URL(req.url ?? '/', 'http://localhost').searchParams.get('d') ?? 'race';
+            (globalThis as { harnessLiveDashboard?: string }).harnessLiveDashboard = d;
+            return res.end(d);
+          }
+          if (path === '/live/stream') {
+            const fixture = await server.ssrLoadModule('/src/components/sim/live/live-fixture.ts');
+            const fs = await import('node:fs');
+            const files = await import('node:path');
+            const q = new URL(req.url ?? '/', 'http://localhost').searchParams;
+            const shape = Number(q.get('w')) > Number(q.get('h')) ? 'sideways' : 'upright';
+            const folder = process.env.HARNESS_PHONE_PICTURES ?? files.join(process.env.USERPROFILE ?? process.env.HOME ?? '.', '.cargo-target', 'xpeed-phone-png');
+            const picture = (dashboard: string) => {
+              try {
+                return `data:image/jpeg;base64,${fs.readFileSync(files.join(folder, `phone-${dashboard}-${shape}.jpg`)).toString('base64')}`;
+              } catch {
+                return undefined;
+              }
+            };
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.setHeader('Cache-Control', 'no-store');
+            let seq = 0;
+            const send = () => {
+              const dashboard = (globalThis as { harnessLiveDashboard?: string }).harnessLiveDashboard ?? 'race';
+              const frame = { ...fixture.sampleFrame({ dashboard, image: picture(dashboard) }), seq: seq++, sentAt: Date.now(), receivedAt: Date.now() };
+              res.write(`event: frame\ndata: ${JSON.stringify(frame)}\n\n`);
+            };
+            send();
+            const timer = setInterval(send, 500);
+            req.on('close', () => clearInterval(timer));
+            return;
+          }
           res.setHeader('Content-Type', 'application/json');
           if (path === '/devices' && req.method === 'GET') {
             const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();

@@ -247,6 +247,11 @@ pub struct Lap {
     pub track_length_m: Option<f64>,
     pub car_name: String,
     pub car_class: Option<String>,
+    /// Version 2: the names to show when `track_name` and `car_name` are a game's folder names (Assetto Corsa's
+    /// `ks_laguna_seca`): "Laguna Seca". The names stay the lap's identity; the titles are only what people read
+    /// (`names::fill`).
+    pub track_title: Option<String>,
+    pub car_title: Option<String>,
     pub lap_number: u32,
     pub time_ms: u32,
     pub valid: bool,
@@ -352,7 +357,14 @@ fn is_temperature(value: f64) -> bool {
 /// The header with the keys in the one fixed order writers use, so equal laps give equal bytes. Version 1 leaves out
 /// what only version 2 has.
 fn header_json(lap: &Lap, sample_count: usize, version: u16) -> String {
+    let title = |title: &Option<String>| {
+        title
+            .as_deref()
+            .filter(|t| version >= 2 && is_label(t, 120))
+            .map(|t| format!(",\"title\":{}", string(t)))
+    };
     let mut track = format!("\"name\":{}", string(&lap.track_name));
+    track.extend(title(&lap.track_title));
     if let Some(variant) = &lap.track_variant {
         track.push_str(&format!(",\"variant\":{}", string(variant)));
     }
@@ -360,6 +372,7 @@ fn header_json(lap: &Lap, sample_count: usize, version: u16) -> String {
         track.push_str(&format!(",\"lengthM\":{}", number(length)));
     }
     let mut car = format!("\"name\":{}", string(&lap.car_name));
+    car.extend(title(&lap.car_title));
     if let Some(class) = &lap.car_class {
         car.push_str(&format!(",\"class\":{}", string(class)));
     }
@@ -617,6 +630,8 @@ pub fn unpack(bytes: &[u8]) -> Result<Lap, LapError> {
         track_length_m: header["track"]["lengthM"].as_f64(),
         car_name: text(&header["car"]["name"]).unwrap_or_default(),
         car_class: text(&header["car"]["class"]),
+        track_title: text(&header["track"]["title"]),
+        car_title: text(&header["car"]["title"]),
         lap_number: header["lap"]["number"].as_u64().unwrap_or(0) as u32,
         time_ms: header["lap"]["timeMs"].as_u64().unwrap_or(0) as u32,
         valid: header["lap"]["valid"].as_bool().unwrap_or(false),
@@ -693,6 +708,8 @@ mod tests {
             track_length_m: Some(20.0),
             car_name: "Test Car".into(),
             car_class: Some("GT3".into()),
+            track_title: None,
+            car_title: None,
             lap_number: 2,
             time_ms: 1000,
             valid: true,
@@ -1232,6 +1249,30 @@ mod tests {
         }
         assert_eq!(unpack(&from_hex(GOLDEN_HEX)).unwrap().aids, None);
         assert_eq!(unpack(&from_hex(GOLDEN_V2_HEX)).unwrap().aids, None);
+    }
+
+    #[test]
+    fn titles_go_beside_the_names_in_version_2_and_come_back() {
+        let lap = Lap {
+            track_title: Some("Laguna Seca".into()),
+            car_title: Some("Porsche Macan Turbo".into()),
+            ..golden_v2_lap()
+        };
+        let bytes = pack(&lap).unwrap();
+        let text = String::from_utf8_lossy(&bytes).to_string();
+        assert!(text.contains(r#""track":{"name":"Test Track","title":"Laguna Seca""#), "{text}");
+        assert!(text.contains(r#""car":{"name":"Test Car","title":"Porsche Macan Turbo""#), "{text}");
+        let back = unpack(&bytes).unwrap();
+        assert_eq!((back.track_title, back.car_title), (lap.track_title.clone(), lap.car_title.clone()));
+        // Version 1 has no titles; a lap without them is byte for byte what it was.
+        assert!(!String::from_utf8_lossy(&pack_as(&lap, 1).unwrap()).contains("title"));
+        assert_eq!(unpack(&from_hex(GOLDEN_V2_HEX)).unwrap().track_title, None);
+        // A title the site would refuse (a control character) is left out, never sent.
+        let bad = Lap {
+            car_title: Some("bad\u{7}".into()),
+            ..golden_v2_lap()
+        };
+        assert_eq!(pack(&bad).unwrap(), pack(&golden_v2_lap()).unwrap());
     }
 
     #[test]

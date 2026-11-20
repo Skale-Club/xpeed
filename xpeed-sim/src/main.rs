@@ -45,6 +45,7 @@ mod lapfile;
 mod lmu;
 mod maps;
 mod migrate;
+mod names;
 mod net;
 mod norm;
 mod outbox;

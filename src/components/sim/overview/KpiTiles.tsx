@@ -1,25 +1,40 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowDown, ArrowUp, Minus } from 'lucide-react';
-import { Card } from '@/components/ui/card';
+import { ArrowDown, ArrowUp, Flag, Gamepad2, Map as MapIcon, Minus, Route, Star, Timer, type LucideIcon } from 'lucide-react';
+import { AreaSparkline } from '@/components/ui/chart-kit';
+import { StatTile } from '@/components/ui/stat-tile';
+import { accentColor, type Accent } from '@/lib/chart-theme';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { CHART_PALETTE } from '@/lib/chart-palette';
 import { buildKpis, formatDistance, formatDuration, validShare, type Change, type Kpi, type KpiId } from '@/lib/sim/dashboard';
 import type { V1Stats } from '@/lib/sim/v1-client';
-import { Sparkline } from './parts';
 import { useDashFormat } from './use-format';
 
 const ORDER: readonly KpiId[] = ['laps', 'time', 'distance', 'sessions', 'personalBests', 'tracksCars'];
 /** On a phone four tiles are enough: what you did, not where. */
 const PHONE_ORDER: readonly KpiId[] = ['sessions', 'time', 'laps', 'personalBests'];
 
-/** How the tile says the change: an arrow and a percent in the muted colour (more driving is not good or bad), "n/a" when the period before is empty. */
+/**
+ * Each tile's colour and icon (Dashboards 2027, phase 3, owner 2026-11-20: colour in breaks, not yellow everywhere). Yellow is the
+ * personal bests', because they are records.
+ */
+const LOOK: Record<KpiId, { accent: Accent; icon: LucideIcon }> = {
+  laps: { accent: 'blue', icon: Flag },
+  time: { accent: 'purple', icon: Timer },
+  distance: { accent: 'green', icon: Route },
+  sessions: { accent: 'sky', icon: Gamepad2 },
+  personalBests: { accent: 'yellow', icon: Star },
+  tracksCars: { accent: 'pink', icon: MapIcon },
+};
+
+/** How the tile says the change: a small pill with an arrow and a percent in the muted colour (more driving is not good or bad), "n/a" when the period before is empty. */
+const CHIP = 'inline-flex h-5 shrink-0 items-center gap-0.5 rounded-full bg-foreground/[0.07] px-1.5 text-2xs font-semibold tabular-nums';
+
 function ChangeLine({ change }: { change: Change }) {
   const { t } = useTranslation();
   if (change.trend === 'none') {
     return (
-      <span className="text-xs text-muted-foreground" data-testid="kpi-change" data-trend="none" title={t('modes.overview.dash.changeNoneHint', 'There is nothing in the period before to compare with.')}>
+      <span className={`${CHIP} text-muted-foreground`} data-testid="kpi-change" data-trend="none" title={t('modes.overview.dash.changeNoneHint', 'There is nothing in the period before to compare with.')}>
         {t('modes.overview.dash.changeNone', 'n/a')}
       </span>
     );
@@ -30,7 +45,7 @@ function ChangeLine({ change }: { change: Change }) {
     : change.trend === 'down' ? t('modes.overview.dash.changeDown', '{{percent}}% less than the period before', { percent: change.percent })
     : t('modes.overview.dash.changeSame', 'the same as the period before');
   return (
-    <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground" data-testid="kpi-change" data-trend={change.trend} title={text}>
+    <span className={`${CHIP} text-muted-foreground`} data-testid="kpi-change" data-trend={change.trend} title={text}>
       <Icon className="h-3 w-3" aria-hidden="true" />
       <span aria-hidden="true">{change.percent}%</span>
       <span className="sr-only">{text}</span>
@@ -77,21 +92,29 @@ export function KpiTiles({ stats }: { stats: V1Stats | null }) {
   };
 
   return (
-    <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6" data-testid="kpi-tiles" data-empty={stats ? undefined : 'true'}>
+    // A bento on wider screens: Laps as the big number on the left, two rows of tiles beside it, Tracks & cars spanning the end of the second row.
+    // A phone gets four tiles two by two.
+    <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-3.5 lg:grid-cols-[1.3fr_1fr_1fr_1fr]" data-testid="kpi-tiles" data-empty={stats ? undefined : 'true'}>
       {(mobile ? PHONE_ORDER : ORDER).map((id) => {
         const kpi = kpis?.get(id);
+        const { accent, icon } = LOOK[id];
+        const hero = !mobile && id === 'laps';
         return (
-          <li key={id}>
-            <Card className="h-full space-y-1.5 bg-card p-3" data-testid={`kpi-${id}`}>
-              <p className="truncate text-xs font-medium text-muted-foreground">{labels[id]}</p>
-              <p className="truncate text-xl font-semibold tabular-nums leading-tight" data-testid={`kpi-${id}-value`}>{value(id)}</p>
-              <p className="min-h-4 truncate text-xs text-muted-foreground" data-testid={`kpi-${id}-sub`}>{sub(id) ?? ' '}</p>
-              <div className="flex items-center justify-between gap-2">
-                {kpi ? <ChangeLine change={kpi.change} /> : <span className="text-xs" aria-hidden="true">&nbsp;</span>}
-              </div>
-              {kpi ? <Sparkline values={kpi.series} color={CHART_PALETTE.blue} /> : <div className="h-7 border-b border-dashed border-border" aria-hidden="true" />}
-            </Card>
-          </li>
+          <StatTile
+            key={id}
+            size={hero ? 'hero' : 'feature'}
+            label={labels[id]}
+            value={value(id)}
+            icon={icon}
+            accent={accent}
+            hint={sub(id) ?? undefined}
+            badge={kpi ? <ChangeLine change={kpi.change} /> : undefined}
+            testId={`kpi-${id}`}
+            itemClassName={id === 'tracksCars' ? 'sm:col-span-3 lg:col-span-2' : undefined}
+            footer={kpi
+              ? <AreaSparkline values={kpi.series} color={accentColor(accent)} strong={hero} className={hero ? 'h-24' : 'h-7'} testId="sparkline" />
+              : <div className="h-7 border-b border-dashed border-border" aria-hidden="true" />}
+          />
         );
       })}
     </ul>

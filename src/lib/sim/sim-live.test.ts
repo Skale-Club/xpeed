@@ -113,10 +113,10 @@ describe('POST /api/sim/live', () => {
   it('is 200 with the number of open streams, and keeps the frame for the owner of the device', async () => {
     const first = await post(frame(1));
     expect(first.status).toBe(200);
-    expect(await first.json()).toEqual({ viewers: 0 });
+    expect(await first.json()).toEqual({ viewers: 0, screen: null });
     const s1 = await openStream();
     const s2 = await openStream();
-    expect(await (await post(frame(2))).json()).toEqual({ viewers: 2 });
+    expect(await (await post(frame(2))).json()).toEqual({ viewers: 2, screen: null });
     expect(liveHub.latest('user-ana')?.frame.model).toEqual({ speedKph: 102 });
     expect(liveHub.latest('user-ben')).toBeNull();
     await s1.body!.cancel();

@@ -506,7 +506,7 @@ pub(super) struct Toolbar {
 /// in two (the title, then the buttons sharing the width) when the window is narrow.
 pub(super) fn edit_toolbar(width: i32, scale: f32) -> Toolbar {
     let p = |v: f32| (v * scale).round() as i32;
-    let (left, right, top) = (p(S4), width - p(S4), p(HEADER_H));
+    let (left, right, top) = (content_left(scale) + p(S4), width - p(S4), p(HEADER_H));
     let (gap, h) = (p(S2), p(EDIT_BTN_H));
     if width as f32 / scale >= EDIT_ONE_ROW_W {
         let bar_h = p(EDIT_BAR_H);

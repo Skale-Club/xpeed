@@ -3,10 +3,11 @@
 //! app). Off unless the person switches "Show the panel on my phone" on in the tray menu.
 //!
 //! A frame is the dashboard in use, its rows as the widget ids of the catalog (the cards the game can fill, the pairs as the
-//! dashboard defines them) and the same model the panel draws, as JSON. How a frame is built lives next to the panel's model
+//! dashboard defines them) and the same model the panel draws, as JSON, and, while a phone is watching, the picture of the panel
+//! drawn for that phone's screen (the server's answer says the screen's size). How a frame is built lives next to the panel's model
 //! (`panel::Relay`); this file decides when to send, sends, and looks after the failures.
 //!
-//! A thread of its own, looked after by the supervisor like the heartbeat, builds and sends a frame about ten times a second while
+//! A thread of its own, looked after by the supervisor like the heartbeat, builds and sends a frame five times a second while
 //! the last answer said a phone is watching, and every two seconds otherwise (that slow frame is how the server learns, and tells
 //! back, that a phone opened the page). With no game live nothing is sent. The connection is kept between frames. A refused key ends
 //! the thread (the uploader says so to the person); a frame the server will not take is skipped; a rate limit waits as long as the
@@ -16,7 +17,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
@@ -27,8 +28,8 @@ use crate::net::{self, SendError};
 use crate::status::Shared;
 use crate::supervisor::{self, supervise, Policy};
 
-/// The time between frames while a phone is watching.
-pub const FAST: Duration = Duration::from_millis(100);
+/// The time between frames while a phone is watching: five a second, each with the panel's picture (about 50 to 80 KB).
+pub const FAST: Duration = Duration::from_millis(200);
 /// The time between frames while none is: the server's answer to each says whether one has opened the page.
 pub const SLOW: Duration = Duration::from_secs(2);
 /// How often the thread looks for a game to show while there is none.
@@ -40,8 +41,8 @@ pub const WAITS: [Duration; 4] = [
     Duration::from_secs(5),
     Duration::from_secs(10),
 ];
-/// The most a frame may weigh (the server refuses more).
-pub const MAX_BYTES: usize = 64 * 1024;
+/// The most a frame may weigh (the server refuses more): the picture of the panel is most of it.
+pub const MAX_BYTES: usize = 256 * 1024;
 /// The longest the thread waits before it looks at whether it was told to stop.
 const LOOK: Duration = Duration::from_millis(250);
 
@@ -52,10 +53,33 @@ pub struct Frame {
     pub game: String,
     /// The dashboard in use: `race`, `qualifying`, `practice` or `time_trial`.
     pub dashboard: &'static str,
-    /// The rows of the phone's layout, each the widget ids of its cards, left to right.
+    /// The rows of the phone's layout, each the widget ids of its cards, left to right (what a page of before the picture draws).
     pub rows: Vec<Vec<&'static str>>,
+    /// The panel drawn for the watching phone's screen, as a JPEG data URL; none while no phone is watching.
+    pub image: Option<String>,
     /// The panel's dashboard model, as JSON.
     pub model: Value,
+}
+
+/// The room a watching phone gives the panel: its size in CSS pixels and its pixels per CSS pixel (the server's answer to a frame
+/// says it, from the page that opened the stream).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Screen {
+    pub w: u32,
+    pub h: u32,
+    pub dpr: f32,
+}
+
+/// The screen of the phone watching now, as the last answer said; none while no phone is watching.
+static SCREEN: Mutex<Option<Screen>> = Mutex::new(None);
+
+/// The screen to draw the picture for, while a phone is watching.
+pub fn screen() -> Option<Screen> {
+    *SCREEN.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn set_screen(screen: Option<Screen>) {
+    *SCREEN.lock().unwrap_or_else(|e| e.into_inner()) = screen;
 }
 
 /// Builds the frame for what the panel shows now, or nothing when no game is live.
@@ -70,7 +94,7 @@ pub fn valid_game(id: &str) -> bool {
 
 /// The body of one request, or nothing when the frame is too big to send.
 pub fn body(seq: u64, sent_at_ms: i64, frame: &Frame) -> Option<String> {
-    let text = json!({
+    let mut value = json!({
         "v": 1,
         "seq": seq,
         "sentAt": sent_at_ms,
@@ -78,8 +102,11 @@ pub fn body(seq: u64, sent_at_ms: i64, frame: &Frame) -> Option<String> {
         "dashboard": frame.dashboard,
         "rows": frame.rows,
         "model": frame.model,
-    })
-    .to_string();
+    });
+    if let Some(image) = &frame.image {
+        value["image"] = Value::String(image.clone());
+    }
+    let text = value.to_string();
     (text.len() <= MAX_BYTES).then_some(text)
 }
 
@@ -207,8 +234,8 @@ enum Step {
     /// No game to show.
     Idle,
     TooBig,
-    /// Taken; this many phones are watching.
-    Sent(u32),
+    /// Taken; this many phones are watching, the last one on this screen.
+    Sent(u32, Option<Screen>),
     /// The server refused the key.
     Unauthorized,
     Refused(String),
@@ -223,7 +250,7 @@ fn send_one(agent: &ureq::Agent, config: &Config, shared: &Shared, build: &Build
         return Step::TooBig;
     };
     match net::post_live(agent, config, &text) {
-        Ok(viewers) => Step::Sent(viewers),
+        Ok((viewers, screen)) => Step::Sent(viewers, screen),
         Err(SendError::Unauthorized) => Step::Unauthorized,
         Err(SendError::Rejected(reason)) => Step::Refused(reason),
         Err(SendError::Later { reason, after }) => Step::Later(reason, after),
@@ -267,9 +294,10 @@ fn run_loop(
                     shared.set_phone_viewers(0);
                     say(notes.too_big());
                 }
-                Step::Sent(viewers) => {
+                Step::Sent(viewers, screen) => {
                     schedule.sent(begun, clock(), viewers);
                     shared.set_phone_viewers(viewers);
+                    set_screen(screen.filter(|_| viewers > 0));
                     say(notes.success());
                 }
                 Step::Unauthorized => {
@@ -292,6 +320,7 @@ fn run_loop(
         match rx.recv_timeout(schedule.wait(clock()).min(LOOK)) {
             Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => {
                 shared.set_phone_viewers(0);
+                set_screen(None);
                 return;
             }
             Err(RecvTimeoutError::Timeout) => {}
@@ -357,6 +386,7 @@ mod tests {
             game: "lmu".into(),
             dashboard: "race",
             rows: vec![vec!["times"], vec!["session", "flag"]],
+            image: Some("data:image/jpeg;base64,AAAA".into()),
             model: json!({ "gear": { "text": "3" }, "speed": { "text": "212" } }),
         }
     }
@@ -399,6 +429,11 @@ mod tests {
         assert_eq!(value["game"], "lmu");
         assert_eq!(value["dashboard"], "race");
         assert_eq!(value["rows"], json!([["times"], ["session", "flag"]]));
+        assert_eq!(value["image"], "data:image/jpeg;base64,AAAA");
+        let mut plain = frame();
+        plain.image = None;
+        let value: Value = serde_json::from_str(&body(1, 0, &plain).unwrap()).unwrap();
+        assert!(value.get("image").is_none(), "no picture while no phone is watching");
         assert_eq!(value["model"]["gear"]["text"], "3");
         let mut big = frame();
         big.model = json!({ "pad": "x".repeat(MAX_BYTES) });
@@ -414,20 +449,20 @@ mod tests {
     }
 
     #[test]
-    fn a_frame_every_two_seconds_without_viewers_and_ten_a_second_with_them() {
+    fn a_frame_every_two_seconds_without_viewers_and_five_a_second_with_them() {
         let mut schedule = Schedule::standard();
         assert!(schedule.due(0), "the first frame goes at once");
         schedule.sent(0, 30, 0);
         assert!(!schedule.due(1_999));
         assert!(schedule.due(2_000), "2 s after the one before, not after its answer");
-        // A phone opens the page: the answer says so, and the pace is 100 ms.
+        // A phone opens the page: the answer says so, and the pace is 200 ms.
         schedule.sent(2_000, 2_030, 1);
-        assert!(!schedule.due(2_099));
-        assert!(schedule.due(2_100));
-        schedule.sent(2_100, 2_130, 2);
-        assert_eq!(schedule.wait(2_130), Duration::from_millis(70));
+        assert!(!schedule.due(2_199));
+        assert!(schedule.due(2_200));
+        schedule.sent(2_200, 2_230, 2);
+        assert_eq!(schedule.wait(2_230), Duration::from_millis(170));
         // A slow answer is not followed by a burst: the next is due as soon as it came.
-        schedule.sent(2_200, 2_650, 2);
+        schedule.sent(2_400, 2_650, 2);
         assert!(schedule.due(2_650));
         assert_eq!(schedule.wait(2_650), Duration::ZERO);
         // The last phone closes the page.
@@ -480,7 +515,7 @@ mod tests {
         assert_eq!(notes.failure("again"), None);
         assert!(notes.success().is_some());
         assert_eq!(notes.success(), None);
-        assert!(notes.too_big().unwrap().contains("64 KB"));
+        assert!(notes.too_big().unwrap().contains("256 KB"));
         assert_eq!(notes.too_big(), None);
         assert!(notes.refused("refused (413)").is_some());
         assert_eq!(notes.refused("refused (413)"), None);

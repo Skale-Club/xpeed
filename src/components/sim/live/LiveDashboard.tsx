@@ -6,6 +6,14 @@ import { WidgetSlot } from './LiveWidgets';
 
 export function LiveDashboard({ frame }: { frame: LiveFrame }) {
   const { rows, model } = frame;
+  // Xpeed Companion 0.16+ draws the panel itself for this screen: shown as it is, nothing redrawn here.
+  if (frame.image) {
+    return (
+      <div className="flex h-full w-full items-center justify-center" data-testid="live-dashboard" data-dashboard={frame.dashboard}>
+        <img src={frame.image} alt="" className="max-h-full max-w-full object-contain" data-testid="live-picture" draggable={false} />
+      </div>
+    );
+  }
   const banner = model.banner;
   return (
     <div className="space-y-2" data-testid="live-dashboard" data-dashboard={frame.dashboard}>

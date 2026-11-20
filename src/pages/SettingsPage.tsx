@@ -3,7 +3,7 @@ import { AppVersion } from '@/components/AppVersion';
 import { lazy, Suspense, useState, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
-import { Settings, Globe, Info, Smartphone, Wrench, Save, Loader2 } from 'lucide-react';
+import { Globe, Info, Smartphone, Wrench, Save, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import { holdAppUpdates } from '@/lib/pwa-update';
@@ -102,7 +102,7 @@ export default function SettingsPage() {
     <AppLayout refreshDisabled={dirty || saving}>
       <UnsavedChangesGuard dirty={dirty} />
       <div className="space-y-4">
-        <PageHeader icon={Settings} title={t('settings.title', 'Settings')} />
+        <PageHeader size="lg" title={t('settings.title', 'Settings')} />
 
         {/* Draft preferences are applied only after Save. */}
         <Card className="bg-card border-border">

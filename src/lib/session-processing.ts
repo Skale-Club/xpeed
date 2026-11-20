@@ -32,7 +32,7 @@ export function sessionProcessingPayload(session: Session, car: CarProfile | nul
     duration_seconds: durationSeconds ?? null, active_dtcs: parsed.activeDtcs,
     summary: {
       faultCodes: session.summary?.faultCodes ?? null,
-      fuel: calculateFuelMetrics(parsed),
+      fuel: calculateFuelMetrics(parsed, car?.engine_type),
       summaries, headerMapping: parsed.headerMapping, timeColumn: parsed.timeColumn,
       rulesetId: ruleset.id, rulesetMatchedVia: ruleset.matched_via,
       // Preserve the original paid analysis in storage; do not present it as current.

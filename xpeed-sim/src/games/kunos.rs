@@ -66,7 +66,7 @@
 //!   `trackConfiguration` (offset 524). Those offsets come from the Competizione document, whose header marks them
 //!   "not used in ACC" (so Assetto Corsa is the game that fills them); they are not checked against a live game.
 //!
-//! # What version 2 of the lap file takes from Assetto Corsa (`ac` only; Competizione and Rally give none of it)
+//! # What version 2 of the lap file takes from Assetto Corsa (`ac` only; Rally gives none of it, Competizione only the session)
 //!
 //! * `accG` (physics 44, 48, 52: sideways, up, along the car) becomes `g_lat` (x) and `g_long` (z). The sign is taken as
 //!   the game writes it (x positive to the right, z positive forward, as the game's own axes are); not checked against
@@ -75,7 +75,8 @@
 //!   unset page holds and says nothing. `brakeTemp[4]` (physics 348) fills the brake temperatures (Competizione's document has it at the same
 //!   place: its fields sum to the same offset, so it is read there too).
 //! * `session` (graphics 8: -1 unknown, 0 practice, 1 qualify, 2 race, 3 hotlap, 4 time attack, 5 drift, 6 drag) becomes
-//!   the session kind (hotlap and time attack count as practice, drift and drag as unknown) and `tyreCompound`
+//!   the session kind (hotlap and time attack count as practice, with `time_trial` set so the panel shows a hot lap;
+//!   drift and drag as unknown) and `tyreCompound`
 //!   (graphics 176, 33 UTF-16 characters) the tyre compound.
 //! * Sectors: `currentSectorIndex` (graphics 164) and `lastSectorTime` (graphics 168, milliseconds) are read only when
 //!   the track has three sectors (`sectorCount`, static 400). The time at each change of sector gives the first two
@@ -84,6 +85,10 @@
 //!   sectors that do not leave a third.
 //! * Not given: the weather (the page has none), the tread left (no documented unit), the tyres' pressure and core
 //!   temperature are the ones read already.
+//!
+//! Competizione gives one of these: its `session` (same place, Kunos' document v1.8.12, `ACC_SESSION_TYPE`: Assetto
+//! Corsa's numbers plus 7 hotstint and 8 hotlap superpole). Hotlap, time attack and hotstint are practice and the
+//! superpole qualifying, all four with `time_trial` set.
 //!
 //! # Not checked against a live game
 //!
@@ -346,6 +351,7 @@ impl Family {
                 .or(Caps::TC_LEVEL)
                 .or(Caps::ABS_LEVEL)
                 .or(Caps::FLAG)
+                .or(Caps::SESSION_KIND)
                 .or(Caps::RIVALS)
                 .or(Caps::RIVALS_WORLD),
             Family::Acr => shared,
@@ -603,6 +609,22 @@ fn session_kind_of(session: i32) -> Option<SessionKind> {
     }
 }
 
+/// Assetto Corsa's hotlap (3) and time attack (4): the panel shows them as a hot lap, not as practice.
+fn is_time_trial(session: i32) -> bool {
+    matches!(session, 3 | 4)
+}
+
+/// Competizione's `session` (graphics 8, `ACC_SESSION_TYPE` in Kunos' document): Assetto Corsa's numbers, plus hotstint
+/// (7) and hotlap superpole (8). Hotlap, time attack and hotstint are laps alone (practice, shown as a hot lap); the
+/// superpole is a single-lap qualifying, also alone on track (qualifying, shown as a hot lap).
+fn acc_session_of(session: i32) -> (Option<SessionKind>, bool) {
+    match session {
+        3 | 4 | 7 => (Some(SessionKind::Practice), true),
+        8 => (Some(SessionKind::Qualifying), true),
+        other => (session_kind_of(other), false),
+    }
+}
+
 /// Competizione's coordinates of the player's own car: the slot of `carID` that is `playerCarID`.
 fn acc_player_position(g: &Page) -> Option<[f32; 3]> {
     let active = usize::try_from(g.i32_at(GFX_ACC_ACTIVE_CARS)).ok()?.min(MAX_CARS);
@@ -826,6 +848,7 @@ fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Fra
             f.track_temp_c = Some(road).filter(|c| c.is_finite() && (-60.0..=100.0).contains(c));
         }
         f.session_kind = session_kind_of(g.i32_at(GFX_SESSION));
+        f.time_trial = is_time_trial(g.i32_at(GFX_SESSION));
         f.aids = ac_aids(p, g, s);
         f.tyre_compound = Some(g.utf16_at(GFX_TYRE_COMPOUND, 33)).filter(|c| !c.is_empty());
     }
@@ -856,6 +879,7 @@ fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Fra
             f.track_variant = (!variant.is_empty() && variant.chars().all(|c| !c.is_control())).then_some(variant);
         }
         Family::Acc => {
+            (f.session_kind, f.time_trial) = acc_session_of(g.i32_at(GFX_SESSION));
             f.in_pits |= g.i32_at(GFX_ACC_IS_IN_PIT_LANE) != 0;
             f.lap_valid = match g.i32_at(GFX_ACC_IS_VALID_LAP) {
                 0 => Some(false),
@@ -1793,6 +1817,37 @@ mod tests {
             (7, None),
         ] {
             assert_eq!(session_kind_of(n), want, "session {n}");
+            assert_eq!(
+                is_time_trial(n),
+                n == 3 || n == 4,
+                "session {n}: only hotlap and time attack are a hot lap"
+            );
+        }
+    }
+
+    #[test]
+    fn competizione_sessions_alone_on_track_are_a_hot_lap() {
+        for (n, want) in [
+            (-1, (None, false)),
+            (0, (Some(SessionKind::Practice), false)),
+            (1, (Some(SessionKind::Qualifying), false)),
+            (2, (Some(SessionKind::Race), false)),
+            (3, (Some(SessionKind::Practice), true)),
+            (4, (Some(SessionKind::Practice), true)),
+            (5, (Some(SessionKind::Unknown), false)),
+            (7, (Some(SessionKind::Practice), true)),
+            (8, (Some(SessionKind::Qualifying), true)),
+            (9, (None, false)),
+        ] {
+            assert_eq!(acc_session_of(n), want, "session {n}");
+        }
+        // End to end: a hotlap in Competizione, and one in Assetto Corsa.
+        for (exe, version) in [("AC2-Win64-Shipping.exe", "1.8.12"), ("acs.exe", "1.7")] {
+            let sim = Sim::live(version);
+            sim.gfx_i32(GFX_SESSION, 3);
+            let exes: &'static [&'static str] = Box::leak(vec![exe].into_boxed_slice());
+            let f = open_sim(&sim, processes(exes)).next(SOON).expect("a frame");
+            assert_eq!((f.session_kind, f.time_trial), (Some(SessionKind::Practice), true), "{exe}");
         }
     }
 
@@ -1811,11 +1866,10 @@ mod tests {
             let mut source = open_sim(&sim, processes(exes));
             let f = source.next(SOON).expect("a frame");
             assert_eq!((f.g_lat, f.g_long), (None, None), "{exe}");
-            assert_eq!(
-                (f.air_temp_c, f.track_temp_c, f.session_kind, f.tyre_compound.clone()),
-                (None, None, None, None),
-                "{exe}"
-            );
+            assert_eq!((f.air_temp_c, f.track_temp_c, f.tyre_compound.clone()), (None, None, None), "{exe}");
+            // The session is the one thing Competizione gives (its own document has it); Rally gives none.
+            let session = if exe == "acr.exe" { None } else { Some(SessionKind::Race) };
+            assert_eq!(f.session_kind, session, "{exe}");
             assert_eq!(f.sectors_ms, [None, None], "{exe}");
             // Competizione's document has `brakeTemp` where Assetto Corsa's layout does (read there since the tyre and brake
             // temperatures were taken from both); Rally's copy stops before it.

@@ -1,14 +1,16 @@
-//! The Xpeed Companion window. It has two tabs:
+//! The Xpeed Companion window. A sidebar of icon buttons down its left edge picks one of three screens (the mouse on a
+//! button names it):
 //!
 //! * **Dashboard:** speed, gear, revs, pedals, wheel, fuel, the lap time and the gap to the best lap, live, for
 //!   someone who wants a screen beside the game without SimHub.
-//! * **Monitor:** what the program is doing: each game's reader, the account, the laps saved and the last lines of
-//!   the log.
+//! * **Monitor:** what the program is doing: each game's reader, the laps saved and what happened.
+//! * **Settings:** the account, updates, the language, the units, the switches the tray menu also has and the support
+//!   button.
 //!
 //! It is drawn with plain GDI into an off-screen bitmap 30 times a second, so it costs little next to a running
 //! game and needs nothing installed. The window follows the DPI of its screen (it is made per-monitor DPI aware on its
 //! own; the rest of the program is unchanged). Drawing (`paint`) only reads a `View`, so it is checked without a
-//! window: a test paints both tabs into a bitmap.
+//! window: a test paints every screen into a bitmap.
 //!
 //! Closing the window only closes the window; the program keeps recording from the tray.
 
@@ -91,6 +93,7 @@ mod paint;
 mod perspective_paint;
 mod preview;
 mod relay;
+mod settings_view;
 #[cfg(test)]
 mod tests;
 mod tokens;
@@ -116,6 +119,7 @@ use model::*;
 use monitor_view::*;
 use paint::*;
 use preview::*;
+use settings_view::*;
 #[cfg(test)]
 use relay::*;
 use tokens::*;
@@ -130,5 +134,5 @@ use workspace_menu::*;
 pub(crate) use coach_look::*;
 pub use demo::demo;
 pub(crate) use relay::Relay;
-pub use view::{Account, Context};
+pub use view::{Account, Context, Pref, Prefs, UnitKind};
 pub use window::show;

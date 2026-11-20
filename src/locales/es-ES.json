@@ -441,9 +441,39 @@
     "live": "En vivo",
     "navigation": "Menú",
     "issues": "Problemas",
-    "more": "Más"
+    "more": "Más",
+    "language": "Idioma",
+    "trail": "Estás aquí",
+    "goTo": "Ir a…",
+    "goToTitle": "Ir a una página",
+    "goToPlaceholder": "Escribe el nombre de una página",
+    "goToEmpty": "Ninguna página con ese nombre.",
+    "groups": {
+      "car": "Tu coche",
+      "health": "Salud",
+      "records": "Registros",
+      "garage": "Garaje",
+      "driving": "Pilotaje",
+      "community": "Comunidad"
+    }
   },
   "modes": {
+    "assistant": {
+      "title": "Asistente de carreras",
+      "subtitle": "Tus vueltas, sesiones y Xpeed Companion",
+      "open": "Preguntar al asistente de carreras",
+      "welcome": "Pregunta sobre tus carreras",
+      "intro": "Puedo revisar tus sesiones recientes, tus récords y tus objetivos de entrenamiento, sugerirte qué practicar y ayudarte con Xpeed Companion. Para ver una sesión en detalle, ábrela y usa su Entrenador de sesión.",
+      "placeholder": "Pregunta sobre tus carreras…",
+      "questions": {
+        "practice": "¿Qué debería practicar ahora?",
+        "progress": "¿Cómo han ido mis últimas sesiones?",
+        "companion": "Mis vueltas no llegan. ¿Qué debo revisar?"
+      },
+      "contextNotFound": "Esta conversación ya no está disponible.",
+      "notConfigured": "El asistente de carreras aún no está disponible.",
+      "replyFailed": "El asistente de carreras no ha podido responder ahora. Inténtalo de nuevo en un momento."
+    },
     "coach": {
       "title": "Entrenador de sesión",
       "description": "Pregunta sobre tus tiempos de vuelta y de sector y analiza la frenada y la aceleración si hay telemetría.",
@@ -863,6 +893,19 @@
         "kpiValidNone": "aún sin vueltas",
         "kpiTracksN_one": "{{count}} circuito",
         "kpiTracksN_other": "{{count}} circuitos",
+        "eyebrow7d": "Tu pilotaje · últimos 7 días",
+        "eyebrow30d": "Tu pilotaje · últimos 30 días",
+        "eyebrow90d": "Tu pilotaje · últimos 90 días",
+        "eyebrow1y": "Tu pilotaje · últimos 12 meses",
+        "eyebrowAll": "Tu pilotaje · todo el periodo",
+        "summary": "{{laps}} en {{sessions}} y {{bests}}.",
+        "busiestName": "Día con más vueltas",
+        "summaryLaps_one": "{{count}} vuelta",
+        "summaryLaps_other": "{{count}} vueltas",
+        "summarySessions_one": "{{count}} sesión",
+        "summarySessions_other": "{{count}} sesiones",
+        "summaryBests_one": "{{count}} récord personal",
+        "summaryBests_other": "{{count}} récords personales",
         "kpiCarsN_one": "{{count}} coche",
         "kpiCarsN_other": "{{count}} coches",
         "activity": "Actividad",
@@ -1727,7 +1770,9 @@
       "90d": "Últimos 3 meses",
       "all": "Todo el tiempo",
       "none": "Ningún viaje en este periodo."
-    }
+    },
+    "yourCar": "Tu coche a lo largo del tiempo",
+    "yourCarHint": "Las lecturas clave de tu último viaje y cómo cambiaron de un viaje a otro."
   },
   "history": {
     "title": "Viajes",
@@ -1804,7 +1849,43 @@
     "fuelPartial": "Solo se grabó una parte de este viaje, así que este es el combustible de esa parte.",
     "fuelEconomy": "Consumo medio del viaje",
     "fuelUnavailable": "El coche no informó el consumo en este viaje.",
-    "fuelCostHint": "Indica el precio del combustible para ver cuánto costó este viaje."
+    "fuelCostHint": "Indica el precio del combustible para ver cuánto costó este viaje.",
+    "fuelAirFlow": "Tu coche no informa del consumo, así que esto se calcula a partir del flujo de aire del motor ({{coverage}} del viaje)."
+  },
+  "tripDash": {
+    "seconds": "{{count}} s",
+    "topSpeed": "Velocidad máxima",
+    "fuelUsed": "Combustible usado",
+    "partOfTrip": "Parte del viaje",
+    "speedTitle": "Velocidad",
+    "speedChart": "Velocidad a lo largo del viaje",
+    "avg": "media",
+    "movingAvg": "Media en movimiento",
+    "mixTitle": "En qué se fue el tiempo",
+    "mix": {
+      "stopped": "Parado",
+      "town": "Ciudad · hasta {{v}} {{unit}}",
+      "road": "Carretera · {{a}}–{{b}} {{unit}}",
+      "motorway": "Autovía · más de {{v}} {{unit}}"
+    },
+    "stops": "Paradas",
+    "hardBrakes": "Frenazos",
+    "hardAccels": "Acelerones",
+    "engineTitle": "Motor",
+    "startedWarm": "El motor ya estaba caliente ({{temp}}).",
+    "warmAfter": "Se calentó tras {{time}}.",
+    "neverWarm": "No llegó a calentarse del todo (máxima {{temp}}). Los viajes cortos así desgastan más el motor.",
+    "coolantChart": "Temperatura del motor",
+    "warm": "caliente",
+    "maxCoolant": "Temperatura máxima",
+    "maxRpm": "RPM máximas",
+    "idle": "Motor al ralentí",
+    "hybridTitle": "Sistema híbrido",
+    "electricShare": "del tiempo en movimiento fue solo eléctrico, con el motor apagado",
+    "socChart": "Carga de la batería híbrida",
+    "socStartEnd": "Carga al inicio → final",
+    "socRange": "Mínima – máxima",
+    "noSpeed": "Tu coche no informó de la velocidad en este viaje, así que no hay panel de velocidad."
   },
   "sharing": {
     "confirmTitle": "¿Crear un enlace público?",
@@ -2606,7 +2687,11 @@
       "invalid": "Elige una foto JPG, PNG o WebP de hasta 12 MB.",
       "tooLarge": "La foto es demasiado grande. Recórtala o toma otra con menor resolución.",
       "failed": "No se pudo leer la foto. Inténtalo de nuevo o introduce los valores manualmente."
-    }
+    },
+    "costAirFlow": "Según el combustible calculado a partir del flujo de aire del motor en este viaje.",
+    "priceFirstSaved": "el primer precio que guardaste ({{date}})",
+    "setPriceForCost": "Indica el precio del combustible una vez y cada viaje mostrará lo que costó.",
+    "noTripFuel": "Tu coche no informó de cuánto combustible usó este viaje, así que no se puede calcular su coste. Los repostajes guardados con depósito lleno y el cuentakilómetros permiten estimarlo."
   },
   "hybrid": {
     "title": "Sistema híbrido",

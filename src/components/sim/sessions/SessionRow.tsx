@@ -14,8 +14,9 @@ import type { V1Pb, V1Session } from '@/lib/sim/v1-client';
 import { CHART_PALETTE } from '@/lib/chart-palette';
 import { GameBadge, KindBadge } from '../session-bits';
 import { SimCarIdentity } from '../SimCarIdentity';
+import { TrackLayoutThumb } from '../TrackLayoutThumb';
 import { useDashFormat } from '../overview/use-format';
-import { useConditions, useOrigin } from '../use-session-text';
+import { useConditions } from '../use-session-text';
 import { useInView } from './use-in-view';
 import { useTimeOfDay } from './use-time-of-day';
 import { useSessionPreview } from './use-session-preview';
@@ -61,7 +62,6 @@ function SessionRowView({ session, pb, pbsReady }: { session: V1Session; pb: V1P
   const timeOfDay = useTimeOfDay();
   const format = useDashFormat();
   const conditions = useConditions();
-  const origin = useOrigin();
   const { ref, seen } = useInView<HTMLLIElement>();
   const preview = useSessionPreview(session.id, seen);
   const laps = preview.data?.laps ?? null;
@@ -78,12 +78,17 @@ function SessionRowView({ session, pb, pbsReady }: { session: V1Session; pb: V1P
           <div className="flex gap-3 p-3 sm:p-4">
             <GameCover game={session.game} className="w-16 sm:w-20" testId="session-cover" />
             <div className="min-w-0 flex-1 space-y-2.5">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <h3 className="truncate text-sm font-semibold sm:text-base">{session.track.name}</h3>
-                  <SimCarIdentity name={session.car.name} className="text-sm text-muted-foreground" />
+              {/* On a phone the game and the kind get their own line above the track, so the track name is never squeezed to a few letters. */}
+              <div className="flex flex-col-reverse gap-1.5 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
+                <div className="flex min-w-0 items-center gap-3">
+                  <TrackLayoutThumb trackId={session.track.id} name={session.track.name} className="h-11 w-11" />
+                  <div className="min-w-0">
+                    <h3 className="truncate text-sm font-semibold sm:text-base">{session.track.name}</h3>
+                    <SimCarIdentity name={session.car.name} className="text-sm text-muted-foreground" />
+                  </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-1.5">
+                <div className="flex min-w-0 shrink-0 items-center gap-1.5">
+                  <GameBadge game={session.game} cover={false} />
                   <KindBadge kind={session.kind} />
                   <ChevronRight className="hidden h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 sm:block" aria-hidden="true" />
                 </div>
@@ -91,9 +96,7 @@ function SessionRowView({ session, pb, pbsReady }: { session: V1Session; pb: V1P
 
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                 <span data-testid="session-time">{timeOfDay(Date.parse(session.startedAt))}</span>
-                <GameBadge game={session.game} />
                 {weather && <span data-testid="session-conditions">{weather}</span>}
-                <span data-testid="session-origin">{origin(session.origin)}</span>
               </div>
 
               <dl className="grid grid-cols-2 items-end gap-x-4 gap-y-2.5 border-t border-border pt-2.5 sm:grid-cols-4">

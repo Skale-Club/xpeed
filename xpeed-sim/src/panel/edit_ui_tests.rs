@@ -450,7 +450,7 @@ fn a_point_of_the_window_is_a_button_a_row_a_cross_a_canvas_point_or_the_header(
     let mut ui = race_wide();
     let bar = edit_toolbar(w, scale);
     let plan = ui.plan();
-    let body = rect(16, (HEADER_H * scale) as i32, w - 16, h - 16);
+    let body = rect(content_left(scale) + 16, (HEADER_H * scale) as i32, w - 16, h - 16);
     let area_below = rect(body.left, bar.band.bottom + 8, body.right, body.bottom);
     let xf = canvas_fit_wh(area_below, plan.w, plan.h);
     let hit = |ui: &EditUi, x: i32, y: i32| edit_hit(ui, (w, h), scale, xf, x, y);

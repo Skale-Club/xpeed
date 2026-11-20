@@ -19,6 +19,7 @@ import { CardGridSkeleton, NoResults, SearchField, SummaryStrip } from './garage
 import { Sparkline, Quiet } from './overview/parts';
 import { useDashFormat } from './overview/use-format';
 import { GameBadge } from './session-bits';
+import { GameCover } from './GameCover';
 import { SimCarIdentity } from './SimCarIdentity';
 import { CompanionInvite, LoadMore, QueryGate } from './SimStates';
 import { useWhen } from './use-when';
@@ -47,16 +48,21 @@ function CarCard({ car, today }: { car: V1CarItem; today: string }) {
     <Link ref={attach} to={carPath(car.id)} className="block rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="car-link">
       <Card className="h-full bg-card border-border transition-colors hover:bg-muted/30" data-testid="cars-car">
         <CardContent className="space-y-3 p-4">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0 space-y-1.5">
-              <div className="min-w-0 text-base font-semibold"><SimCarIdentity name={car.name} logoClassName="h-8 w-8" /></div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <GameBadge game={car.game} />
-                {car.class && <Badge variant="outline" data-testid="car-class">{car.class}</Badge>}
-                {brand && <span className="text-xs text-muted-foreground" data-testid="car-brand">{brand}</span>}
+          <div className="flex items-start gap-3">
+            <GameCover game={car.game} className="w-14" testId="car-cover" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <GameBadge game={car.game} cover={false} />
+                <ChevronRight className="hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" aria-hidden="true" />
               </div>
+              <div className="min-w-0 text-base font-semibold"><SimCarIdentity name={car.name} logoClassName="h-8 w-8" /></div>
+              {(car.class || brand) && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {car.class && <Badge variant="outline" data-testid="car-class">{car.class}</Badge>}
+                  {brand && <span className="text-xs text-muted-foreground" data-testid="car-brand">{brand}</span>}
+                </div>
+              )}
             </div>
-            <ChevronRight className="mt-1 hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" aria-hidden="true" />
           </div>
 
           <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs md:grid-cols-3 md:gap-2">

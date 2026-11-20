@@ -198,7 +198,7 @@ function CarHistory() {
   return (
     <AppLayout>
       <Tabs value={view} onValueChange={changeView}>
-        <PageHeader
+        <PageHeader size="lg"
           title={t('history.title', 'Trips')}
           description={selectedCar?.name}
           actions={

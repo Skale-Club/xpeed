@@ -14,6 +14,7 @@ import type { V1Session } from '@/lib/sim/v1-client';
 import { temperatureValue } from '@/lib/temperature';
 import { GameBadge, KindBadge } from '../session-bits';
 import { SimCarIdentity } from '../SimCarIdentity';
+import { TrackLayoutThumb } from '../TrackLayoutThumb';
 import { useDashFormat } from '../overview/use-format';
 import { useOrigin } from '../use-session-text';
 import { useWhen } from '../use-when';
@@ -53,17 +54,20 @@ export function SessionHero({ session, lapCount, shareLabel, onDelete, deleting 
         <GameCover game={session.game} className="hidden w-14 sm:inline-block" testId="session-cover" />
         <div className="min-w-0 flex-1 space-y-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0 space-y-1.5">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <KindBadge kind={session.kind} />
-                <GameBadge game={session.game} />
+            <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+              <TrackLayoutThumb trackId={session.track.id} name={session.track.name} className="h-16 w-16 sm:h-20 sm:w-20" />
+              <div className="min-w-0 space-y-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <KindBadge kind={session.kind} />
+                  <GameBadge game={session.game} />
+                </div>
+                <h2 className="truncate text-xl font-bold leading-tight sm:text-2xl">
+                  <Link to={trackPath(session.track.id)} className="hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="session-track-link">{session.track.name}</Link>
+                </h2>
+                <Link to={carPath(session.car.id)} className="inline-flex min-w-0 hover:underline" data-testid="session-car-link">
+                  <SimCarIdentity name={session.car.name} className="text-sm text-muted-foreground" />
+                </Link>
               </div>
-              <h2 className="truncate text-xl font-bold leading-tight sm:text-2xl">
-                <Link to={trackPath(session.track.id)} className="hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="session-track-link">{session.track.name}</Link>
-              </h2>
-              <Link to={carPath(session.car.id)} className="inline-flex min-w-0 hover:underline" data-testid="session-car-link">
-                <SimCarIdentity name={session.car.name} className="text-sm text-muted-foreground" />
-              </Link>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <ShareButton target={{ sessionId: session.id }} label={shareLabel} />

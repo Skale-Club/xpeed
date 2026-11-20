@@ -196,8 +196,14 @@ export interface LiveFrame {
   dashboard?: string;
   /** Each row is one or two widget ids, side by side. */
   rows: string[][];
+  /** The panel drawn by Xpeed Companion for this phone's screen (a JPEG data URL): shown as it is, in place of the rows. A Companion before
+   *  0.16 sends none. */
+  image?: string;
   model: DashModel;
 }
+
+/** The room the page has for the panel, which it tells the server so the Companion draws the picture for it. */
+export interface LiveScreen { w: number; h: number; dpr: number }
 
 /** A frame as the stream delivers it, or null for anything that is not one (the page never trusts a byte of it). */
 export function parseFrame(json: string): LiveFrame | null {
@@ -214,7 +220,8 @@ export function parseFrame(json: string): LiveFrame | null {
     .filter((row): row is string[] => Array.isArray(row))
     .map((row) => row.filter((id): id is string => typeof id === 'string'))
     .filter((row) => row.length > 0);
-  return { ...(frame as LiveFrame), rows };
+  const image = typeof frame.image === 'string' && frame.image.startsWith('data:image/jpeg;base64,') ? frame.image : undefined;
+  return { ...(frame as LiveFrame), rows, image };
 }
 
 /** A COLORREF (0x00BBGGRR) as a CSS colour. */

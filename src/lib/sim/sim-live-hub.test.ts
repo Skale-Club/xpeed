@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createLiveHub, readFrame, type LiveEvent, type LiveFrame } from '../../../api/sim/_live';
+import { createLiveHub, readFrame, readScreen, type LiveEvent, type LiveFrame } from '../../../api/sim/_live';
 
 // Fake timers also fake Date.now, which is the hub's clock.
 const frame = (seq: number, extra: Partial<LiveFrame> = {}): LiveFrame => ({
@@ -39,6 +39,9 @@ describe('readFrame', () => {
     ['a widget id with capitals', body({ rows: [['Times']] }), 'invalid_rows'],
     ['a widget id that is too short', body({ rows: [['t']] }), 'invalid_rows'],
     ['a widget id that is too long', body({ rows: [['a'.repeat(25)]] }), 'invalid_rows'],
+    ['an image that is not a string', body({ image: 7 }), 'invalid_image'],
+    ['an image that is not a JPEG data URL', body({ image: 'data:image/png;base64,AAAA' }), 'invalid_image'],
+    ['an image with a script in it', body({ image: 'data:image/jpeg;base64,AA"><script>' }), 'invalid_image'],
     ['a model that is a list', body({ model: [] }), 'invalid_model'],
     ['no model', body({ model: null }), 'invalid_model'],
   ])('refuses %s', (_name, text, why) => {
@@ -47,6 +50,36 @@ describe('readFrame', () => {
 
   it('accepts 30 rows and ids of 2 and 24 characters', () => {
     expect(readFrame(body({ rows: Array.from({ length: 30 }, () => ['ab', 'a'.repeat(24)]) })).ok).toBe(true);
+  });
+
+  it('keeps the picture when it comes, and adds none when it does not', () => {
+    const image = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+    const read = readFrame(body({ image }));
+    expect(read.ok && read.value.image).toBe(image);
+    const old = readFrame(body());
+    expect(old.ok && 'image' in old.value).toBe(false);
+  });
+
+  it('reads the screen a page says, and none that is not sane', () => {
+    expect(readScreen('844', '330', '3')).toEqual({ w: 844, h: 330, dpr: 3 });
+    expect(readScreen(390, 700, undefined)).toEqual({ w: 390, h: 700, dpr: 1 });
+    expect(readScreen('10', '330', '2')).toBeNull();
+    expect(readScreen('844.5', '330', '2')).toBeNull();
+    expect(readScreen(null, null, null)).toBeNull();
+  });
+});
+
+describe('the phone screen', () => {
+  it('a frame is answered with the screen of the newest watching stream, none when no stream said one', () => {
+    const hub = createLiveHub();
+    expect(hub.publish('u9', 'd1', frame(1))?.screen).toBeNull();
+    const first = hub.subscribe('u9', () => {}, { w: 390, h: 760, dpr: 3 });
+    const second = hub.subscribe('u9', () => {}, { w: 844, h: 330, dpr: 3 });
+    expect(hub.publish('u9', 'd1', frame(2))?.screen).toEqual({ w: 844, h: 330, dpr: 3 });
+    second?.close();
+    expect(hub.publish('u9', 'd1', frame(3))?.screen).toEqual({ w: 390, h: 760, dpr: 3 });
+    first?.close();
+    expect(hub.publish('u9', 'd1', frame(4))).toMatchObject({ viewers: 0, screen: null });
   });
 });
 

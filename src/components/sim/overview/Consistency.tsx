@@ -1,15 +1,14 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { CHART_PALETTE } from '@/lib/chart-palette';
+import { Gauge } from 'lucide-react';
+import { CHART_AXIS, CHART_GRID, CHART_LINE, CHART_TOOLTIP, accentColor } from '@/lib/chart-theme';
 import { cleanShare, spreadSentence, spreadSeconds } from '@/lib/sim/dashboard';
 import { timeTicks } from '@/lib/sim/progress';
 import type { V1Stats } from '@/lib/sim/v1-client';
 import { Panel, Quiet } from './parts';
 import { useDashFormat } from './use-format';
 
-const AXIS = { fontSize: 10, fill: 'hsl(var(--muted-foreground))' } as const;
-const TOOLTIP = { background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 } as const;
 
 /**
  * Consistency: how much a driver's clean laps differ from each other in a session (the standard deviation of the valid laps that are not in or
@@ -29,7 +28,7 @@ export function ConsistencyPanel({ stats }: { stats: V1Stats }) {
     : '';
 
   return (
-    <Panel title={t('modes.overview.dash.consistencyTitle', 'Consistency')} testId="overview-consistency">
+    <Panel title={t('modes.overview.dash.consistencyTitle', 'Consistency')} icon={Gauge} accent="purple" testId="overview-consistency">
       {sentence ? (
         <p className="text-sm" data-testid="consistency-sentence" data-key={sentence.key}>{t(sentence.key, sentence.values)}</p>
       ) : (
@@ -42,15 +41,16 @@ export function ConsistencyPanel({ stats }: { stats: V1Stats }) {
         <div className="h-24" role="img" aria-label={alt} data-testid="consistency-chart">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={rows} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+              <CartesianGrid {...CHART_GRID} />
               <XAxis dataKey="index" type="number" domain={[0, Math.max(1, sessions.length - 1)]} hide />
-              <YAxis domain={[0, axis.ticks[axis.ticks.length - 1] ?? 1]} ticks={axis.ticks} tick={AXIS} width={34} tickLine={false} axisLine={false} tickFormatter={(value: number) => value.toFixed(axis.step < 0.1 ? 2 : axis.step < 1 ? 1 : 0)} />
+              <YAxis domain={[0, axis.ticks[axis.ticks.length - 1] ?? 1]} ticks={axis.ticks} {...CHART_AXIS} width={34} tickFormatter={(value: number) => value.toFixed(axis.step < 0.1 ? 2 : axis.step < 1 ? 1 : 0)} />
               <Tooltip
-                contentStyle={TOOLTIP}
+                {...CHART_TOOLTIP}
                 labelFormatter={(_, payload) => (payload?.[0]?.payload ? format.day((payload[0].payload as { day: string }).day, 'long') : '')}
                 formatter={(value: number) => [`${value.toFixed(2)} s`, t('modes.overview.dash.spreadName', 'Lap spread')]}
               />
-              <Line dataKey="s" type="linear" stroke={CHART_PALETTE.purple} strokeWidth={2} dot={{ r: 3, fill: CHART_PALETTE.purple, stroke: 'hsl(var(--card))', strokeWidth: 1.5 }} isAnimationActive={false} />
+              {/* Few points (one per session): each keeps a small dot so a single session still shows. */}
+              <Line dataKey="s" {...CHART_LINE} type="linear" stroke={accentColor('purple')} dot={{ r: 2.5, fill: accentColor('purple'), stroke: 'hsl(var(--card))', strokeWidth: 1.5 }} />
             </LineChart>
           </ResponsiveContainer>
         </div>

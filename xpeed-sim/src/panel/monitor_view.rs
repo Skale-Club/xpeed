@@ -14,53 +14,12 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
     let left_h = if stacked { ((h - footer - gap) * 0.55).round() } else { h - footer };
     let area_h = left_h;
 
-    // The account card always gets the height its content needs, and the games list takes what is left: its rows
-    // get lower and, when even that is not enough, the last line says how many more games there are. Nothing is
-    // ever drawn outside its card, whatever the window's size.
-    let wanted: Vec<(Action, String, bool)> = match &view.card {
-        Card::Connected { .. } => {
-            let mut actions = vec![(Action::OpenXpeed, text(view.lang, &Msg::PanelOpenXpeed), false)];
-            if view.coach_available {
-                actions.push((Action::Coach, "Session Coach".into(), false));
-            }
-            actions
-        }
-        Card::Waiting { .. } => vec![
-            (Action::OpenConnectPage, text(view.lang, &Msg::ConnectOpenAgain), true),
-            (Action::CancelConnect, text(view.lang, &Msg::ConnectCancel), false),
-        ],
-        Card::NotConnected { .. } => vec![(Action::Connect, text(view.lang, &Msg::MenuConnect), true)],
-    };
-    let buttons: Vec<(Action, String, bool, f32)> = wanted
-        .into_iter()
-        .map(|(action, label, primary)| {
-            let w = (g.width_of(&label, T_BODY, semi, Face::Ui) + 36.0).min(col - 40.0);
-            (action, label, primary, w)
-        })
-        .collect();
-    let lines = button_lines(&buttons.iter().map(|b| b.3).collect::<Vec<_>>(), col - 40.0);
-    let line_count = lines.iter().map(|&(line, _)| line).max().map_or(0, |l| l + 1) as f32;
-    let (button_h, button_gap) = (36.0, 10.0);
-    // The code to compare with the connection page takes a line of its own, big, under the headline.
-    let code = match &view.card {
-        Card::Waiting { code } => code.as_deref(),
-        _ => None,
-    };
-    let code_h = if code.is_some() { 40.0 } else { 0.0 };
-    let account_need = 104.0 + code_h + line_count * button_h + (line_count - 1.0).max(0.0) * button_gap + 20.0;
-    // Updates: a card of its own between the games and the account, always there (as Xdeck's Updates area).
-    let update = present::update_card(
-        view.lang,
-        env!("CARGO_PKG_VERSION"),
-        view.update,
-        view.check,
-        view.download_percent,
-        view.now_ms,
-    );
-    let update_h = 82.0;
-    let update_need = update_h + gap;
+    // The games list takes the whole left column (the account and updates are on the Settings screen): its rows get lower
+    // and, when even that is not enough, the list scrolls. Nothing is ever drawn outside its card, whatever the window's size.
     let games = view.games.len().max(1);
-    let (games_h, row_h, max_scroll) = games_layout(games, area_h - gap - account_need - update_need);
+    let (games_h, row_h, max_scroll) = games_layout(games, area_h);
+    // The card fills the column even when the list is short.
+    let games_h = games_h.max(area_h);
     let offset = view.games_scroll.clamp(0.0, max_scroll);
     let scrolling = max_scroll > 0.0;
 
@@ -133,143 +92,6 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
             max: max_scroll,
             per_px: max_scroll / ((track_h - thumb_h).max(1.0) * s),
         }));
-    }
-
-    // Updates: this version and what the updater is doing, a bar while something is under way, and the one button that
-    // fits (Update now, Check now, Try again). Red when the running version must be replaced.
-    {
-        let uy = games_h + gap;
-        g.tile(0.0, uy, col, update_h, CARD);
-        g.label(&text(view.lang, &Msg::PanelUpdate), 20.0, uy + S4, col - 40.0);
-        let button = update.button.map(|b| (b, b.label(view.lang)));
-        let button_w = button
-            .as_ref()
-            .map_or(0.0, |(_, label)| (g.width_of(label, T_BODY, semi, Face::Ui) + 36.0).min(col - 40.0));
-        let dot = match update.tone {
-            present::CardTone::Quiet => GREY,
-            present::CardTone::Good => SUCCESS,
-            present::CardTone::Brand => PRIMARY,
-            present::CardTone::Warn => WARN,
-            present::CardTone::Danger => DESTRUCTIVE,
-        };
-        g.fill(g.r(20.0, uy + 50.0, 10.0, 10.0), dot);
-        let room = (col - 60.0 - if button.is_some() { button_w + 14.0 } else { 0.0 }).max(40.0);
-        let ink = if update.tone == present::CardTone::Danger {
-            DESTRUCTIVE
-        } else {
-            FOREGROUND
-        };
-        g.text(
-            &update.status,
-            g.r(40.0, uy + 40.0, room, 30.0),
-            T_BODY,
-            semi,
-            Face::Ui,
-            ink,
-            DT_LEFT,
-        );
-        // The bar under the line: how much of the download arrived, or a short piece sliding while it is not known.
-        let (bx, by, bw, bh) = (40.0, uy + 66.0, room, 4.0);
-        match update.bar {
-            present::CardBar::None => {}
-            present::CardBar::Percent(p) => {
-                g.round(g.r(bx, by, bw, bh), SECONDARY, None);
-                let filled = bw * f32::from(p.min(100)) / 100.0;
-                if filled > 0.5 {
-                    g.round(g.r(bx, by, filled, bh), PRIMARY, None);
-                }
-            }
-            present::CardBar::Busy => {
-                g.round(g.r(bx, by, bw, bh), SECONDARY, None);
-                let t = (view.now_ms.rem_euclid(1100)) as f32 / 1100.0;
-                let piece = bw * 0.35;
-                let start = (-piece + (bw + piece) * t).max(0.0);
-                let end = (-piece + (bw + piece) * t + piece).min(bw);
-                if end - start > 0.5 {
-                    g.round(g.r(bx + start, by, end - start, bh), PRIMARY, None);
-                }
-            }
-        }
-        if let Some((kind, label)) = button {
-            let r = g.r(col - 20.0 - button_w, uy + 30.0, button_w, 36.0);
-            let (fill, edge, ink, action) = match kind {
-                present::CardButton::UpdateNow => (PRIMARY, None, ON_PRIMARY, Action::UpdateNow),
-                present::CardButton::CheckNow | present::CardButton::TryAgain => (CARD, Some(BORDER), FOREGROUND, Action::CheckUpdates),
-            };
-            g.round(r, fill, edge);
-            g.text(&label, r, T_BODY, semi, Face::Ui, ink, DT_CENTER);
-            view.buttons.borrow_mut().push((action, r));
-        }
-    }
-
-    // Account: the state in words, where it connects, and what can be done about it.
-    let account_y = games_h + gap + update_need;
-    let account_h = area_h - account_y;
-    g.tile(0.0, account_y, col, account_h, CARD);
-    g.label(&text(view.lang, &Msg::PanelAccount), 20.0, account_y + S4, col - 40.0);
-    let cloud_color = match view.snapshot.cloud {
-        Cloud::Idle => SUCCESS,
-        Cloud::Waiting(_) => WARN,
-        Cloud::NotPaired => GREY,
-        Cloud::Refused => DESTRUCTIVE,
-    };
-    let host = connect::host_of(view.server);
-    // The headline, its colour and the muted line under it, by what the card says.
-    let (dot, headline, muted) = match &view.card {
-        Card::Waiting { code } => (
-            WARN,
-            text(view.lang, &Msg::ConnectWaiting),
-            match code {
-                Some(code) => text(view.lang, &Msg::ConnectCodeHint(code.clone())),
-                None => text(view.lang, &Msg::ConnectWaitingHint),
-            },
-        ),
-        Card::Connected { who } => (
-            cloud_color,
-            // Laps waiting to be sent matter more than who it is: say that when it is so.
-            match view.snapshot.cloud {
-                Cloud::Waiting(_) => present::cloud_line(view.lang, &view.snapshot.cloud, view.device),
-                _ => connected_line(view.lang, who.as_deref()),
-            },
-            host.to_owned(),
-        ),
-        Card::NotConnected { note } => (
-            cloud_color,
-            present::cloud_line(view.lang, &view.snapshot.cloud, view.device),
-            match note {
-                Some(Note::Cancelled) => text(view.lang, &Msg::ConnectNoteCancelled),
-                Some(Note::Expired) => text(view.lang, &Msg::ConnectNoteExpired),
-                Some(Note::Failed(why)) => why.clone(),
-                Some(Note::Reconnect) => text(view.lang, &Msg::ConnectNoteReconnect),
-                None => format!("{} · {host}", text(view.lang, &Msg::ConnectWhy)),
-            },
-        ),
-    };
-    g.fill(g.r(20.0, account_y + 52.0, 10.0, 10.0), dot);
-    let r = g.r(40.0, account_y + 42.0, col - 60.0, 30.0);
-    g.text(&headline, r, T_LEAD, semi, Face::Ui, FOREGROUND, DT_LEFT);
-    if let Some(code) = code {
-        let r = g.r(40.0, account_y + 68.0, col - 60.0, code_h);
-        g.text(code, r, T_VALUE_L, semi, Face::Num, FOREGROUND, DT_LEFT);
-    }
-    let r = g.r(40.0, account_y + 70.0 + code_h, col - 60.0, 20.0);
-    g.text(&muted, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
-    // The buttons, in as many lines as the card's width needs: connecting comes first while there is no account (or
-    // it refused this computer).
-    for ((action, label, primary, w), &(line, x)) in buttons.iter().zip(&lines) {
-        let by = account_y + 104.0 + code_h + line as f32 * (button_h + button_gap);
-        if by + button_h > area_h - S3 {
-            break;
-        }
-        let r = g.r(20.0 + x, by, *w, button_h);
-        let (fill, edge, ink) = if *primary {
-            (PRIMARY, None, ON_PRIMARY)
-        } else {
-            (CARD, Some(BORDER), FOREGROUND)
-        };
-        g.round(r, fill, edge);
-        g.text(label, r, T_BODY, semi, Face::Ui, ink, DT_CENTER);
-        view.buttons.borrow_mut().push((*action, r));
     }
 
     // The right column (laps and activity), under the left one when stacked.
@@ -385,31 +207,18 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
         g.text(line, r, T_BODY, normal, Face::Ui, FOREGROUND, DT_LEFT);
     }
 
-    // The footer: the button that copies the support text, then what is worth a word (copied, or a part that stopped), and
-    // the shortcuts at the right while there is room for them.
+    // The footer: a part that stopped, in red (the support button is on the Settings screen), and the shortcuts at the right
+    // while there is room for them.
     g.place(s, body.left, body.top);
-    let copy = text(view.lang, &Msg::DiagnosticsCopy);
-    let copy_w = g.width_of(&copy, T_CAPTION, semi, Face::Ui) + S6;
-    let r = g.r(0.0, h - S6, copy_w, S6);
-    g.round(r, CARD, Some(BORDER));
-    g.text(&copy, r, T_CAPTION, semi, Face::Ui, FOREGROUND, DT_CENTER);
-    view.buttons.borrow_mut().push((Action::CopyDiagnostics, r));
-    let note_x = copy_w + 14.0;
-    let note = if !view.failed.is_empty() {
-        Some((text(view.lang, &Msg::WorkersFailed(view.failed.to_owned())), DESTRUCTIVE))
-    } else if view.copied {
-        Some((text(view.lang, &Msg::DiagnosticsCopied), MUTED_TEXT))
-    } else {
-        None
-    };
+    let note = (!view.failed.is_empty()).then(|| text(view.lang, &Msg::WorkersFailed(view.failed.to_owned())));
     let hint = text(view.lang, &Msg::PanelHint);
     let hint_w = g.width_of(&hint, T_CAPTION, normal, Face::Ui);
-    let note_w = note.as_ref().map_or(0.0, |(t, _)| g.width_of(t, T_CAPTION, normal, Face::Ui));
-    if let Some((line, color)) = &note {
-        let r = g.r(note_x, h - 22.0, (w - note_x).max(0.0), 20.0);
-        g.text(line, r, T_CAPTION, normal, Face::Ui, *color, DT_LEFT);
+    let note_w = note.as_ref().map_or(0.0, |t| g.width_of(t, T_CAPTION, normal, Face::Ui));
+    if let Some(line) = &note {
+        let r = g.r(0.0, h - 22.0, w, 20.0);
+        g.text(line, r, T_CAPTION, normal, Face::Ui, DESTRUCTIVE, DT_LEFT);
     }
-    if note_x + note_w + hint_w + S6 <= w {
+    if note_w + hint_w + S6 <= w {
         let r = g.r(0.0, h - 20.0, w, 20.0);
         g.text(&hint, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_RIGHT);
     }

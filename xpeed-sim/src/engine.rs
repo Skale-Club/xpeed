@@ -105,8 +105,8 @@ pub fn save_once(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Result
         valid: lap.valid,
         sectors_ms: lap.sectors_ms.clone().unwrap_or_default(),
         game: lap.game.clone(),
-        track: lap.track_name.clone(),
-        car: lap.car_name.clone(),
+        track: stamped.track_title.clone().unwrap_or_else(|| lap.track_name.clone()),
+        car: stamped.car_title.clone().unwrap_or_else(|| lap.car_name.clone()),
         speed_kmh: speed.map_or_else(Vec::new, |channel| crate::status::speed_profile(&channel.values)),
     })
 }

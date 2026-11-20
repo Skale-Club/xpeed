@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { MessageCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
+import type { ChatScope } from '@/lib/chat/types';
+import { DEMO_USER_ID, useDemoMode } from '@/lib/sim/demo/mode';
 
 // The chat pulls in react-markdown and micromark (~190 KB); load it the first
 // time the bubble is opened instead of with every signed-in page.
@@ -11,12 +13,20 @@ const ChatContainer = lazy(() =>
   import('./chat/ChatContainer').then((m) => ({ default: m.ChatContainer })),
 );
 
-export function ChatBubble() {
+// The general Virtual assistant: Virtual, tied to no single session.
+const VIRTUAL_SCOPE: ChatScope = { mode: 'virtual', sessionId: null };
+
+/** The assistant on every screen: about the car on the Real side, about the driver's racing on the Virtual side. */
+export function ChatBubble({ mode = 'real' }: { mode?: 'real' | 'virtual' }) {
   const { user } = useAuth();
-  return user ? <AccountChatBubble key={user.id} /> : null;
+  const demo = useDemoMode();
+  if (!user) return null;
+  // The Virtual example shows made-up data: there is nothing of the driver's to ask about.
+  if (mode === 'virtual' && (demo || user.id === DEMO_USER_ID)) return null;
+  return <AccountChatBubble key={`${mode}:${user.id}`} virtual={mode === 'virtual'} />;
 }
 
-function AccountChatBubble() {
+function AccountChatBubble({ virtual }: { virtual: boolean }) {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [hasOpened, setHasOpened] = useState(false);
@@ -36,7 +46,7 @@ function AccountChatBubble() {
           isOpen ? "rotate-90 scale-0 opacity-0" : "scale-100 opacity-100"
         )}
         size="icon"
-        aria-label={t('assistant.open', 'Ask the car assistant')}
+        aria-label={virtual ? t('modes.assistant.open') : t('assistant.open', 'Ask the car assistant')}
       >
         <MessageCircle className="h-6 w-6" />
       </Button>
@@ -47,6 +57,7 @@ function AccountChatBubble() {
           <ChatContainer
             isOpen={isOpen}
             onClose={() => setIsOpen(false)}
+            scope={virtual ? VIRTUAL_SCOPE : undefined}
           />
         </Suspense>
       )}

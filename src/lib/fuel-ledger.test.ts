@@ -4,10 +4,23 @@ import type { Session } from '@/types/session';
 const fill = (at: string, odometerKm: number, litres: number, fullTank = true): FuelEntry => ({ id: at, kind: 'fill', at, odometerKm, litres, fullTank, pricePerLitre: 1, totalPaid: litres, currency: 'USD', source: 'receipt', region: '', sourceUrl: '', note: '' });
 const trip = (at: string, litres = 1, km = 20): Session => ({ id: at, session_start: at, uploaded_at: at, duration_seconds: 1800, summary: { fuel: { version: 1, source: 'obd_flow', litres, fuelSeconds: 1800, distanceKm: km, distanceSeconds: 1800, duration: 1800, coverage: 1, distanceCoverage: 1 } } } as unknown as Session);
 describe('fuel ledger', () => {
-  it('never uses a future price to reprice an old trip', () => {
-    const entries = [fill('2026-01-10T12:00:00Z', 100, 10)];
+  it('never uses a later price to reprice a trip that already had one', () => {
+    const early = { ...fill('2026-01-01T12:00:00Z', 100, 10), pricePerLitre: 1 };
+    const later = { ...fill('2026-01-10T12:00:00Z', 200, 10), pricePerLitre: 2 };
+    expect(fuelPriceAt([early, later], '2026-01-05T00:00:00Z')).toBe(early);
+    expect(tripFuelEstimate(trip('2026-01-05T00:00:00Z'), [early, later])).toMatchObject({ cost: 1, priceLater: false });
+  });
+  it('prices trips from before the first saved price with that first price', () => {
+    const entries = [{ ...fill('2026-01-10T12:00:00Z', 100, 10), pricePerLitre: 2 }, { ...fill('2026-01-20T12:00:00Z', 200, 10), pricePerLitre: 3 }];
     expect(fuelPriceAt(entries, '2026-01-01T00:00:00Z')).toBeNull();
-    expect(tripFuelEstimate(trip('2026-01-01T00:00:00Z'), entries).cost).toBeNull();
+    expect(tripFuelEstimate(trip('2026-01-01T00:00:00Z'), entries)).toMatchObject({ cost: 2, priceLater: true });
+  });
+  it('costs a trip from fuel worked out on the trip page when its summary has none', () => {
+    const old = trip('2026-01-15T00:00:00Z', null as unknown as number);
+    const entries = [{ ...fill('2026-01-10T12:00:00Z', 100, 10), pricePerLitre: 2 }];
+    expect(tripFuelEstimate(old, entries).cost).toBeNull();
+    expect(tripFuelEstimate(old, entries, { litres: 0.5, coverage: 1, method: 'air_flow' })).toMatchObject({ cost: 1, method: 'air_flow', source: 'calculated' });
+    expect(tripFuelEstimate(old, entries, { litres: 0.5, coverage: 0.5 }).cost).toBeNull();
   });
   it('includes partial fills between full tanks and never applies a future tank average', () => {
     const entries = [fill('2026-01-01T12:00:00Z', 100, 20), fill('2026-01-03T12:00:00Z', 150, 5, false), fill('2026-01-10T12:00:00Z', 200, 5)];

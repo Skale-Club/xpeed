@@ -20,4 +20,17 @@ describe('fuel integration', () => {
     expect(calculateFuelMetrics(parseCSV('Time,Fuel rate (L/h)\n0,0\n10,0')).litres).toBe(0);
     expect(calculateFuelMetrics(parseCSV('Fuel rate (L/h)\n3.6\n3.6')).litres).toBeNull();
   });
+  it('works out petrol and hybrid fuel from the air flow when the car reports no fuel rate', () => {
+    const csv = 'Time,Mass air flow (g/s),Vehicle speed (km/h)\n0,10,36\n10,10,36\n20,10,36';
+    const hybrid = calculateFuelMetrics(parseCSV(csv), 'hybrid');
+    expect(hybrid.method).toBe('air_flow');
+    expect(hybrid.litres).toBeCloseTo(10 / (14.7 * 745) * 20); // 20 s at 10 g/s of air
+    expect(hybrid.coverage).toBe(1);
+    // Diesels run lean and flex cars may burn ethanol: no estimate from air there.
+    for (const engine of ['diesel', 'flex', null]) expect(calculateFuelMetrics(parseCSV(csv), engine)).toMatchObject({ litres: null, method: null });
+  });
+  it('prefers the fuel rate the car reports over the air flow', () => {
+    const result = calculateFuelMetrics(parseCSV('Time,Fuel rate (L/h),Mass air flow (g/s)\n0,3.6,50\n10,3.6,50'), 'petrol');
+    expect(result.method).toBe('fuel_rate'); expect(result.litres).toBeCloseTo(.01);
+  });
 });

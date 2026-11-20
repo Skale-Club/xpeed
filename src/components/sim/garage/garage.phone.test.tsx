@@ -164,6 +164,8 @@ describe('the car page on a phone', () => {
     expect(hiddenOnPhone(named('Set on'))).toBe(true);
     expect(hiddenOnPhone(named('To your best'))).toBe(false);
     await waitFor(() => expect(table.querySelector('[data-testid="best-track-gap"]')).toBeInTheDocument());
-    expect(classes(table.querySelector('tbody td:first-child')!)).toMatch(/max-w-\[9rem\]/);
+    // 2rem of the track's small map plus its gap, and the name keeps the 9rem it had.
+    expect(classes(table.querySelector('tbody td:first-child')!)).toMatch(/max-w-\[11rem\]/);
+    expect(table.querySelector('tbody td:first-child [data-testid="track-layout-thumb"]')).toBeInTheDocument();
   });
 });

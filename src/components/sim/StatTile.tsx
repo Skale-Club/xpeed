@@ -2,11 +2,13 @@
 // already use (`sub` is the quiet line, `tone` the old good/bad/accent names).
 import type { ReactNode } from 'react';
 import { StatGrid, StatTile as UiStatTile, type StatTone } from '@/components/ui/stat-tile';
+import type { Accent } from '@/lib/chart-theme';
 
 export type Tone = 'good' | 'bad' | 'accent' | 'plain';
 const TONE: Record<Tone, StatTone> = { good: 'success', bad: 'critical', accent: 'brand', plain: 'default' };
 
-export function StatTile({ label, value, sub, tone = 'plain', hint, testId, children }: {
+// Dashboards 2027, phase 3 (owner approved 2026-11-20): the Virtual tiles use the shared `feature` look; `accent` gives a tile its colour.
+export function StatTile({ label, value, sub, tone = 'plain', hint, testId, children, accent }: {
   label: ReactNode;
   value: ReactNode;
   /** The quiet line under the value. */
@@ -18,8 +20,9 @@ export function StatTile({ label, value, sub, tone = 'plain', hint, testId, chil
   hint?: string;
   testId?: string;
   children?: ReactNode;
+  accent?: Accent;
 }) {
-  return <UiStatTile label={label} value={value} hint={sub} tone={TONE[tone]} title={hint} testId={testId} footer={children} />;
+  return <UiStatTile size="feature" accent={accent} label={label} value={value} hint={sub} tone={TONE[tone]} title={hint} testId={testId} footer={children} />;
 }
 
 type GridColumns = NonNullable<Parameters<typeof StatGrid>[0]['columns']>;

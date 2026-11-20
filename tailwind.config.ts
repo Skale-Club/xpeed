@@ -17,6 +17,8 @@ export default {
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
+        // Dashboards 2027 (proposed 2026-11-20): big numbers and lap times, the Companion panel's face, so the site and the Windows app read as one.
+        display: ['Chakra Petch', 'Inter', 'system-ui', 'sans-serif'],
       },
       colors: {
         border: {
@@ -28,6 +30,7 @@ export default {
           DEFAULT: "hsl(var(--surface))",
           raised: "hsl(var(--surface-raised))",
           overlay: "hsl(var(--surface-overlay))",
+          inset: "hsl(var(--surface-inset))",
         },
         brand: {
           DEFAULT: "hsl(var(--brand))",
@@ -132,6 +135,8 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        // Dashboards 2027 (proposed 2026-11-20): the panel and tile corner of the new dashboards.
+        panel: "1rem",
       },
       keyframes: {
         "accordion-down": {

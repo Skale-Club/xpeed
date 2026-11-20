@@ -102,7 +102,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::field::{self, Car, Field, FieldPace};
-use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, Source};
+use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, SessionKind, Source};
 use crate::games::udp::{Door, Wait};
 use crate::norm;
 use crate::shm::Page;
@@ -658,6 +658,34 @@ fn team_23(id: u16) -> Option<(&'static str, &'static str)> {
     Some((name, class))
 }
 
+/// The kind of session of the Session packet's `sessionType`, and whether it is Time Trial (shown as a hot lap; its
+/// kind is practice, the only one the lap file has for laps alone). The specs number them differently:
+///
+/// * 2023: 1-4 practice (P1, P2, P3, short), 5-9 qualifying (Q1, Q2, Q3, short, one-shot), 10-12 race, 13 Time Trial.
+/// * 2024 and later: 1-4 practice, 5-9 qualifying, 10-14 sprint shootout (counted as qualifying), 15-17 race,
+///   18 Time Trial.
+///
+/// 0 is unknown in every year, and so is any number the year does not list.
+fn session_kind_of(format: u16, session_type: u8) -> (Option<SessionKind>, bool) {
+    let kind = if format == 2023 {
+        match session_type {
+            1..=4 | 13 => Some(SessionKind::Practice),
+            5..=9 => Some(SessionKind::Qualifying),
+            10..=12 => Some(SessionKind::Race),
+            _ => None,
+        }
+    } else {
+        match session_type {
+            1..=4 | 18 => Some(SessionKind::Practice),
+            5..=14 => Some(SessionKind::Qualifying),
+            15..=17 => Some(SessionKind::Race),
+            _ => None,
+        }
+    };
+    let time_trial = session_type == if format == 2023 { 13 } else { 18 };
+    (kind, time_trial)
+}
+
 #[derive(Clone, Copy, Debug)]
 struct SessionInfo {
     session_type: u8,
@@ -953,6 +981,7 @@ impl Decoder {
             f.track_length_m = (s.track_length_m > 0).then_some(f64::from(s.track_length_m));
             f.session_laps = norm::race_laps(s.total_laps);
             f.session_time_left_s = norm::time_left_s(f64::from(s.time_left_s)).filter(|t| *t > 0.0);
+            (f.session_kind, f.time_trial) = session_kind_of(layout.format, s.session_type);
         }
         f.cars = self.active_cars.and_then(norm::cars);
         if let Some(l) = &self.lap {
@@ -1130,8 +1159,8 @@ impl Source for F1Source {
     }
 }
 
-/// What a frame of any of the three games (every format) can fill: the car's telemetry (no tyres, temperatures, fuel,
-/// session kind or weather are read), the lap data, the car's state from Car Status and Car Damage, the world position,
+/// What a frame of any of the three games (every format) can fill: the car's telemetry (no tyres, temperatures, fuel or
+/// weather are read), the session kind (with Time Trial as a hot lap), the lap data, the car's state from Car Status and Car Damage, the world position,
 /// the track length and the team as car and class. The fuel is a mass with no stated density (`fuel_l` stays `NaN`),
 /// the one `engineTemperature` is neither water nor oil, and the spec has no sector times in a form this reader uses.
 pub(crate) const CAPS: Caps = Caps::LAP_TIME
@@ -1163,6 +1192,7 @@ pub(crate) const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::CARS)
     .or(Caps::SESSION_TIME_LEFT)
     .or(Caps::SESSION_LAPS)
+    .or(Caps::SESSION_KIND)
     .or(Caps::RIVALS)
     .or(Caps::RIVALS_WORLD);
 
@@ -2641,6 +2671,43 @@ mod tests {
         let mut d = Decoder::default();
         d.feed(&lap_packet(0, &Lap::on_track(1, 100, 0, 5.0)), 0.0);
         assert!(!d.feed(&tele_packet(0, &sample_tele()), 0.0).unwrap().driving);
+    }
+
+    #[test]
+    fn time_trial_is_a_hot_lap_and_the_other_sessions_have_their_kind_in_every_year() {
+        for y in ALL {
+            let frame_in = |session_type: u8| {
+                let mut d = Decoder::default();
+                d.feed(&session_in(y, UID, 0, session_type, 11, 5793, false), 0.0);
+                d.feed(&lap_in(y, 0, &Lap::on_track(1, 100, 0, 5.0)), 0.0);
+                d.feed(&tele_packet_in(y.format, 0, &sample_tele()), 0.0).unwrap()
+            };
+            let (time_trial, race) = if y.format == 2023 { (13, 10) } else { (18, 15) };
+            let f = frame_in(time_trial);
+            assert_eq!((f.session_kind, f.time_trial), (Some(SessionKind::Practice), true), "{}", y.format);
+            let f = frame_in(race);
+            assert_eq!((f.session_kind, f.time_trial), (Some(SessionKind::Race), false), "{}", y.format);
+            let f = frame_in(1);
+            assert_eq!((f.session_kind, f.time_trial), (Some(SessionKind::Practice), false), "{}", y.format);
+            let f = frame_in(5);
+            assert_eq!(
+                (f.session_kind, f.time_trial),
+                (Some(SessionKind::Qualifying), false),
+                "{}",
+                y.format
+            );
+        }
+        // The numbers each year lists, end to end.
+        for (format, n, want) in [
+            (2023, 0, None),
+            (2023, 12, Some(SessionKind::Race)),
+            (2023, 14, None),
+            (2025, 10, Some(SessionKind::Qualifying)), // sprint shootout
+            (2025, 17, Some(SessionKind::Race)),
+            (2025, 19, None),
+        ] {
+            assert_eq!(session_kind_of(format, n), (want, false), "{format} {n}");
+        }
     }
 
     #[test]

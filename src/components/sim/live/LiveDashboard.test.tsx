@@ -170,6 +170,30 @@ describe('the widgets', () => {
   });
 });
 
+describe('the picture of the panel', () => {
+  const image = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+
+  it('shows the picture Xpeed Companion drew for this screen, as it is, and none of the page’s own cards', () => {
+    open({ image });
+    const picture = screen.getByTestId('live-picture');
+    expect(picture).toHaveAttribute('src', image);
+    expect(document.querySelectorAll('[data-widget]')).toHaveLength(0);
+    expect(document.querySelectorAll('[data-row]')).toHaveLength(0);
+  });
+
+  it('keeps the rows for a frame from an older Companion (no picture)', () => {
+    open();
+    expect(screen.queryByTestId('live-picture')).toBeNull();
+    expect(document.querySelectorAll('[data-row]').length).toBeGreaterThan(0);
+  });
+
+  it('takes only a JPEG data URL as the picture', () => {
+    expect(parseFrame(JSON.stringify({ ...sampleFrame(), image }))?.image).toBe(image);
+    expect(parseFrame(JSON.stringify({ ...sampleFrame(), image: 'javascript:alert(1)' }))?.image).toBeUndefined();
+    expect(parseFrame(JSON.stringify({ ...sampleFrame(), image: 7 }))?.image).toBeUndefined();
+  });
+});
+
 describe('parseFrame', () => {
   it('takes a frame and drops what is not a frame, and the rows that are empty or not lists', () => {
     const json = JSON.stringify({ ...sampleFrame(), rows: [['times'], [], 'x', ['centre', 7]] });

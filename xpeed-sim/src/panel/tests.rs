@@ -437,6 +437,11 @@ fn view<'a>(f: &'a Fixture, live: Option<&'a Live>, tab: Tab, scale: f32, lang: 
     View {
         lang,
         units: Default::default(),
+        prefs: Prefs {
+            autostart: true,
+            auto_update: true,
+            phone_view: false,
+        },
         tab,
         on_top: tab == Tab::Monitor,
         full: false,
@@ -622,12 +627,12 @@ fn paints_the_monitor_and_scales_with_the_screen() {
 }
 
 #[test]
-fn the_monitor_shows_a_card_for_a_new_version_with_the_button_that_installs_it() {
+fn settings_shows_a_card_for_a_new_version_with_the_button_that_installs_it() {
     use crate::update::UpdateState;
     let mut f = fixture();
-    let plain = render(&view(&f, None, Tab::Monitor, 1.0, Lang::En), 1280, 800);
+    let plain = render(&view(&f, None, Tab::Settings, 1.0, Lang::En), 1280, 800);
     let with = |f: &Fixture, lang: Lang, w: i32, h: i32| {
-        let v = view(f, None, Tab::Monitor, 1.0, lang);
+        let v = view(f, None, Tab::Settings, 1.0, lang);
         let pixels = render(&v, w, h);
         let buttons: Vec<(Action, RECT)> = v.buttons.borrow().iter().map(|(a, r)| (*a, *r)).collect();
         (pixels, buttons)
@@ -645,7 +650,7 @@ fn the_monitor_shows_a_card_for_a_new_version_with_the_button_that_installs_it()
     for (w, h) in [(1280, 800), (1024, 640), (720, 480), (430, 900)] {
         let (pixels, buttons) = with(&f, Lang::En, w, h);
         if (w, h) == (1280, 800) {
-            save(&pixels, w, h, "panel-monitor-update.png");
+            save(&pixels, w, h, "panel-settings-update.png");
         }
         let update = buttons
             .iter()
@@ -671,7 +676,7 @@ fn the_monitor_shows_a_card_for_a_new_version_with_the_button_that_installs_it()
         held: false,
     };
     let (required, buttons) = with(&f, Lang::Pt, 1280, 800);
-    save(&required, 1280, 800, "panel-monitor-update-required.png");
+    save(&required, 1280, 800, "panel-settings-update-required.png");
     assert!(buttons.iter().any(|(a, _)| *a == Action::UpdateNow));
     assert!(
         has_color(&required, DESTRUCTIVE) > available_red + 100,
@@ -698,7 +703,7 @@ fn the_monitor_shows_a_card_for_a_new_version_with_the_button_that_installs_it()
 }
 
 #[test]
-fn the_monitor_has_the_diagnostics_button_the_waiting_card_shows_the_code_and_a_stopped_part_is_in_red() {
+fn settings_has_the_diagnostics_button_the_waiting_card_shows_the_code_and_a_stopped_part_is_in_red() {
     let f = fixture();
     let (w, h) = (1280, 800);
     let buttons_of = |view: &View| {
@@ -708,8 +713,10 @@ fn the_monitor_has_the_diagnostics_button_the_waiting_card_shows_the_code_and_a_
             view.buttons.borrow().iter().map(|(action, r)| (*action, *r)).collect::<Vec<_>>(),
         )
     };
-    // Always there on the Monitor tab, inside the window, under the cards.
-    let plain = view(&f, None, Tab::Monitor, 1.0, Lang::En);
+    // Always there on the Settings screen, inside the window; the Monitor no longer has it.
+    let monitor = view(&f, None, Tab::Monitor, 1.0, Lang::En);
+    assert!(!buttons_of(&monitor).1.iter().any(|(a, _)| *a == Action::CopyDiagnostics));
+    let plain = view(&f, None, Tab::Settings, 1.0, Lang::En);
     let (before, buttons) = buttons_of(&plain);
     let copy = buttons
         .iter()
@@ -717,26 +724,32 @@ fn the_monitor_has_the_diagnostics_button_the_waiting_card_shows_the_code_and_a_
         .expect("the button is drawn")
         .1;
     assert!(
-        copy.left >= 0 && copy.right < w && copy.bottom <= h && copy.top >= h - 40,
+        copy.left >= 0 && copy.right < w && copy.bottom <= h && copy.top >= 0,
         "({}, {}, {}, {})",
         copy.left,
         copy.top,
         copy.right,
         copy.bottom
     );
-    // "Copied" is drawn after a copy, and a part that stopped is said in red.
-    let mut copied = view(&f, None, Tab::Monitor, 1.0, Lang::Pt);
+    // "Copied" is drawn after a copy, and a part that stopped is said in red (on both screens).
+    let mut copied = view(&f, None, Tab::Settings, 1.0, Lang::Pt);
     copied.copied = true;
-    let mut stopped = view(&f, None, Tab::Monitor, 1.0, Lang::En);
+    let mut stopped = view(&f, None, Tab::Settings, 1.0, Lang::En);
     stopped.failed = "uploader";
     let (copied_pixels, _) = buttons_of(&copied);
     let (stopped_pixels, _) = buttons_of(&stopped);
-    assert_ne!(copied_pixels, render(&view(&f, None, Tab::Monitor, 1.0, Lang::Pt), w, h));
+    assert_ne!(copied_pixels, render(&view(&f, None, Tab::Settings, 1.0, Lang::Pt), w, h));
     assert!(reddish(&stopped_pixels) > reddish(&before), "a stopped part is in red");
+    let mut stopped_monitor = view(&f, None, Tab::Monitor, 1.0, Lang::En);
+    stopped_monitor.failed = "uploader";
+    assert!(
+        reddish(&buttons_of(&stopped_monitor).0) > reddish(&buttons_of(&monitor).0),
+        "and on the Monitor"
+    );
     // The waiting card with a code has a line of its own for it, so its buttons are lower, and still above the footer.
-    let mut without = view(&f, None, Tab::Monitor, 1.0, Lang::En);
+    let mut without = view(&f, None, Tab::Settings, 1.0, Lang::En);
     without.card = connect::Card::Waiting { code: None };
-    let mut with = view(&f, None, Tab::Monitor, 1.0, Lang::En);
+    let mut with = view(&f, None, Tab::Settings, 1.0, Lang::En);
     with.card = connect::Card::Waiting { code: Some("K7QX".into()) };
     let (without_pixels, without_buttons) = buttons_of(&without);
     let (with_pixels, with_buttons) = buttons_of(&with);
@@ -993,6 +1006,21 @@ fn writes_the_design_preview_page() {
     let pixels = render(&hover, 960, 600);
     save(&pixels, 960, 600, "preview-tooltip.png");
     figures.push_str("<figure><figcaption>Icon buttons, with the tooltip of the one under the mouse</figcaption><img data-src=\"preview-tooltip.png\" width=\"960\" height=\"600\"></figure>\n");
+    let mut side = view(&f, Some(&live), Tab::Dash, 1.0, Lang::Pt);
+    let [_, monitor_button, ..] = header_hits(960, 1.0);
+    side.mouse = Some((monitor_button.left + 5, monitor_button.top + 5));
+    let pixels = render(&side, 960, 600);
+    save(&pixels, 960, 600, "preview-sidebar.png");
+    figures.push_str("<figure><figcaption>The sidebar: the screens as icons, the one under the mouse named beside it</figcaption><img data-src=\"preview-sidebar.png\" width=\"960\" height=\"600\"></figure>\n");
+    for (lang, w, h, file) in [
+        (Lang::Pt, 1280, 800, "preview-settings.png"),
+        (Lang::En, 960, 600, "preview-settings-small.png"),
+        (Lang::Es, 430, 900, "preview-settings-portrait.png"),
+    ] {
+        let pixels = render(&view(&f, None, Tab::Settings, 1.0, lang), w, h);
+        save(&pixels, w, h, file);
+        figures.push_str(&format!("<figure><figcaption>Settings: the account, updates, preferences and support ({w} × {h})</figcaption><img data-src=\"{file}\" width=\"{w}\" height=\"{h}\"></figure>\n"));
+    }
     let mut with_covers = view(&f, None, Tab::Dash, 1.0, Lang::En);
     with_covers.covers = &covers;
     with_covers.carousel = 9.0;
@@ -1455,18 +1483,23 @@ look(); setInterval(look, 1500);
 #[test]
 fn the_header_can_be_clicked_where_it_is_drawn() {
     let [dash, mon, lang, full, top] = header_hits(960, 1.0);
-    assert!(inside(&dash, 20, 20) && !inside(&dash, 150, 20));
-    assert!(inside(&mon, 160, 20));
+    // The screens: square buttons down the sidebar, one under the other, inside its width.
+    assert!(inside(&dash, 20, 20) && !inside(&dash, 20, 60) && !inside(&dash, 150, 20));
+    assert!(inside(&mon, 20, 70) && !inside(&mon, 20, 20));
+    assert!(mon.top > dash.bottom && dash.right < content_left(1.0) && mon.right < content_left(1.0));
+    assert_eq!((dash.right - dash.left, dash.bottom - dash.top), (32, 32), "small squares");
     assert!(inside(&lang, 834, 20) && !inside(&lang, 853, 20));
     assert!(inside(&full, 880, 20) && !inside(&full, 899, 20));
     assert!(inside(&top, 920, 20) && !inside(&top, 920, 52));
     assert!(
-        lang.right < full.left && full.right < top.left && mon.right < lang.left,
+        lang.right < full.left && full.right < top.left && content_left(1.0) < lang.left,
         "nothing overlaps"
     );
     let [dash2, _, _, _, top2] = header_hits(1440, 1.5);
-    assert_eq!((dash2.left, dash2.right), (30, 204));
+    assert_eq!((dash2.left, dash2.right), (12, 60));
     assert_eq!(top2.right, 1440 - 24);
+    // The header's pills start right of the sidebar.
+    assert!(dashboard_hit(960, 1.0).is_some_and(|r| r.left > content_left(1.0)));
 }
 
 #[test]
@@ -1770,13 +1803,15 @@ fn the_tokens_are_the_one_place_for_colours_sizes_radii_and_spacing() {
 #[test]
 fn one_near_square_corner() {
     assert_eq!(R_CORNER, 2.5);
-    // Drawn, not only declared: two pixels in along the chosen tab's top edge is already pure yellow; any rounder
-    // corner (the site's 6 px) leaves it at least partly dark.
+    // Drawn, not only declared: two pixels in along a lit button's top edge (always on top, on) is already pure yellow; any
+    // rounder corner (the site's 6 px) leaves it at least partly dark.
     let f = fixture();
     let (w, h) = (960, 600);
-    let pixels = render(&view(&f, None, Tab::Dash, 1.0, Lang::En), w, h);
-    let [dash, ..] = header_hits(w, 1.0);
-    let i = (((dash.top + 1) * w + dash.left + 2) * 4) as usize;
+    let mut pinned = view(&f, None, Tab::Dash, 1.0, Lang::En);
+    pinned.on_top = true;
+    let pixels = render(&pinned, w, h);
+    let [.., top] = header_hits(w, 1.0);
+    let i = (((top.top + 1) * w + top.left + 2) * 4) as usize;
     let got = [pixels[i + 2], pixels[i + 1], pixels[i]];
     let yellow = [(PRIMARY & 0xff) as u8, (PRIMARY >> 8 & 0xff) as u8, (PRIMARY >> 16 & 0xff) as u8];
     assert!(
@@ -2908,7 +2943,7 @@ fn the_pedals_are_throttle_brake_clutch_from_left_to_right() {
     let (w, h) = (1536, 864);
     let pixels = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
     let s = slots(live.caps);
-    let body = rect(16, 66, w - 16, h - 16);
+    let body = rect(content_left(1.0) + 16, 66, w - 16, h - 16);
     let layout = pick_layout((body.right - body.left) as f32, (body.bottom - body.top) as f32, &s);
     let plan_all = layout.plan_for(&s, model_with(&live, Default::default(), &f.laps).laps.rows.len());
     let (scale, ox, oy) = canvas_fit_wh(body, plan_all.w, plan_all.h);
@@ -3001,7 +3036,7 @@ fn the_banner_is_painted_over_the_dimmed_cards_without_moving_them() {
         let silent_px = render(&silent_at, w, h);
         // The title is in the caution colour; driving has no such colour in the middle of the cards.
         let s = slots(paused.caps);
-        let body = rect(16, 66, w - 16, h - 16);
+        let body = rect(content_left(1.0) + 16, 66, w - 16, h - 16);
         let layout = pick_layout((body.right - body.left) as f32, (body.bottom - body.top) as f32, &s);
         let rows = model_with(&paused, Default::default(), &f.laps).laps.rows.len();
         let plan = layout.plan_for(&s, rows);
@@ -3297,7 +3332,7 @@ fn the_laps_table_columns_fill_its_width_and_its_rows_fit_its_height() {
 /// Where a pane is on a `w` x `h` window, in pixels, for the picture to be compared there.
 fn pane_region(caps: crate::game::Caps, w: i32, h: i32, pane: Pane, lap_rows: usize) -> (i32, i32, i32, i32) {
     let s = slots(caps);
-    let body = rect(16, 66, w - 16, h - 16);
+    let body = rect(content_left(1.0) + 16, 66, w - 16, h - 16);
     let layout = pick_layout((body.right - body.left) as f32, (body.bottom - body.top) as f32, &s);
     let plan = layout.plan_for(&s, lap_rows);
     let (scale, ox, oy) = canvas_fit_wh(body, plan.w, plan.h);
@@ -3379,7 +3414,7 @@ fn out_of_the_car_the_header_shows_no_lap_and_no_invalid_badge() {
     live.lap_valid = Some(false);
     let (w, h) = (1920, 1080);
     let s = slots(live.caps);
-    let body = rect(16, 66, w - 16, h - 16);
+    let body = rect(content_left(1.0) + 16, 66, w - 16, h - 16);
     let layout = pick_layout((body.right - body.left) as f32, (body.bottom - body.top) as f32, &s);
     let plan = layout.plan(&s);
     let (scale, ox, oy) = canvas_fit_wh(body, plan.w, plan.h);
@@ -3477,7 +3512,7 @@ fn the_update_card_is_always_there_with_check_now_try_again_and_a_bar_while_busy
     use crate::update::{CheckState, UpdateState};
     let mut f = fixture();
     let buttons_of = |f: &Fixture, w: i32, h: i32| {
-        let v = view(f, None, Tab::Monitor, 1.0, Lang::Pt);
+        let v = view(f, None, Tab::Settings, 1.0, Lang::Pt);
         let pixels = render(&v, w, h);
         let buttons: Vec<(Action, RECT)> = v.buttons.borrow().iter().map(|(a, r)| (*a, *r)).collect();
         (pixels, buttons)
@@ -3488,7 +3523,7 @@ fn the_update_card_is_always_there_with_check_now_try_again_and_a_bar_while_busy
         for (w, h) in [(1280, 800), (720, 480), (430, 900)] {
             let (pixels, buttons) = buttons_of(&f, w, h);
             if (w, h) == (1280, 800) && check == CheckState::Failed {
-                save(&pixels, w, h, "panel-monitor-update-failed.png");
+                save(&pixels, w, h, "panel-settings-update-failed.png");
             }
             let check_button = buttons
                 .iter()
@@ -3519,7 +3554,7 @@ fn the_update_card_is_always_there_with_check_now_try_again_and_a_bar_while_busy
         f.percent = percent;
         let (pixels, buttons) = buttons_of(&f, 1280, 800);
         if percent.is_some() {
-            save(&pixels, 1280, 800, "panel-monitor-update-downloading.png");
+            save(&pixels, 1280, 800, "panel-settings-update-downloading.png");
         }
         assert!(!buttons.iter().any(|(a, _)| matches!(a, Action::CheckUpdates | Action::UpdateNow)));
         assert!(has_color(&pixels, PRIMARY) > quiet_yellow, "the bar is drawn in yellow");
@@ -3568,13 +3603,20 @@ fn the_dashboard_ids_are_a_contract() {
 #[test]
 fn a_dashboard_follows_the_session_unless_picked_by_hand() {
     use crate::lapfile::SessionKind as K;
-    assert_eq!(pick(Some(K::Practice), None), DashboardId::Practice);
-    assert_eq!(pick(Some(K::Qualifying), None), DashboardId::Qualifying);
-    assert_eq!(pick(Some(K::Race), None), DashboardId::Race);
-    assert_eq!(pick(Some(K::Unknown), None), DashboardId::Practice);
-    assert_eq!(pick(None, None), DashboardId::Practice);
-    assert_eq!(pick(Some(K::Race), Some(DashboardId::TimeTrial)), DashboardId::TimeTrial);
-    assert_eq!(pick(None, Some(DashboardId::Race)), DashboardId::Race);
+    assert_eq!(pick(Some(K::Practice), false, None), DashboardId::Practice);
+    assert_eq!(pick(Some(K::Qualifying), false, None), DashboardId::Qualifying);
+    assert_eq!(pick(Some(K::Race), false, None), DashboardId::Race);
+    assert_eq!(pick(Some(K::Unknown), false, None), DashboardId::Practice);
+    assert_eq!(pick(None, false, None), DashboardId::Practice);
+    assert_eq!(pick(Some(K::Race), false, Some(DashboardId::TimeTrial)), DashboardId::TimeTrial);
+    assert_eq!(pick(None, false, Some(DashboardId::Race)), DashboardId::Race);
+    // Assetto Corsa's hotlap is practice to the lap file, but the panel shows it as a hot lap.
+    assert_eq!(pick(Some(K::Practice), true, None), DashboardId::TimeTrial);
+    assert_eq!(
+        pick(Some(K::Practice), true, Some(DashboardId::Race)),
+        DashboardId::Race,
+        "a hand pick still wins"
+    );
 }
 
 #[test]
@@ -3642,7 +3684,7 @@ fn the_header_names_the_dashboard_in_use() {
     let f = fixture();
     let live = live_reading();
     let mut v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
-    assert_eq!(v.dashboard_in_use(), pick(live.session_kind, None));
+    assert_eq!(v.dashboard_in_use(), pick(live.session_kind, live.time_trial, None));
     v.dashboard = Some(DashboardId::TimeTrial);
     assert_eq!(v.dashboard_in_use(), DashboardId::TimeTrial);
     assert!(dashboard_hit(1536, 1.0).is_some(), "there is room for the name in a normal window");
@@ -5878,7 +5920,7 @@ fn the_relay_finds_the_game_id_and_follows_the_dashboard_chosen_in_the_panel() {
     shared.set_game("ac", "Assetto Corsa", Game::Connected);
     let frame = relay.frame(&shared, Lang::En, Default::default(), now).expect("a live game");
     assert_eq!(frame.game, "ac");
-    assert_eq!(frame.dashboard, pick(live.session_kind, None).id());
+    assert_eq!(frame.dashboard, pick(live.session_kind, live.time_trial, None).id());
     let stale = relay.frame(&shared, Lang::En, Default::default(), now + STALE_MS + 1);
     assert!(stale.is_none(), "a stale reading");
     // The panel's `D` writes the file; the phone follows within a second.
@@ -5888,7 +5930,7 @@ fn the_relay_finds_the_game_id_and_follows_the_dashboard_chosen_in_the_panel() {
     let early = relay.frame(&shared, Lang::En, Default::default(), now + 500).unwrap();
     assert_eq!(
         early.dashboard,
-        pick(live.session_kind, None).id(),
+        pick(live.session_kind, live.time_trial, None).id(),
         "the file is read again once a second"
     );
     let later = relay.frame(&shared, Lang::En, Default::default(), now + 1_000).unwrap();
@@ -5896,7 +5938,7 @@ fn the_relay_finds_the_game_id_and_follows_the_dashboard_chosen_in_the_panel() {
     choices.set("Assetto Corsa", None);
     choices.save(&home).unwrap();
     let back = relay.frame(&shared, Lang::En, Default::default(), now + 2_100).unwrap();
-    assert_eq!(back.dashboard, pick(live.session_kind, None).id());
+    assert_eq!(back.dashboard, pick(live.session_kind, live.time_trial, None).id());
 }
 
 #[test]
@@ -5907,8 +5949,8 @@ fn the_phone_mark_sits_after_the_dashboard_name_when_there_is_room_and_only_then
     assert_eq!((mark.top, mark.bottom), (name.top, name.bottom));
     let version = version_hit(1536, 1.0).unwrap();
     assert!(mark.right < version.right, "it does not run into the version");
-    assert!(phone_hit(540, 1.0).is_none(), "a narrow window has no room for it");
-    let tight = (500..1536).find(|w| dashboard_hit(*w, 1.0).is_some()).unwrap();
+    assert!(phone_hit(480, 1.0).is_none(), "a narrow window has no room for it");
+    let tight = (360..1536).find(|w| dashboard_hit(*w, 1.0).is_some()).unwrap();
     assert!(phone_hit(tight, 1.0).is_none(), "room for the name only");
 }
 
@@ -6347,4 +6389,131 @@ fn the_example_says_so_in_the_header_and_each_game_shows_its_own_cards() {
     // Forza gives no fuel: its example has no fuel card, the full one has.
     assert!(!example_live(Some("fh5")).caps.has(crate::game::Caps::FUEL));
     assert!(example_live(None).caps.has(crate::game::Caps::FUEL));
+}
+
+// The phone view's picture: the panel itself, drawn with the phone's own layouts (`PhoneShape`, `phone_plan`).
+
+#[test]
+fn every_phone_layout_fits_a_phone_at_a_size_text_reads_at_and_places_its_cards_like_the_panel() {
+    for caps in [every_cap(), evo_like_caps()] {
+        let s = slots(caps);
+        for dash in DashboardId::ALL {
+            for shape in PhoneShape::ALL {
+                let plan = phone_plan(dash, shape, &s, usize::MAX);
+                assert!(!plan.cards.is_empty(), "{dash:?} {shape:?}");
+                assert_eq!(plan.w, shape.width());
+                let (room_w, room_h) = shape.room();
+                let scale = (room_w / plan.w).min(room_h / plan.h);
+                assert!(
+                    scale >= PHONE_MIN_SCALE,
+                    "{dash:?} {shape:?}: {} x {} shows at {scale} (caption {} px)",
+                    plan.w,
+                    plan.h,
+                    scale * T_CAPTION
+                );
+                for (i, (pane, area)) in plan.cards.iter().enumerate() {
+                    assert!(s.cards.contains(pane), "{dash:?} {shape:?}: {pane:?} is not one the game fills");
+                    assert!(area.1 + 0.01 >= CARDS_TOP, "{dash:?} {shape:?}: {pane:?} under the panel's header");
+                    assert!(inside_box(*area, 0.0, 0.0, plan.w, plan.h), "{dash:?} {shape:?}: {pane:?} inside");
+                    assert!(area.3 + 0.01 >= card_min_h(*pane), "{dash:?} {shape:?}: {pane:?} is {} tall", area.3);
+                    assert!(area.2 + 0.01 >= card_min_w(*pane), "{dash:?} {shape:?}: {pane:?} is {} wide", area.2);
+                    for (other, b) in &plan.cards[i + 1..] {
+                        assert!(!overlap(*area, *b), "{dash:?} {shape:?}: {pane:?} over {other:?}");
+                    }
+                }
+            }
+        }
+    }
+    let ids = |dash, shape| -> Vec<&'static str> {
+        phone_plan(dash, shape, &slots(every_cap()), usize::MAX)
+            .cards
+            .iter()
+            .map(|(pane, _)| catalog::id_of(*pane))
+            .collect()
+    };
+    use PhoneShape::{Sideways, Upright};
+    assert_eq!(ids(DashboardId::Race, Upright), ["times", "session", "flag", "relative", "centre"]);
+    assert_eq!(ids(DashboardId::Qualifying, Upright), ["times", "session", "delta_bar", "sectors", "centre"]);
+    assert_eq!(ids(DashboardId::TimeTrial, Upright), ["delta_bar", "times", "delta_ref", "sectors", "centre"]);
+    assert_eq!(ids(DashboardId::Practice, Upright), ["times", "fuel", "centre", "laps"]);
+    assert_eq!(ids(DashboardId::Race, Sideways), ["times", "centre", "relative", "fuel_calc"]);
+    assert_eq!(ids(DashboardId::Qualifying, Sideways), ["times", "delta_bar", "centre", "sectors"]);
+    assert_eq!(ids(DashboardId::TimeTrial, Sideways), ["delta_bar", "times", "centre", "sectors"]);
+    assert_eq!(ids(DashboardId::Practice, Sideways), ["times", "centre", "fuel", "tyres"]);
+}
+
+#[test]
+fn a_phone_layout_leaves_out_what_the_game_cannot_fill_and_the_rest_share_the_row() {
+    use crate::game::Caps;
+    let no_rivals = slots(every_cap().minus(Caps::RIVALS));
+    let plan = phone_plan(DashboardId::Race, PhoneShape::Sideways, &no_rivals, usize::MAX);
+    assert_eq!(plan.cards.len(), 3);
+    assert!(plan.cards.iter().all(|(pane, a)| *pane != Pane::Relative && a.1 == CARDS_TOP));
+    assert_eq!(plan.h, CARDS_TOP + 280.0);
+    let (_, first) = plan.cards[0];
+    let (_, second) = plan.cards[1];
+    assert!((second.0 - (first.0 + first.2) - GAP).abs() < 0.01, "the panel's gap between them");
+    let (_, last) = *plan.cards.last().unwrap();
+    assert!((last.0 + last.2 - PhoneShape::Sideways.width()).abs() < 0.01, "to the right edge");
+}
+
+#[test]
+fn the_picture_is_the_panel_drawn_for_the_phones_screen_sized_to_it_and_only_while_a_phone_watches() {
+    let mut live = live_reading();
+    live.session_kind = Some(crate::lapfile::SessionKind::Race);
+    live.caps = every_cap();
+    let ctx = ctx_of(Lang::En, live.at_ms);
+    let sideways = crate::phone::Screen { w: 828, h: 330, dpr: 3.0 };
+    let upright = crate::phone::Screen { w: 374, h: 737, dpr: 3.0 };
+    for (screen, shape) in [(sideways, PhoneShape::Sideways), (upright, PhoneShape::Upright)] {
+        let plan = phone_plan(DashboardId::Race, shape, &slots(live.caps), usize::MAX);
+        let (w, h, s) = picture_size(&plan, screen);
+        // At 1.5 pixels per CSS pixel at most, filling the room on one side.
+        let (room_w, room_h) = (screen.w as f32 * 1.5, screen.h as f32 * 1.5);
+        assert!((w as f32 - room_w).abs() <= 1.0 || (h as f32 - room_h).abs() <= 1.0, "{shape:?}: {w} x {h}");
+        assert!(w as f32 <= room_w + 1.0 && h as f32 <= room_h + 1.0, "{shape:?}: {w} x {h}");
+        assert!((s - w as f32 / plan.w).abs() < 0.01);
+        let (pixels, pw, ph) =
+            phone_pixels(&live, &ctx, DashboardId::Race, &Views::default(), &[], screen).expect("a picture");
+        assert_eq!((pw, ph), (w, h));
+        assert!(has_color(&pixels, CARD) > 1000, "{shape:?}: the panel's cards");
+    }
+    let frame = build_frame_with(&live, "lmu", &ctx, None, &Views::default(), Some((sideways, &[]))).unwrap();
+    let image = frame.image.as_deref().expect("a picture while a phone watches");
+    assert!(image.starts_with("data:image/jpeg;base64,/9j/"), "a JPEG");
+    let text = crate::phone::body(1, 1_763_550_000_000, &frame).expect("under the server's limit");
+    assert!(text.len() < crate::phone::MAX_BYTES, "{} bytes", text.len());
+    // No phone watching: no picture, the rest as before.
+    let plain = build_frame(&live, "lmu", &ctx, None).unwrap();
+    assert!(plain.image.is_none());
+    assert_eq!(plain.rows, frame.rows);
+}
+
+#[test]
+fn writes_the_phone_pictures() {
+    // Saved to look at when XPEED_SIM_PANEL_PNG names a folder: every dashboard, upright and on its side.
+    let mut live = full_reading();
+    live.caps = every_cap();
+    let laps = rich_laps();
+    let ctx = ModelCtx {
+        lang: Lang::En,
+        now_ms: live.at_ms,
+        units: Default::default(),
+        laps: &laps,
+    };
+    for dash in DashboardId::ALL {
+        for (name, screen) in [
+            ("sideways", crate::phone::Screen { w: 828, h: 330, dpr: 2.0 }),
+            ("upright", crate::phone::Screen { w: 374, h: 737, dpr: 2.0 }),
+        ] {
+            let (pixels, w, h) = phone_pixels(&live, &ctx, dash, &Views::default(), &[], screen).unwrap();
+            save(&pixels, w, h, &format!("phone-{}-{name}.png", dash.id()));
+            // The JPEG the phone gets, to look at and to weigh (the screens harness streams these).
+            let jpeg = phone_jpeg(&live, &ctx, dash, &Views::default(), &[], screen).unwrap();
+            assert!(jpeg.len() < 150 * 1024, "{} {name}: {} KB", dash.id(), jpeg.len() / 1024);
+            if let Some(dir) = std::env::var_os("XPEED_SIM_PANEL_PNG") {
+                std::fs::write(std::path::Path::new(&dir).join(format!("phone-{}-{name}.jpg", dash.id())), &jpeg).unwrap();
+            }
+        }
+    }
 }

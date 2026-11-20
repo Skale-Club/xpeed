@@ -1,4 +1,3 @@
-import { Timer } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
 import { SessionPage } from '@/components/sim/SessionPage';
@@ -10,7 +9,7 @@ export default function SimSessionPage() {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <PageHeader icon={Timer} title={t('modes.session.title', 'Session')} />
+        <PageHeader size="lg" title={t('modes.session.title', 'Session')} />
         <SessionPage />
       </div>
     </AppLayout>

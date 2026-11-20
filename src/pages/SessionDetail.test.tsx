@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import i18n from '@/lib/i18n';
 import SessionDetail from './SessionDetail';
@@ -21,7 +22,9 @@ const extras = vi.hoisted(() => ({
   listSessionPhotos: vi.fn(async () => [{ id: 'photo-1' }]),
   includeSharedMedia: vi.fn(async () => undefined),
 }));
+const fuel = vi.hoisted(() => ({ listFuelEntries: vi.fn(async () => [] as unknown[]) }));
 vi.mock('@/lib/db', () => db);
+vi.mock('@/lib/fuel-api', async (load) => ({ ...(await load<typeof import('@/lib/fuel-api')>()), listFuelEntries: fuel.listFuelEntries }));
 vi.mock('@/lib/db-extras', () => extras);
 vi.mock('@/components/AppLayout', () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/components/PhotoUpload', () => ({ default: () => null }));
@@ -36,10 +39,12 @@ const TRIP = {
 };
 
 const renderTrip = () => render(
-  <MemoryRouter initialEntries={['/session/t1']}>
-    <Routes><Route path="/session/:id" element={<SessionDetail />} /></Routes>
-    <Toaster />
-  </MemoryRouter>,
+  <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <MemoryRouter initialEntries={['/session/t1']}>
+      <Routes><Route path="/session/:id" element={<SessionDetail />} /></Routes>
+      <Toaster />
+    </MemoryRouter>
+  </QueryClientProvider>,
 );
 
 beforeAll(async () => {
@@ -147,5 +152,23 @@ describe('SessionDetail', () => {
     expect(await screen.findByText("Couldn't check the trip again")).toBeInTheDocument();
     expect(db.getSessionFlags).toHaveBeenCalledTimes(1); // not re-read as if it had worked
     consoleError.mockRestore();
+  });
+  it('lets the owner set the fuel price right on the trip when none is saved', async () => {
+    db.getSession.mockResolvedValueOnce(TRIP);
+    renderTrip();
+    expect(await screen.findByText('Set your fuel price once and every trip shows what it cost.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Set fuel price' }));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+  });
+
+  it('costs a trip from before the first saved price, with fuel worked out from the air flow', async () => {
+    db.getSession.mockResolvedValueOnce({ ...TRIP, summary: { ...TRIP.summary, summaries: [...TRIP.summary.summaries, { canonical_key: 'maf', parameter_key: 'Mass air flow (g/s)', unit: 'g/s' }] } });
+    // 30 min at 10 g/s of air: 1800 s x 10 / (14.7 x 745) = 1.64 L; at $1/L that is $1.64.
+    db.getSessionRows.mockResolvedValueOnce(Array.from({ length: 61 }, (_, i) => ({ id: `r${i}`, session_id: 't1', t_seconds: i * 30, t_timestamp: null, data: { 'Mass air flow (g/s)': 10 }, created_at: '' })) as never);
+    fuel.listFuelEntries.mockResolvedValueOnce([{ id: 'p1', kind: 'reference', at: '2026-11-15T12:00:00Z', litres: 0, pricePerLitre: 1, totalPaid: null, currency: 'USD', odometerKm: null, fullTank: false, source: 'manual', region: '', sourceUrl: '', note: '' }]);
+    renderTrip();
+    expect((await screen.findByTestId('trip-cost')).textContent).toBe('$1.64');
+    expect(screen.getByText(/the first price you saved/)).toBeTruthy();
+    expect(screen.getByText(/worked out from the engine's air flow \(100% of the trip\)/)).toBeTruthy();
   });
 });
