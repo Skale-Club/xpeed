@@ -20,7 +20,10 @@ vi.mock('../../../api/_backend', () => ({
         from: () => ({
           download: () => {
             downloads++;
-            return Promise.resolve(stored ? { data: new Blob([stored]), error: null } : { data: null, error: { statusCode: '404' } });
+            // Only what the route reads of the storage answer (the test environment's Blob has no arrayBuffer).
+            const bytes = stored;
+            const data = bytes && { arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer };
+            return Promise.resolve(data ? { data, error: null } : { data: null, error: { statusCode: '404' } });
           },
         }),
       },
