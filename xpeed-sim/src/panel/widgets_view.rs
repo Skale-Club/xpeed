@@ -1,0 +1,690 @@
+//! The cards of the catalog's later widgets, drawn from the models of `widgets.rs`: the digiflag, the fuel strategy, the tyre
+//! wear, the sectors, the delta bar, the session and the rivals (relative, standings, gaps, radar). They use the same pieces as the
+//! first seven cards (the card caption, the tokens' type sizes and colours, the panel's one corner and the square-block bars) and add no colour or corner of their own.
+
+use super::*;
+
+/// A card's lines of text under the table or the rows, and the heights of the fuel table's parts.
+const NOTE_LINE_H: f32 = 16.0;
+const STAT_H: f32 = 30.0;
+const TABLE_HEAD_H: f32 = 18.0;
+const TABLE_ROW_H: f32 = 22.0;
+/// The tile with the fuel to the end of the session, at its tallest.
+const END_TILE_H: f32 = 28.0;
+
+/// The height of a sector's row, and of a row of the wear card at its smallest.
+const SECTOR_ROW_H: f32 = 30.0;
+const WEAR_ROW_MIN_H: f32 = 28.0;
+const WEAR_ROW_MAX_H: f32 = 46.0;
+
+/// The height of the session card's place, of the class line under it and of the time (or lap) left.
+const POSITION_H: f32 = 56.0;
+const CLASS_LINE_H: f32 = 20.0;
+const REMAINING_H: f32 = 34.0;
+
+/// A delta card this tall (inside) gets the big number and the tall bar.
+const DELTA_BIG_H: f32 = 190.0;
+
+/// The fill of a flag's block, the edge it needs to stand out on the card (a black flag), and the ink of the words on it.
+pub(super) fn flag_look(kind: FlagKind) -> (COLORREF, Option<COLORREF>, COLORREF) {
+    match kind {
+        FlagKind::Green => (SUCCESS, None, ON_PRIMARY),
+        FlagKind::Yellow => (PRIMARY, None, ON_PRIMARY),
+        FlagKind::Blue => (INFO, None, ON_PRIMARY),
+        FlagKind::White | FlagKind::Chequered => (FLAG_WHITE, None, ON_PRIMARY),
+        FlagKind::Black => (FLAG_BLACK, Some(MUTED_TEXT), FOREGROUND),
+    }
+}
+
+/// The colour of a sector time: purple for the best, green when faster than the lap before, yellow when slower; the last
+/// lap's time, which the lap being driven has not reached yet, is quiet.
+pub(super) fn sector_colour(tone: SectorTone, from_last_lap: bool) -> COLORREF {
+    match (tone, from_last_lap) {
+        (SectorTone::Best, _) => BEST,
+        (SectorTone::Faster, _) => SUCCESS,
+        (SectorTone::Slower, _) => WARN,
+        (SectorTone::Plain, true) => MUTED_TEXT,
+        (SectorTone::Plain, false) => FOREGROUND,
+    }
+}
+
+/// The digiflag: the whole card is a block of the flag's colour with its word big in the middle (the chequered flag is a
+/// square checker pattern, its word on a plate); with no flag the card keeps its surface and says `NO FLAG` quietly.
+pub(super) fn digiflag_card(g: &mut Painter, d: &Dash, card: Area) {
+    let Some(f) = &d.m.flag else {
+        return;
+    };
+    let semi = FW_SEMIBOLD as i32;
+    let (x, y, w, h) = card;
+    let (ix, iy, iw, ih) = inner(card);
+    let big = type_step((ih - CAPTION_H) * 0.5);
+    shown(g, f.show, |g| {
+        let Some(kind) = f.kind else {
+            caption(g, &f.title, (ix, iy, iw, CAPTION_H), DT_LEFT);
+            let size = g.fitted(&f.word, iw, big.min(T_VALUE_L), T_CAPTION, semi, Face::Num);
+            let r = g.r(ix, iy + CAPTION_H, iw, ih - CAPTION_H);
+            g.text(&f.word, r, size, semi, Face::Num, MUTED_TEXT, DT_CENTER);
+            return;
+        };
+        let (fill, edge, ink) = flag_look(kind);
+        g.round(g.r(x, y, w, h), fill, edge);
+        let size = g.fitted(&f.word, iw, big.min(T_DISPLAY), T_CAPTION, semi, Face::Num);
+        if kind == FlagKind::Chequered {
+            chequered_pattern(g, (x, y, w, h));
+            let (word_w, title_w) = (g.tabular_width(&f.word, size, semi), g.caps_width(&f.title, T_CAPTION));
+            let word_h = size * 1.25;
+            let plate_w = (word_w.max(title_w) + 2.0 * S4).min(w - 2.0 * S2);
+            let plate_h = CAPTION_H + S1 + word_h + 2.0 * S2;
+            let (px, py) = (x + (w - plate_w) / 2.0, y + (h - plate_h) / 2.0);
+            g.round(g.r(px, py, plate_w, plate_h), FLAG_WHITE, Some(FLAG_BLACK));
+            let r = g.r(px, py + S2, plate_w, CAPTION_H);
+            g.caps(&f.title, r, T_CAPTION, ink, DT_CENTER);
+            let r = g.r(px, py + S2 + CAPTION_H + S1, plate_w, word_h);
+            g.text(&f.word, r, size, semi, Face::Num, ink, DT_CENTER);
+        } else {
+            let r = g.r(ix, iy, iw, CAPTION_H);
+            g.caps(&f.title, r, T_CAPTION, ink, DT_LEFT);
+            let r = g.r(ix, iy + CAPTION_H, iw, ih - CAPTION_H);
+            g.text(&f.word, r, size, semi, Face::Num, ink, DT_CENTER);
+        }
+    });
+}
+
+/// A pattern of black squares over the white block of the chequered flag: whole squares, as many as fit, centred, with a
+/// margin of white round them.
+fn chequered_pattern(g: &mut Painter, (x, y, w, h): Area) {
+    let (bx, by, bw, bh) = (x + STROKE_BAR, y + STROKE_BAR, w - 2.0 * STROKE_BAR, h - 2.0 * STROKE_BAR);
+    let square = (bh / 5.0).floor().max(S2);
+    let (cols, rows) = ((bw / square).floor().max(1.0) as usize, (bh / square).floor().max(1.0) as usize);
+    let (ox, oy) = (bx + (bw - cols as f32 * square) / 2.0, by + (bh - rows as f32 * square) / 2.0);
+    for row in 0..rows {
+        for col in 0..cols {
+            if !(row + col).is_multiple_of(2) {
+                g.fill(g.r(ox + col as f32 * square, oy + row as f32 * square, square, square), FLAG_BLACK);
+            }
+        }
+    }
+}
+
+/// The fuel strategy card: the average use per lap, the last lap's use and the laps left in the tank over a table of what 5,
+/// 10, 15 and 20 laps need (with a lap of margin) and how much of it to add, and the fuel to the end of the session in a
+/// lit tile (a line saying why it is missing until the game gives the session's laps or time).
+pub(super) fn fuel_strategy_card(g: &mut Painter, d: &Dash, card: Area) {
+    let Some(m) = &d.m.fuel_calc else {
+        return;
+    };
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let (x, y, w, h) = inner(card);
+    shown(g, m.show, |g| {
+        caption(g, &m.title, (x, y, w, CAPTION_H), DT_LEFT);
+        let top = y + CAPTION_H + S2;
+        let col = (w - 2.0 * S2) / 3.0;
+        for (i, cell) in m.stats.iter().enumerate() {
+            let cx = x + i as f32 * (col + S2);
+            let r = g.r(cx, top, col, CAPTION_H);
+            g.caps(&cell.label, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
+            let size = g.fitted(&cell.value, col, T_VALUE, T_BODY, semi, Face::Num);
+            let r = g.r(cx - 1.0, top + CAPTION_H + S1, col + 1.0, STAT_H);
+            g.text(&cell.value, r, size, semi, Face::Num, cell.role.colour(), DT_LEFT);
+        }
+        // The table: the laps on the left, the litres needed and the litres to add to the right.
+        let table_top = top + CAPTION_H + S1 + STAT_H + S3;
+        let widths = [w * 0.22, w * 0.39, w * 0.39];
+        let mut at = x;
+        let columns: Vec<(f32, f32)> = widths
+            .iter()
+            .map(|cw| {
+                let place = (at, *cw);
+                at += cw;
+                place
+            })
+            .collect();
+        for (i, (head, (cx, cw))) in m.heads.iter().zip(&columns).enumerate() {
+            let r = g.r(*cx, table_top, *cw, TABLE_HEAD_H);
+            g.caps(head, r, T_CAPTION, MUTED_TEXT, if i == 0 { DT_LEFT } else { DT_RIGHT });
+        }
+        g.fill(g.r(x, table_top + TABLE_HEAD_H - 1.0, w, STROKE_HAIR), BORDER);
+        for (i, row) in m.rows.iter().enumerate() {
+            let ry = table_top + TABLE_HEAD_H + i as f32 * TABLE_ROW_H;
+            let cells = [
+                (&row.laps, FOREGROUND_2),
+                (&row.needed, FOREGROUND),
+                (&row.to_add, row.role.colour()),
+            ];
+            for (j, ((value, colour), (cx, cw))) in cells.iter().zip(&columns).enumerate() {
+                let r = g.r(*cx, ry, *cw, TABLE_ROW_H);
+                g.text(value, r, T_BODY, semi, Face::Num, *colour, if j == 0 { DT_LEFT } else { DT_RIGHT });
+            }
+            g.fill(g.r(x, ry + TABLE_ROW_H - 1.0, w, STROKE_HAIR), BORDER);
+        }
+        // The fuel to the end of the session in a lit tile, or the line that says why it is not there.
+        let note_top = table_top + TABLE_HEAD_H + m.rows.len() as f32 * TABLE_ROW_H + S2;
+        if let Some(end) = &m.to_end {
+            let tile_h = (y + h - note_top).clamp(NOTE_LINE_H, END_TILE_H);
+            tile_with_edge(g, (x, note_top, w, tile_h), BACKGROUND, end.role.colour());
+            let (tx, tw) = (x + S2, w - 2.0 * S2);
+            let label_w = g.caps_width(&end.label, T_CAPTION);
+            let r = g.r(tx, note_top, label_w, tile_h);
+            g.caps(&end.label, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
+            let add = end.to_add.as_ref().map(|litres| format!("{} {litres}", end.add_label));
+            let add_w = add.as_ref().map_or(0.0, |add| g.width_of(add, T_BODY, semi, Face::Num));
+            if let Some(add) = &add {
+                let r = g.r(tx + tw - add_w, note_top, add_w, tile_h);
+                g.text(add, r, T_BODY, semi, Face::Num, end.role.colour(), DT_RIGHT);
+            }
+            let needed_x = tx + label_w + S2;
+            let needed_w = (tx + tw - add_w - S2 - needed_x).max(1.0);
+            let r = g.r(needed_x, note_top, needed_w, tile_h);
+            g.text(&end.needed, r, T_BODY, semi, Face::Num, FOREGROUND, DT_LEFT);
+        } else if let Some(note) = &m.note {
+            let room = ((y + h - note_top) / NOTE_LINE_H).floor().max(0.0) as usize;
+            for (i, line) in g.wrap_lines(note, w, T_CAPTION, normal, Face::Ui).iter().take(room).enumerate() {
+                let r = g.r(x, note_top + i as f32 * NOTE_LINE_H, w, NOTE_LINE_H);
+                g.text(line, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
+            }
+        }
+    });
+}
+
+/// The tyre wear card: a row per tyre with its tread left as a small bar, the wear per lap and, big, the laps left until
+/// the tread is gone; the tyre that runs out first has its row lit. A line says why the figures are missing until a clean
+/// lap gave a wear per lap.
+pub(super) fn tyre_wear_card(g: &mut Painter, d: &Dash, card: Area) {
+    let Some(m) = &d.m.tyre_trend else {
+        return;
+    };
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let (x, y, w, h) = inner(card);
+    shown(g, m.show, |g| {
+        caption(g, &m.title, (x, y, w, CAPTION_H), DT_LEFT);
+        let (x0, x1) = (x + S2, x + w - S2);
+        // Wide enough for the letter-spaced heads ("WEAR / LAP", "LAPS LEFT"), which must never run into each other.
+        let (wear_w, left_w) = ((w * 0.3).min(116.0), (w * 0.28).min(116.0));
+        let head_y = y + CAPTION_H + S2;
+        let [wear_head, left_head] = &m.heads;
+        // Each head gets the room it needs (a narrow card, a phone held upright), so the two never overlap.
+        let left_head_w = left_w.max(g.caps_width(left_head, T_CAPTION));
+        let wear_head_w = wear_w.max(g.caps_width(wear_head, T_CAPTION));
+        let r = g.r(x1 - left_head_w - S2 - wear_head_w, head_y, wear_head_w, CAPTION_H);
+        g.caps(wear_head, r, T_CAPTION, MUTED_TEXT, DT_RIGHT);
+        let r = g.r(x1 - left_head_w, head_y, left_head_w, CAPTION_H);
+        g.caps(left_head, r, T_CAPTION, MUTED_TEXT, DT_RIGHT);
+        let note_lines = m
+            .note
+            .as_ref()
+            .map(|note| g.wrap_lines(note, w, T_CAPTION, normal, Face::Ui))
+            .unwrap_or_default();
+        let note_h = if note_lines.is_empty() {
+            0.0
+        } else {
+            note_lines.len() as f32 * NOTE_LINE_H + S2
+        };
+        let rows_top = head_y + CAPTION_H + S1;
+        let pitch = ((y + h - note_h - rows_top) / m.rows.len().max(1) as f32).clamp(WEAR_ROW_MIN_H, WEAR_ROW_MAX_H);
+        let row_h = pitch - S1;
+        let corner_w = 30.0;
+        let bar_x = x0 + corner_w + S2;
+        let bar_w = x1 - left_w - wear_w - S2 - bar_x;
+        for (i, row) in m.rows.iter().enumerate() {
+            let ry = rows_top + i as f32 * pitch;
+            if row.worst {
+                tile_with_edge(g, (x, ry, w, row_h), SURFACE, row.role.colour());
+            } else {
+                g.round(g.r(x, ry, w, row_h), BACKGROUND, Some(BORDER));
+            }
+            let r = g.r(x0, ry, corner_w, row_h);
+            g.caps(&row.corner, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
+            if let Some(tread) = row.tread.filter(|_| bar_w >= 24.0) {
+                g.solid_bar((bar_x, ry + (row_h - 8.0) / 2.0, bar_w, 8.0), tread, FOREGROUND_2);
+            }
+            let r = g.r(x1 - left_w - wear_w, ry, wear_w, row_h);
+            g.text(&row.wear, r, T_BODY, normal, Face::Num, FOREGROUND_2, DT_RIGHT);
+            let size = g.fitted(&row.laps_left, left_w, T_VALUE, T_BODY, semi, Face::Num);
+            let r = g.r(x1 - left_w, ry, left_w, row_h);
+            g.text(&row.laps_left, r, size, semi, Face::Num, row.role.colour(), DT_RIGHT);
+        }
+        for (i, line) in note_lines.iter().enumerate() {
+            let r = g.r(x, y + h - note_h + S2 + i as f32 * NOTE_LINE_H, w, NOTE_LINE_H);
+            g.text(line, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
+        }
+    });
+}
+
+/// The sectors card: a row for S1, S2 and S3 with the time in its colour (purple best, green faster, yellow slower than the
+/// lap before) and the best time of that sector this run; under them the theoretical best lap and how far the best lap is
+/// from it.
+pub(super) fn sector_times_card(g: &mut Painter, d: &Dash, card: Area) {
+    let Some(m) = &d.m.sectors else {
+        return;
+    };
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let (x, y, w, _) = inner(card);
+    shown(g, m.show, |g| {
+        caption(g, &m.title, (x, y, w, CAPTION_H), DT_LEFT);
+        let best_w = (w * 0.3).min(110.0);
+        let head_y = y + CAPTION_H + S2;
+        let r = g.r(x + w - best_w - S2, head_y, best_w, CAPTION_H);
+        g.caps(&m.best_head, r, T_CAPTION, MUTED_TEXT, DT_RIGHT);
+        let rows_top = head_y + CAPTION_H + S1;
+        let label_w = 30.0;
+        for (i, row) in m.rows.iter().enumerate() {
+            let ry = rows_top + i as f32 * (SECTOR_ROW_H + S1);
+            let colour = sector_colour(row.tone, row.from_last_lap);
+            let edge = if row.tone == SectorTone::Plain { BORDER } else { colour };
+            tile_with_edge(g, (x, ry, w, SECTOR_ROW_H), BACKGROUND, edge);
+            let r = g.r(x + S2, ry, label_w, SECTOR_ROW_H);
+            g.caps(&row.label, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
+            let time_w = (w - S2 - label_w - best_w - 2.0 * S2).max(1.0);
+            let size = g.fitted(&row.time, time_w, T_VALUE, T_BODY, semi, Face::Num);
+            let r = g.r(x + S2 + label_w, ry, time_w, SECTOR_ROW_H);
+            g.text(&row.time, r, size, semi, Face::Num, colour, DT_LEFT);
+            let r = g.r(x + w - best_w - S2, ry, best_w, SECTOR_ROW_H);
+            g.text(&row.best, r, T_BODY, normal, Face::Num, MUTED_TEXT, DT_RIGHT);
+        }
+        let ty = rows_top + m.rows.len() as f32 * (SECTOR_ROW_H + S1) + S2 - S1;
+        let r = g.r(x, ty, w, CAPTION_H);
+        g.caps(&m.theoretical_label, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
+        let half = w * 0.5;
+        let size = g.fitted(&m.theoretical, half, T_VALUE_L, T_VALUE, semi, Face::Num);
+        let r = g.r(x - 1.0, ty + CAPTION_H + S1, half, STAT_H);
+        g.text(&m.theoretical, r, size, semi, Face::Num, BEST, DT_LEFT);
+        if let Some(gap) = &m.gap {
+            let line = format!("{gap} {}", m.gap_label);
+            let r = g.r(x + half, ty + CAPTION_H + S1, half, STAT_H);
+            g.text(&line, r, T_BODY, normal, Face::Ui, SUCCESS, DT_RIGHT);
+        }
+    });
+}
+
+/// The delta card: the delta to the best lap as a big number (green when faster, red when slower) over a wide bar of
+/// square blocks centred on zero, filled to the left when faster and to the right when slower, to 2 seconds either side.
+pub(super) fn delta_card(g: &mut Painter, d: &Dash, card: Area) {
+    let Some(m) = &d.m.delta_bar else {
+        return;
+    };
+    let semi = FW_SEMIBOLD as i32;
+    let (x, y, w, h) = inner(card);
+    shown(g, m.show, |g| {
+        caption(g, &m.title, (x, y, w, CAPTION_H), DT_LEFT);
+        caption(g, &m.caption, (x, y, w, CAPTION_H), DT_RIGHT);
+        let big = h >= DELTA_BIG_H;
+        let (number_h, bar_h, number_size) = if big { (84.0, 24.0, T_DISPLAY) } else { (56.0, 16.0, T_HERO) };
+        let top = y + CAPTION_H + S1;
+        let tops = stack(top, y + h - top, &[number_h, bar_h], S3, S8);
+        let size = g.fitted(&m.value, w, number_size, T_VALUE, semi, Face::Num);
+        let r = g.r(x, tops[0], w, number_h);
+        g.text(&m.value, r, size, semi, Face::Num, m.role.colour(), DT_CENTER);
+        g.centred_bar((x, tops[1], w, bar_h), m.frac, m.role.colour(), FOREGROUND);
+    });
+}
+
+/// The top of a box for a text of `small` size so that it sits on the same baseline as a text of `big` size centred on
+/// `centre` (figures are centred on their own height, so the baseline is about a third of the size below the centre).
+fn sits_on(centre: f32, big: f32, small: f32) -> f32 {
+    centre + 0.35 * (big - small) - small * 0.7
+}
+
+/// The session card: the place big (`P3`) with the cars after it small (`/ 24`), the place in the class under it, and what is
+/// left of the session, the time or the lap, with its word. A part the game does not give is not drawn and the rest moves up.
+pub(super) fn session_card(g: &mut Painter, d: &Dash, card: Area) {
+    let Some(m) = &d.m.session_card else {
+        return;
+    };
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let (x, y, w, h) = inner(card);
+    shown(g, m.show, |g| {
+        caption(g, &m.title, (x, y, w, CAPTION_H), DT_LEFT);
+        let bottom = y + h;
+        let mut top = y + CAPTION_H + S1;
+        if let Some(position) = &m.position {
+            let small = m.of_cars.as_deref().unwrap_or("");
+            let small_w = g.width_of(small, T_VALUE, normal, Face::Num);
+            let room = if small.is_empty() { w } else { w - small_w - S2 };
+            let size = g.fitted(position, room.max(1.0), T_HERO, T_VALUE, semi, Face::Num);
+            let big_w = g.tabular_width(position, size, semi).min(room.max(1.0));
+            let r = g.r(x - 1.0, top, big_w + 1.0, POSITION_H);
+            g.text(position, r, size, semi, Face::Num, FOREGROUND, DT_LEFT);
+            if !small.is_empty() {
+                let base = sits_on(top + POSITION_H / 2.0, size, T_VALUE);
+                let r = g.r(x + big_w + S2, base, small_w + 1.0, T_VALUE * 1.4);
+                g.text(small, r, T_VALUE, normal, Face::Num, MUTED_TEXT, DT_LEFT);
+            }
+            top += POSITION_H + S1;
+        }
+        if let Some(line) = &m.class_line {
+            let r = g.r(x, top, w, CLASS_LINE_H);
+            g.text(line, r, T_BODY, normal, Face::Ui, FOREGROUND_2, DT_LEFT);
+            top += CLASS_LINE_H + S2;
+        }
+        // The time (or lap) left, when the card has the room for it.
+        if let Some(remaining) = m.remaining.as_ref().filter(|_| top + REMAINING_H <= bottom + 0.5) {
+            let note_text = m.remaining_note.as_deref().unwrap_or("");
+            let note_w = g.width_of(note_text, T_BODY, normal, Face::Ui);
+            let room = (w - note_w - S2).max(1.0);
+            let size = g.fitted(remaining, room, T_VALUE_L, T_BODY, semi, Face::Num);
+            let value_w = g.tabular_width(remaining, size, semi).min(room);
+            let r = g.r(x - 1.0, top, value_w + 1.0, REMAINING_H);
+            g.text(remaining, r, size, semi, Face::Num, FOREGROUND, DT_LEFT);
+            if let Some(note) = &m.remaining_note {
+                let base = sits_on(top + REMAINING_H / 2.0, size, T_BODY);
+                let r = g.r(x + value_w + S2, base, note_w + 1.0, T_BODY * 1.5);
+                g.text(note, r, T_BODY, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
+            }
+        }
+    });
+}
+
+// The rivals: the relative card, the standings and the gaps.
+
+/// The height of a row of the relative and standings cards (the tile of the player's row is two less), and the width of the
+/// place column.
+const RIVAL_ROW_H: f32 = 28.0;
+const RIVAL_POS_W: f32 = 36.0;
+/// The widest the time column of the relative card, and the gap and last lap columns of the standings, are drawn.
+const RELATIVE_GAP_W: f32 = 78.0;
+const STANDINGS_GAP_W: f32 = 66.0;
+const STANDINGS_LAST_W: f32 = 78.0;
+/// A side of the gaps card at its least: its label, the car and its gap, and the trend, with the room round them.
+const GAP_SIDE_H: f32 = 72.0;
+const GAP_LABEL_H: f32 = 16.0;
+const GAP_CAR_H: f32 = 28.0;
+const GAP_TREND_H: f32 = 18.0;
+/// The size of the trend's chevron.
+const CHEVRON_W: f32 = 10.0;
+
+/// The ink of the place column: quiet, except where the row is blue (lapping) or muted (lapped) as a whole.
+fn place_ink(role: Role) -> COLORREF {
+    if role == Role::Text {
+        MUTED_TEXT
+    } else {
+        role.colour()
+    }
+}
+
+/// A chevron of square blocks, `CHEVRON_W` wide and 6 tall with its top left at `(x, y)`, pointing up or down; a short bar
+/// when `flat` (no trend).
+fn trend_arrow(g: &Painter, (x, y): (f32, f32), up: bool, flat: bool, colour: COLORREF) {
+    if flat {
+        g.fill(g.r(x, y + 2.0, CHEVRON_W, 2.0), colour);
+        return;
+    }
+    for step in 0..3 {
+        let row = if up { step } else { 2 - step };
+        let (ry, spread) = (y + row as f32 * 2.0, step as f32 * 2.0);
+        g.fill(g.r(x + 4.0 - spread, ry, 2.0, 2.0), colour);
+        if step > 0 {
+            g.fill(g.r(x + 4.0 + spread, ry, 2.0, 2.0), colour);
+        }
+    }
+}
+
+/// The lines of a card's note (why its rows are missing) from `top` down, as many as `room` leaves.
+fn rival_note(g: &mut Painter, note: &str, (x, top, w): (f32, f32, f32), bottom: f32) {
+    let normal = FW_NORMAL as i32;
+    let room = ((bottom - top) / NOTE_LINE_H).floor().max(0.0) as usize;
+    for (i, line) in g.wrap_lines(note, w, T_CAPTION, normal, Face::Ui).iter().take(room).enumerate() {
+        let r = g.r(x, top + i as f32 * NOTE_LINE_H, w, NOTE_LINE_H);
+        g.text(line, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
+    }
+}
+
+/// The relative card: the cars round the player on the track, the farthest ahead at the top, one row each with its place,
+/// its name and the time to it (`+` ahead, `-` behind); the player's own row is lit. A car lapping the player is blue, a
+/// lapped one quiet.
+pub(super) fn relative_card(g: &mut Painter, d: &Dash, card: Area) {
+    let Some(m) = &d.m.relative else {
+        return;
+    };
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let (x, y, w, h) = inner(card);
+    shown(g, m.show, |g| {
+        caption(g, &m.title, (x, y, w, CAPTION_H), DT_LEFT);
+        let top = y + CAPTION_H + S2;
+        let fit = ((y + h - top) / RIVAL_ROW_H + 0.01).floor().max(0.0) as usize;
+        let box_h = RIVAL_ROW_H - 2.0;
+        let gap_w = RELATIVE_GAP_W.min(w * 0.3);
+        let name_x = x + S2 + RIVAL_POS_W + S2;
+        let name_w = (x + w - S2 - gap_w - S2 - name_x).max(1.0);
+        for (i, row) in m.rows.iter().take(fit).enumerate() {
+            let ry = top + i as f32 * RIVAL_ROW_H;
+            if row.is_player {
+                tile_with_edge(g, (x, ry, w, box_h), SURFACE, PRIMARY);
+            } else {
+                g.fill(g.r(x, ry + RIVAL_ROW_H - 1.0, w, STROKE_HAIR), BORDER);
+            }
+            let weight = if row.is_player { semi } else { normal };
+            let ink = row.role.colour();
+            let r = g.r(x + S2, ry, RIVAL_POS_W, box_h);
+            g.text(&row.position, r, T_BODY, weight, Face::Num, place_ink(row.role), DT_LEFT);
+            let r = g.r(name_x, ry, name_w, box_h);
+            g.text(&row.name, r, T_BODY, weight, Face::Ui, ink, DT_LEFT);
+            if let Some(gap) = &row.gap {
+                let r = g.r(x + w - S2 - gap_w, ry, gap_w, box_h);
+                g.text(gap, r, T_BODY, semi, Face::Num, ink, DT_RIGHT);
+            }
+        }
+        if let Some(note) = &m.note {
+            let note_top = top + m.rows.len().min(fit) as f32 * RIVAL_ROW_H + S2;
+            rival_note(g, note, (x, note_top, w), y + h);
+        }
+    });
+}
+
+/// The standings card: the player's class, the leader first and the rows round the player (a thin divider where places are
+/// skipped), each with its place, its name, the gap to the class leader and its last lap; the player's row is lit.
+pub(super) fn standings_card(g: &mut Painter, d: &Dash, card: Area) {
+    let Some(m) = &d.m.standings else {
+        return;
+    };
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let (x, y, w, h) = inner(card);
+    shown(g, m.show, |g| {
+        caption(g, &m.title, (x, y, w, CAPTION_H), DT_LEFT);
+        if let Some(class) = &m.class_name {
+            caption(g, class, (x, y, w, CAPTION_H), DT_RIGHT);
+        }
+        let head_y = y + CAPTION_H + S2;
+        let top = head_y + CAPTION_H + S1;
+        let fit = ((y + h - top) / RIVAL_ROW_H + 0.01).floor().max(0.0) as usize;
+        let box_h = RIVAL_ROW_H - 2.0;
+        let (gap_w, last_w) = (STANDINGS_GAP_W.min(w * 0.2), STANDINGS_LAST_W.min(w * 0.26));
+        let last_x = x + w - S2 - last_w;
+        let gap_x = last_x - S2 - gap_w;
+        let name_x = x + S2 + RIVAL_POS_W + S2;
+        let name_w = (gap_x - S2 - name_x).max(1.0);
+        let [gap_head, last_head] = &m.heads;
+        let r = g.r(gap_x, head_y, gap_w, CAPTION_H);
+        g.caps(gap_head, r, T_CAPTION, MUTED_TEXT, DT_RIGHT);
+        let r = g.r(last_x, head_y, last_w, CAPTION_H);
+        g.caps(last_head, r, T_CAPTION, MUTED_TEXT, DT_RIGHT);
+        for (i, row) in m.rows.iter().take(fit).enumerate() {
+            let ry = top + i as f32 * RIVAL_ROW_H;
+            if row.is_player {
+                tile_with_edge(g, (x, ry, w, box_h), SURFACE, PRIMARY);
+            } else {
+                g.fill(g.r(x, ry + RIVAL_ROW_H - 1.0, w, STROKE_HAIR), BORDER);
+            }
+            if row.skipped_before {
+                g.fill(g.r(x, ry - 1.0, w, STROKE_ACCENT), MUTED_TEXT);
+            }
+            let weight = if row.is_player { semi } else { normal };
+            let r = g.r(x + S2, ry, RIVAL_POS_W, box_h);
+            g.text(&row.position, r, T_BODY, weight, Face::Num, MUTED_TEXT, DT_LEFT);
+            let r = g.r(name_x, ry, name_w, box_h);
+            g.text(&row.name, r, T_BODY, weight, Face::Ui, FOREGROUND, DT_LEFT);
+            let r = g.r(gap_x, ry, gap_w, box_h);
+            g.text(&row.gap, r, T_BODY, weight, Face::Num, FOREGROUND, DT_RIGHT);
+            let r = g.r(last_x, ry, last_w, box_h);
+            g.text(&row.last, r, T_BODY, normal, Face::Num, FOREGROUND_2, DT_RIGHT);
+        }
+        if let Some(note) = &m.note {
+            let note_top = top + m.rows.len().min(fit) as f32 * RIVAL_ROW_H + S2;
+            rival_note(g, note, (x, note_top, w), y + h);
+        }
+    });
+}
+
+/// The gaps card: a tile for the car one place ahead and one for the car one place behind, each with its place and name, the
+/// gap now in big figures and, under them, how it has been changing over the last laps (a chevron and `closing 0.3 s/lap`, in
+/// the colour of what it means for the player).
+pub(super) fn gaps_card(g: &mut Painter, d: &Dash, card: Area) {
+    let Some(m) = &d.m.gaps else {
+        return;
+    };
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let (x, y, w, h) = inner(card);
+    shown(g, m.show, |g| {
+        caption(g, &m.title, (x, y, w, CAPTION_H), DT_LEFT);
+        let top = y + CAPTION_H + S2;
+        let side_h = ((y + h - top - S2) / 2.0).clamp(GAP_SIDE_H, GAP_SIDE_H + 24.0);
+        for (i, side) in [&m.ahead, &m.behind].into_iter().enumerate() {
+            let ty = top + i as f32 * (side_h + S2);
+            let trend = side.car.as_ref().and_then(|car| car.trend.as_ref());
+            match trend {
+                Some(trend) => tile_with_edge(g, (x, ty, w, side_h), BACKGROUND, trend.role.colour()),
+                None => g.round(g.r(x, ty, w, side_h), BACKGROUND, Some(BORDER)),
+            }
+            let content_h = GAP_LABEL_H + GAP_CAR_H + GAP_TREND_H;
+            let (ix, iw) = (x + S2, w - 2.0 * S2);
+            let cy = ty + ((side_h - content_h) / 2.0).max(S1);
+            let r = g.r(ix, cy, iw, GAP_LABEL_H);
+            g.caps(&side.label, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
+            let Some(car) = &side.car else {
+                let r = g.r(ix, cy + GAP_LABEL_H, iw, GAP_CAR_H);
+                g.text("–", r, T_BODY, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
+                continue;
+            };
+            let gap_w = (iw * 0.4).min(120.0);
+            let size = g.fitted(&car.gap, gap_w, T_VALUE, T_BODY, semi, Face::Num);
+            let r = g.r(ix + iw - gap_w, cy + GAP_LABEL_H, gap_w, GAP_CAR_H);
+            g.text(&car.gap, r, size, semi, Face::Num, FOREGROUND, DT_RIGHT);
+            let r = g.r(ix, cy + GAP_LABEL_H, RIVAL_POS_W, GAP_CAR_H);
+            g.text(&car.position, r, T_BODY, normal, Face::Num, MUTED_TEXT, DT_LEFT);
+            let name_x = ix + RIVAL_POS_W;
+            let r = g.r(name_x, cy + GAP_LABEL_H, (ix + iw - gap_w - S2 - name_x).max(1.0), GAP_CAR_H);
+            g.text(&car.name, r, T_BODY, semi, Face::Ui, FOREGROUND, DT_LEFT);
+            if let Some(trend) = &car.trend {
+                let line_y = cy + GAP_LABEL_H + GAP_CAR_H;
+                let ink = trend.role.colour();
+                let flat = trend.dir == TrendDir::Steady;
+                // The chevron points the way the gap's number is going: down while it closes, up while it opens.
+                trend_arrow(
+                    g,
+                    (ix, line_y + (GAP_TREND_H - 6.0) / 2.0),
+                    trend.dir == TrendDir::Opening,
+                    flat,
+                    ink,
+                );
+                let r = g.r(ix + CHEVRON_W + S2, line_y, (iw - CHEVRON_W - S2).max(1.0), GAP_TREND_H);
+                g.text(&trend.text, r, T_BODY, normal, Face::Ui, ink, DT_LEFT);
+            }
+        }
+        if let Some(note) = &m.note {
+            let note_top = top + 2.0 * side_h + S2 + S2;
+            rival_note(g, note, (x, note_top, w), y + h);
+        }
+    });
+}
+
+// The radar.
+
+/// A filled rectangle of half its width and half its length `half`, centred on `at`: a car of the radar, which is drawn
+/// heading-up, so every car (taken to point the way the player does) is the same upright rectangle.
+fn radar_rect(g: &Painter, (cx, cy): (f32, f32), (half_w, half_l): (f32, f32), colour: COLORREF) {
+    g.fill(g.r(cx - half_w, cy - half_l, 2.0 * half_w, 2.0 * half_l), colour);
+}
+
+/// The radar card: a box seen from above with the player's car in yellow, the cars of the field round it (quiet, amber within
+/// 8 m ahead or behind, red alongside) and a faint line along each side of the player's car. For a game that only gives a left
+/// and right signal, the player's car with a red bar along each side a car is on (two bars for two cars); nothing extra when
+/// the spotter says clear. Before there is anything to draw, the card says why.
+pub(super) fn radar_card(g: &mut Painter, d: &Dash, card: Area) {
+    let Some(m) = &d.m.radar else {
+        return;
+    };
+    let (x, y, w, h) = inner(card);
+    shown(g, m.show, |g| {
+        caption(g, &m.title, (x, y, w, CAPTION_H), DT_LEFT);
+        let top = y + CAPTION_H + S2;
+        if m.mode == RadarMode::Waiting {
+            if let Some(note) = &m.note {
+                rival_note(g, note, (x, top, w), y + h);
+            }
+            return;
+        }
+        let box_h = (y + h - top).max(1.0);
+        g.round(g.r(x, top, w, box_h), BACKGROUND, Some(BORDER));
+        let scale = radar_scale(w, box_h);
+        let half = ((RADAR_CAR_W_M * scale / 2.0).max(1.5), RADAR_CAR_L_M * scale / 2.0);
+        let across = x + w / 2.0;
+        g.clip(g.r(x + 1.0, top + 1.0, w - 2.0, box_h - 2.0));
+        match m.mode {
+            RadarMode::Map => {
+                // The player is a little below the middle, as the radar sees farther ahead (30 m) than behind (20 m).
+                let centre = (across, top + box_h * RADAR_AHEAD_M / (RADAR_AHEAD_M + RADAR_BEHIND_M));
+                g.fill(g.r(centre.0 - half.0 - STROKE_HAIR, top, STROKE_HAIR, box_h), BORDER);
+                g.fill(g.r(centre.0 + half.0, top, STROKE_HAIR, box_h), BORDER);
+                for car in &m.cars {
+                    let at = (centre.0 + car.right_m * scale, centre.1 - car.ahead_m * scale);
+                    radar_rect(g, at, half, car.threat.role().colour());
+                }
+                radar_rect(g, centre, half, PRIMARY);
+            }
+            RadarMode::Spotter | RadarMode::Waiting => {
+                let centre = (across, top + box_h / 2.0);
+                radar_rect(g, centre, half, PRIMARY);
+                let bar_half_w = (half.0 * 0.3).max(STROKE_BAR / 2.0);
+                for (bars, side) in [(m.left_bars, -1.0_f32), (m.right_bars, 1.0)] {
+                    for n in 0..bars {
+                        let out = half.0 + S1 + bar_half_w + f32::from(n) * (2.0 * bar_half_w + S1);
+                        radar_rect(
+                            g,
+                            (centre.0 + side * out, centre.1),
+                            (bar_half_w, half.1 * 1.5),
+                            Role::Danger.colour(),
+                        );
+                    }
+                }
+            }
+        }
+        g.unclip();
+    });
+}
+
+// The reference lap.
+
+/// The height of one of the reference card's lines, and of its figures.
+const REF_LINE_H: f32 = 20.0;
+const REF_NUMBER_H: f32 = 52.0;
+
+/// The reference card: the delta to the reference lap as a big number (green when faster, red when slower), a line naming that lap
+/// and a smaller one for the person's own best when it is another lap. A part that is missing is not drawn; with no reference lap
+/// the card says why.
+pub(super) fn delta_ref_card(g: &mut Painter, d: &Dash, card: Area) {
+    let Some(m) = &d.m.delta_ref else {
+        return;
+    };
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let (x, y, w, h) = inner(card);
+    shown(g, m.show, |g| {
+        caption(g, &m.title, (x, y, w, CAPTION_H), DT_LEFT);
+        let top = y + CAPTION_H + S1;
+        if let Some(note) = &m.note {
+            rival_note(g, note, (x, top + S1, w), y + h);
+            return;
+        }
+        let size = g.fitted(&m.value, w, T_HERO, T_VALUE, semi, Face::Num);
+        let r = g.r(x, top, w, REF_NUMBER_H);
+        g.text(&m.value, r, size, semi, Face::Num, m.role.colour(), DT_CENTER);
+        let mut line_top = top + REF_NUMBER_H + S1;
+        for (line, size, ink) in [(&m.line, T_BODY, FOREGROUND_2), (&m.personal_line, T_CAPTION, MUTED_TEXT)] {
+            let Some(line) = line.as_ref().filter(|_| line_top + REF_LINE_H <= y + h + 0.5) else {
+                continue;
+            };
+            let size = g.fitted(line, w, size, T_CAPTION, normal, Face::Ui);
+            let r = g.r(x, line_top, w, REF_LINE_H);
+            g.text(line, r, size, normal, Face::Ui, ink, DT_CENTER);
+            line_top += REF_LINE_H;
+        }
+    });
+}

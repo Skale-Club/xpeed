@@ -58,10 +58,16 @@ pub(super) fn pill_color(kind: PillKind) -> COLORREF {
     }
 }
 
-/// How a lit alert looks: its fill, an outline when it needs one and the ink of its words. Every alert is a solid tile in
-/// its colour with dark ink; a black flag is dark with a light edge and light ink.
+/// How a light looks: its fill, an outline when it needs one and the ink of its words. Off, it is dark with a quiet
+/// name; ready (DRS allowed), outlined and named in its colour; on, a solid tile in its colour with dark ink (a black
+/// flag is dark with a light edge and light ink).
 pub(super) fn alert_look(light: &Light) -> (COLORREF, Option<COLORREF>, COLORREF) {
     use crate::game::Flag;
+    match light.glow {
+        Glow::Off => return (BACKGROUND, Some(BORDER), LIGHT_OFF_INK),
+        Glow::Ready => return (BACKGROUND, Some(pill_color(light.kind)), pill_color(light.kind)),
+        Glow::On => {}
+    }
     match (light.kind, light.flag) {
         (PillKind::Flag, Some(Flag::Green)) => (SUCCESS, None, ON_PRIMARY),
         (PillKind::Flag, Some(Flag::Yellow)) => (PRIMARY, None, ON_PRIMARY),
@@ -137,6 +143,29 @@ pub(super) unsafe fn rounded_path(x: f32, y: f32, w: f32, h: f32, radius: f32) -
     GdipAddPathArc(path, x, y + h - d, d, d, 90.0, 90.0);
     GdipClosePathFigure(path);
     path
+}
+
+/// How many blocks a bar `w` design pixels wide has: `BAR_BLOCKS`, fewer on a short bar so a block is never narrower
+/// than `BAR_BLOCK_MIN_W`.
+pub(super) fn bar_block_count(w: f32) -> usize {
+    ((w / BAR_BLOCK_MIN_W).floor() as usize).clamp(1, BAR_BLOCKS)
+}
+
+/// The left and right pixel of each of `count` blocks between `left` and `right`, `gap` whole pixels apart, so every
+/// gap is the same and the last block ends on `right`.
+pub(super) fn block_spans(left: i32, right: i32, count: usize, gap: i32) -> Vec<(i32, i32)> {
+    let count = count.max(1);
+    let pitch = ((right - left + gap) as f32 / count as f32).max(1.0);
+    // Each block starts on a rounded pitch and ends a whole gap before the next one starts: the gaps are exact, a block
+    // may be a pixel wider than its neighbour.
+    let start = |i: usize| left + (i as f32 * pitch).round() as i32;
+    (0..count)
+        .map(|i| {
+            let l = start(i);
+            let r = if i + 1 == count { right } else { start(i + 1) - gap };
+            (l, r.max(l + 1))
+        })
+        .collect()
 }
 
 pub(super) fn inside(r: &RECT, x: i32, y: i32) -> bool {
@@ -287,9 +316,11 @@ impl Painter {
         }
     }
 
-    /// A rounded box; `edge` draws a one-pixel border in that colour.
-    pub(super) fn round(&self, r: RECT, radius: f32, color: COLORREF, edge: Option<COLORREF>) {
+    /// A box with the panel's one corner (`R_CORNER`); `edge` draws a one-pixel border in that colour. It takes no
+    /// radius on purpose: no view can draw a second corner (owner decision, see `tokens::R_CORNER`).
+    pub(super) fn round(&self, r: RECT, color: COLORREF, edge: Option<COLORREF>) {
         let (x, y, w, h) = (r.left as f32, r.top as f32, (r.right - r.left) as f32, (r.bottom - r.top) as f32);
+        let radius = R_CORNER;
         let radius_px = radius * self.s;
         let drawn = smooth(self.hdc, |graphics| unsafe {
             let path = rounded_path(x, y, w, h, radius_px);
@@ -316,7 +347,7 @@ impl Painter {
             let pen = edge.map(|c| CreatePen(PS_SOLID, 1, ink(c)));
             let old_brush = SelectObject(self.hdc, brush);
             let old_pen = SelectObject(self.hdc, pen.unwrap_or_else(|| GetStockObject(NULL_PEN)));
-            let d = self.px(radius * 2.0).max(1);
+            let d = self.px(radius * 2.0).min(r.right - r.left).min(r.bottom - r.top).max(1);
             let grow = i32::from(edge.is_none());
             RoundRect(self.hdc, r.left, r.top, r.right + grow, r.bottom + grow, d, d);
             SelectObject(self.hdc, old_pen);
@@ -326,6 +357,30 @@ impl Painter {
                 DeleteObject(pen);
             }
         }
+    }
+
+    /// The outline of a box with the panel's one corner, `width` design units thick, inside `r` (nothing is filled): the hover
+    /// and the ghost of the edit mode.
+    pub(super) fn outline(&self, r: RECT, color: COLORREF, width: f32) {
+        let thick = (width * self.s).max(1.0);
+        let (x, y, w, h) = (r.left as f32, r.top as f32, (r.right - r.left) as f32, (r.bottom - r.top) as f32);
+        let half = thick / 2.0;
+        let drawn = smooth(self.hdc, |graphics| unsafe {
+            let path = rounded_path(x + half, y + half, w - thick, h - thick, (R_CORNER * self.s - half).max(0.0));
+            let mut pen = null_mut();
+            GdipCreatePen1(argb(color), thick, UnitPixel, &mut pen);
+            GdipDrawPath(graphics, pen, path);
+            GdipDeletePen(pen);
+            GdipDeletePath(path);
+        });
+        if drawn {
+            return;
+        }
+        let t = thick.round().max(1.0) as i32;
+        self.fill(rect(r.left, r.top, r.right, r.top + t), color);
+        self.fill(rect(r.left, r.bottom - t, r.right, r.bottom), color);
+        self.fill(rect(r.left, r.top, r.left + t, r.bottom), color);
+        self.fill(rect(r.right - t, r.top, r.right, r.bottom), color);
     }
 
     /// The rev bar in design units: the dome filled `share` (0..1) of the way with the green-to-red gradient,
@@ -503,9 +558,18 @@ impl Painter {
                 ],
             );
         });
-        // The name, upper case, one word a line, in the middle.
+        // The name, upper case, one word a line, in the middle; smaller when its longest word would not fit inside the
+        // card with a margin (owner, 2026-11-19: the name never runs past the cover's edges).
         let words: Vec<String> = name.split_whitespace().map(str::to_uppercase).collect();
-        let size = (T_VALUE * scale).max(T_CAPTION);
+        let mut size = (T_VALUE * scale).max(T_CAPTION);
+        let room = w / self.s * 0.84;
+        let widest = words
+            .iter()
+            .map(|word| self.width_of(word, size, FW_SEMIBOLD as i32, Face::Num))
+            .fold(0.0, f32::max);
+        if widest > room {
+            size = (size * room / widest).max(T_LABEL_MIN);
+        }
         let line = size * 1.1 * self.s;
         let top = y + h * 0.58 - line * words.len() as f32 / 2.0;
         for (i, word) in words.iter().enumerate() {
@@ -608,45 +672,56 @@ impl Painter {
         });
     }
 
-    /// A solid bar: a rounded trough with `frac` (0..1) of it filled from the left in `color`. Nothing is filled for a
-    /// value that is not there (or a hair above nothing); a fill is never shorter than the bar is tall, so it stays a
-    /// rounded end and not a sliver.
-    pub(super) fn solid_bar(&self, (x, y, w, h): Area, frac: f32, color: COLORREF) {
-        self.round(self.r(x, y, w, h), h / 2.0, SECONDARY, None);
-        let frac = if frac.is_finite() { frac.clamp(0.0, 1.0) } else { 0.0 };
-        if frac > 0.005 {
-            self.round(self.r(x, y, (w * frac).max(h.min(w)), h), h / 2.0, color, None);
+    /// Every bar of the panel: a row of square blocks a hair apart (`BAR_BLOCKS`, `BAR_BLOCK_GAP`), a block lit in
+    /// `color` when its middle falls between `from` and `to` (shares of the width), dark otherwise. Owner decision
+    /// (see `tokens::BAR_BLOCKS`): bars are never one continuous rounded fill.
+    fn blocks(&self, (x, y, w, h): Area, from: f32, to: f32, color: COLORREF) {
+        let area = self.r(x, y, w, h);
+        let count = bar_block_count(w);
+        let gap = (BAR_BLOCK_GAP * self.s).round().max(1.0) as i32;
+        for (i, (left, right)) in block_spans(area.left, area.right, count, gap).into_iter().enumerate() {
+            let middle = (i as f32 + 0.5) / count as f32;
+            let lit = from.is_finite() && to.is_finite() && middle >= from && middle <= to;
+            self.fill(rect(left, area.top, right, area.bottom), if lit { color } else { SECONDARY });
         }
     }
 
-    /// A bar with its zero in the middle: the fill runs from the middle to `frac` (0..1, a half is the middle), with a
-    /// tick of `tick` at the middle.
+    /// A bar filled from the left: the blocks up to `frac` (0..1) are lit; nothing is lit without a value.
+    pub(super) fn solid_bar(&self, area: Area, frac: f32, color: COLORREF) {
+        let frac = if frac.is_finite() { frac.clamp(0.0, 1.0) } else { 0.0 };
+        self.blocks(area, 0.0, frac, color);
+    }
+
+    /// A bar with its zero in the middle: the blocks from the middle to `frac` (0..1, a half is the middle) are lit,
+    /// with a tick of `tick` at the middle.
     pub(super) fn centred_bar(&self, (x, y, w, h): Area, frac: f32, color: COLORREF, tick: COLORREF) {
-        self.round(self.r(x, y, w, h), h / 2.0, SECONDARY, None);
         let frac = if frac.is_finite() { frac.clamp(0.0, 1.0) } else { 0.5 };
-        let (from, to) = (frac.min(0.5), frac.max(0.5));
-        let len = (to - from) * w;
-        if len >= 1.0 {
-            self.round(self.r(x + from * w, y, len, h), (h / 2.0).min(len / 2.0), color, None);
-        }
+        self.blocks((x, y, w, h), frac.min(0.5), frac.max(0.5), color);
         self.fill(self.r(x + w / 2.0 - 1.0, y - 3.0, 2.0, h + 6.0), tick);
     }
 
-    /// The wheel as a slim bar with a tick at the centre and a yellow fill from the centre toward the side the wheel is
-    /// turned to (-1 full left .. 1 full right; straight, and a muted tick, without a value).
-    pub(super) fn steer_bar(&self, area: Area, steer: f32) {
-        let tick = if steer.is_finite() { FOREGROUND } else { MUTED_TEXT };
-        self.centred_bar(area, 0.5 + steer_share(steer) / 2.0, PRIMARY, tick);
+    /// The wheel (owner, 2026-11-19): the one bar that is a line, not blocks. A faint hairline across, a short mark at
+    /// the middle, and a thin white line from the middle toward the side the wheel is turned to (-1 full left .. 1 full
+    /// right; straight, and a muted mark, without a value). Subtle on purpose.
+    pub(super) fn steer_bar(&self, (x, y, w, h): Area, steer: f32) {
+        let mid = y + h / 2.0;
+        self.fill(self.r(x, mid - STROKE_HAIR / 2.0, w, STROKE_HAIR), SECONDARY);
+        let share = steer_share(steer);
+        let half = w / 2.0;
+        let len = half * share.abs();
+        if len >= 0.5 {
+            let from = if share > 0.0 { x + half } else { x + half - len };
+            self.fill(self.r(from, mid - STEER_LINE_H / 2.0, len, STEER_LINE_H), FOREGROUND);
+        }
+        let mark = if steer.is_finite() { FOREGROUND_2 } else { MUTED_TEXT };
+        self.fill(self.r(x + half - STROKE_HAIR / 2.0, y, STROKE_HAIR, h), mark);
     }
 
-    /// The tank: a trough filled `share` (0..1) of the way in `color`, with a thin tick every `tick` (a share of the
-    /// whole) so each tick is one lap's worth of fuel. Ticks closer than three pixels are left out.
+    /// The tank: blocks lit `share` (0..1) of the way in `color`, with a thin tick every `tick` (a share of the whole)
+    /// so each tick is one lap's worth of fuel. Ticks closer than three pixels are left out.
     pub(super) fn tank_bar(&self, (x, y, w, h): Area, share: f32, tick: Option<f32>, color: COLORREF) {
-        self.round(self.r(x, y, w, h), R_XS, SECONDARY, None);
         let share = if share.is_finite() { share.clamp(0.0, 1.0) } else { 0.0 };
-        if share > 0.005 {
-            self.round(self.r(x, y, (w * share).max(R_XS * 2.0).min(w), h), R_XS, color, None);
-        }
+        self.blocks((x, y, w, h), 0.0, share, color);
         if let Some(tick) = tick.filter(|t| t.is_finite() && *t > 0.0 && t * w * self.s >= 3.0) {
             let mut at = tick;
             while at < 0.999 {
@@ -656,21 +731,220 @@ impl Painter {
         }
     }
 
-    /// Three short bars side by side with a hair between: the tread's inner, middle and outer.
-    pub(super) fn thirds_bar(&self, (x, y, w, h): Area, colors: [COLORREF; 3]) {
-        let gap = S1 / 2.0;
-        let seg = (w - 2.0 * gap) / 3.0;
-        for (i, color) in colors.into_iter().enumerate() {
-            self.round(self.r(x + i as f32 * (seg + gap), y, seg, h), 1.5, color, None);
+    /// A lap's speed as a thin line in `area` (owner-approved module 10, 2026-11-19): `lo` at the bottom, `hi` at the
+    /// top, so laps drawn with the same pair compare.
+    pub(super) fn sparkline(&self, (x, y, w, h): Area, values: &[u16], (lo, hi): (f32, f32), color: COLORREF) {
+        if values.len() < 2 || hi <= lo {
+            return;
+        }
+        let r = self.r(x, y, w, h);
+        let (px, py, pw, ph) = (r.left as f32, r.top as f32, (r.right - r.left) as f32, (r.bottom - r.top) as f32);
+        let last = (values.len() - 1) as f32;
+        let points: Vec<PointF> = values
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| PointF {
+                X: px + pw * i as f32 / last,
+                Y: py + ph * (1.0 - ((f32::from(v) - lo) / (hi - lo)).clamp(0.0, 1.0)),
+            })
+            .collect();
+        let line_w = (1.4 * self.s).max(1.0);
+        smooth(self.hdc, |graphics| unsafe {
+            let mut pen = null_mut();
+            GdipCreatePen1(argb(color), line_w, UnitPixel, &mut pen);
+            let mut path = null_mut();
+            GdipCreatePath(FillModeAlternate, &mut path);
+            GdipAddPathLine2(path, points.as_ptr(), points.len() as i32);
+            GdipDrawPath(graphics, pen, path);
+            GdipDeletePath(path);
+            GdipDeletePen(pen);
+        });
+    }
+
+    /// A tick (a done step, owner-approved module 9, 2026-11-19): two strokes of `color` inside `area`.
+    pub(super) fn tick(&self, (x, y, w, h): Area, color: COLORREF) {
+        let r = self.r(x, y, w, h);
+        let (px, py, pw, ph) = (r.left as f32, r.top as f32, (r.right - r.left) as f32, (r.bottom - r.top) as f32);
+        let at = |fx: f32, fy: f32| PointF {
+            X: px + pw * fx,
+            Y: py + ph * fy,
+        };
+        let points = [at(0.26, 0.52), at(0.44, 0.7), at(0.76, 0.32)];
+        let line_w = (2.2 * self.s).max(1.5);
+        smooth(self.hdc, |graphics| unsafe {
+            let mut pen = null_mut();
+            GdipCreatePen1(argb(color), line_w, UnitPixel, &mut pen);
+            let mut path = null_mut();
+            GdipCreatePath(FillModeAlternate, &mut path);
+            GdipAddPathLine2(path, points.as_ptr(), points.len() as i32);
+            GdipDrawPath(graphics, pen, path);
+            GdipDeletePath(path);
+            GdipDeletePen(pen);
+        });
+    }
+
+    /// A pedal as a vertical bar of square blocks a hair apart (owner-approved 2026-11-19): as many blocks as the height
+    /// holds at `INPUT_BLOCK_H` or more each, eight to thirteen (the owner asked for 30% more steps than ten), lit from
+    /// the bottom up to `frac` in `color`.
+    pub(super) fn vertical_blocks(&self, (x, y, w, h): Area, frac: f32, color: COLORREF) {
+        let area = self.r(x, y, w, h);
+        let gap = (BAR_BLOCK_GAP * self.s).round().max(1.0) as i32;
+        let n = (((h + BAR_BLOCK_GAP) / (INPUT_BLOCK_H + BAR_BLOCK_GAP)).floor() as usize).clamp(8, 13);
+        let frac = if frac.is_finite() { frac.clamp(0.0, 1.0) } else { 0.0 };
+        for (i, (top, bottom)) in block_spans(area.top, area.bottom, n, gap).into_iter().enumerate() {
+            // The spans run top down; the bar fills from the bottom.
+            let from_bottom = n - 1 - i;
+            let lit = (from_bottom as f32 + 0.5) / n as f32 <= frac;
+            self.fill(rect(area.left, top, area.right, bottom), if lit { color } else { SECONDARY });
         }
     }
 
-    /// An alert that is lit: a solid tile in its colour with its words in dark ink (light ink on a black flag).
+    /// The throttle (green) and the brake (red) of the last `INPUT_TRACE_MS` as two lines on a dark strip, the newest at
+    /// the right edge (`now_ms`), full at the top; a short mark along the top where ABS (blue) or TC (amber) acted
+    /// (owner-approved 2026-11-19).
+    pub(super) fn input_trace(&self, (x, y, w, h): Area, inputs: &[crate::dash::InputPoint], now_ms: i64) {
+        let r = self.r(x, y, w, h);
+        self.round(r, BACKGROUND, None);
+        let (px, py, pw, ph) = (r.left as f32, r.top as f32, (r.right - r.left) as f32, (r.bottom - r.top) as f32);
+        let from = now_ms - crate::dash::INPUT_TRACE_MS;
+        let at_x = |t: i64| px + pw * ((t - from) as f32 / crate::dash::INPUT_TRACE_MS as f32).clamp(0.0, 1.0);
+        let at_y = |v: f32| py + 2.0 + (ph - 4.0) * (1.0 - v.clamp(0.0, 1.0));
+        // A hairline every 10% of the travel, under everything else.
+        for tenth in 1..10 {
+            let y = at_y(tenth as f32 / 10.0).round() as i32;
+            self.fill(rect(r.left, y, r.right, y + 1), INPUT_GRID_INK);
+        }
+        let recent: Vec<&crate::dash::InputPoint> = inputs.iter().filter(|p| p.at_ms >= from && p.at_ms <= now_ms).collect();
+        if recent.len() < 2 {
+            return;
+        }
+        // The aids first, under the lines: a mark the width of a point's step, along the top.
+        let mark_h = self.px(4.0);
+        let step = (pw * crate::dash::INPUT_TRACE_STEP_MS as f32 / crate::dash::INPUT_TRACE_MS as f32).max(1.0);
+        for p in &recent {
+            for (on, colour) in [(p.abs, INFO), (p.tc, WARN)] {
+                if on {
+                    let left = at_x(p.at_ms) as i32;
+                    self.fill(rect(left, r.top, left + step.ceil() as i32, r.top + mark_h), colour);
+                }
+            }
+        }
+        let line_w = (1.6 * self.s).max(1.0);
+        smooth(self.hdc, |graphics| unsafe {
+            for (colour, brake) in [(DESTRUCTIVE, true), (SUCCESS, false)] {
+                let points: Vec<PointF> = recent
+                    .iter()
+                    .map(|p| PointF {
+                        X: at_x(p.at_ms),
+                        Y: at_y(if brake { p.brake } else { p.throttle }),
+                    })
+                    .collect();
+                let mut pen = null_mut();
+                GdipCreatePen1(argb(colour), line_w, UnitPixel, &mut pen);
+                let mut path = null_mut();
+                GdipCreatePath(FillModeAlternate, &mut path);
+                GdipAddPathLine2(path, points.as_ptr(), points.len() as i32);
+                GdipDrawPath(graphics, pen, path);
+                GdipDeletePath(path);
+                GdipDeletePen(pen);
+            }
+        });
+    }
+
+    /// The delta along the lap (owner-approved module 5, 2026-11-19): a zero line across the middle, the area between the
+    /// delta and zero in green where the lap is ahead (under the line) and red where it is behind (over it), the delta as
+    /// a light line, and a yellow mark where the car is. `trace` is (share of the lap 0..1, seconds); the graph spans the
+    /// whole lap, so it grows from left to right. The scale is the largest delta, `DELTA_TRACE_MIN_S`..`DELTA_TRACE_MAX_S`.
+    pub(super) fn delta_trace(&self, (x, y, w, h): Area, trace: &[(f32, f32)]) {
+        let r = self.r(x, y, w, h);
+        let (px, py, pw, ph) = (r.left as f32, r.top as f32, (r.right - r.left) as f32, (r.bottom - r.top) as f32);
+        let zero = (py + ph / 2.0).round();
+        self.fill(rect(r.left, zero as i32, r.right, zero as i32 + 1), SECONDARY);
+        if trace.len() < 2 {
+            return;
+        }
+        let largest = trace.iter().fold(0.0_f32, |m, &(_, d)| m.max(d.abs()));
+        let span = largest.clamp(DELTA_TRACE_MIN_S, DELTA_TRACE_MAX_S);
+        let half = ph / 2.0 - 1.0;
+        let to = |&(at, d): &(f32, f32)| PointF {
+            X: px + pw * at.clamp(0.0, 1.0),
+            Y: zero - d.clamp(-span, span) / span * half,
+        };
+        let points: Vec<PointF> = trace.iter().map(to).collect();
+        let (ahead, behind) = (tint(CARD, SUCCESS, DELTA_TRACE_FILL), tint(CARD, DESTRUCTIVE, DELTA_TRACE_FILL));
+        let line_w = (1.5 * self.s).max(1.0);
+        smooth(self.hdc, |graphics| unsafe {
+            let quad = |corners: [PointF; 4], colour: COLORREF| {
+                let mut path = null_mut();
+                GdipCreatePath(FillModeAlternate, &mut path);
+                GdipAddPathLine2(path, corners.as_ptr(), 4);
+                GdipClosePathFigure(path);
+                let mut brush = null_mut();
+                GdipCreateSolidFill(argb(colour), &mut brush);
+                GdipFillPath(graphics, brush.cast(), path);
+                GdipDeleteBrush(brush.cast());
+                GdipDeletePath(path);
+            };
+            let base = |x: f32| PointF { X: x, Y: zero };
+            let shade = |d: f32| if d < 0.0 { ahead } else { behind };
+            for (p, t) in points.windows(2).zip(trace.windows(2)) {
+                let (a, b, da, db) = (p[0], p[1], t[0].1, t[1].1);
+                if da * db < 0.0 {
+                    // The delta crosses zero here: each side of the crossing in its own colour.
+                    let cross = a.X + (b.X - a.X) * (da / (da - db));
+                    let mid = PointF { X: cross, Y: zero };
+                    quad([base(a.X), a, mid, mid], shade(da));
+                    quad([mid, mid, b, base(b.X)], shade(db));
+                } else {
+                    quad([base(a.X), a, b, base(b.X)], shade(da + db));
+                }
+            }
+            let mut pen = null_mut();
+            GdipCreatePen1(argb(FOREGROUND), line_w, UnitPixel, &mut pen);
+            let mut path = null_mut();
+            GdipCreatePath(FillModeAlternate, &mut path);
+            GdipAddPathLine2(path, points.as_ptr(), points.len() as i32);
+            GdipDrawPath(graphics, pen, path);
+            GdipDeletePath(path);
+            GdipDeletePen(pen);
+            let now = points[points.len() - 1].X;
+            let mut mark = null_mut();
+            GdipCreatePen1(argb(PRIMARY), line_w, UnitPixel, &mut mark);
+            GdipDrawLine(graphics, mark, now, py, now, py + ph);
+            GdipDeletePen(mark);
+        });
+    }
+
+    /// A tyre seen from above (owner decision 2026-11-19, `TyreShape`): dark sidewalls around the tread, and the tread as
+    /// one block or three bands a hair apart, each in the colour of its temperature, with thin grooves across.
+    pub(super) fn tyre_shape(&self, (x, y, w, h): Area, shape: TyreShape) {
+        self.round(self.r(x, y, w, h), TYRE_SIDEWALL, None);
+        let wall = (w * 0.09).max(2.0);
+        let tread = self.r(x + wall, y + wall, (w - 2.0 * wall).max(1.0), (h - 2.0 * wall).max(1.0));
+        let colours: &[COLORREF] = match &shape {
+            TyreShape::Solid(c) => std::slice::from_ref(c),
+            TyreShape::Bands(c) => c,
+        };
+        let gap = (BAR_BLOCK_GAP * self.s).round().max(1.0) as i32;
+        let pitch = (TYRE_GROOVE_PITCH * self.s).round().max(4.0) as i32;
+        let spans = block_spans(tread.left, tread.right, colours.len(), gap);
+        for ((left, right), colour) in spans.into_iter().zip(colours) {
+            self.fill(rect(left, tread.top, right, tread.bottom), *colour);
+            let mut gy = tread.top + pitch;
+            while gy < tread.bottom - 1 {
+                self.fill(rect(left, gy, right, gy + 1), groove_of(*colour));
+                gy += pitch;
+            }
+        }
+    }
+
+    /// A light's tile, as `alert_look` says: off dark with its quiet name, ready outlined in its colour, on a solid tile
+    /// in its colour with dark ink (light ink on a black flag).
     pub(super) fn alert_tile(&mut self, light: &Light, (x, y, w, h): Area) {
         let (fill, edge, ink) = alert_look(light);
-        self.round(self.r(x, y, w, h), R_TILE, fill, edge);
+        self.round(self.r(x, y, w, h), fill, edge);
         let r = self.r(x, y, w, h);
-        self.caps(&light.word, r, T_CAPTION, ink, DT_CENTER);
+        self.caps_fit(&light.word, r, T_CAPTION, S2, ink, DT_CENTER);
     }
 
     /// One line of text in a box, cut with "…" when it does not fit.
@@ -806,7 +1080,7 @@ impl Painter {
 
     /// The mark of a lap that does not count: a red square with a white "!", `size` design units on a side.
     pub(super) fn invalid_mark(&self, x: f32, y: f32, size: f32) {
-        self.round(self.r(x, y, size, size), size * 0.22, DESTRUCTIVE, None);
+        self.round(self.r(x, y, size, size), DESTRUCTIVE, None);
         let (bar, cx) = ((size * 0.14).max(1.0), x + size / 2.0);
         self.fill(self.r(cx - bar / 2.0, y + size * 0.2, bar, size * 0.38), FLAG_WHITE);
         self.fill(self.r(cx - bar / 2.0, y + size * 0.68, bar, size * 0.14), FLAG_WHITE);
@@ -814,7 +1088,7 @@ impl Painter {
 
     /// A tile: the card colour with its border.
     pub(super) fn tile(&self, x: f32, y: f32, w: f32, h: f32, color: COLORREF) {
-        self.round(self.r(x, y, w, h), R_CARD, color, Some(BORDER));
+        self.round(self.r(x, y, w, h), color, Some(BORDER));
     }
 
     /// A small upper-case label with its letters spaced out.
@@ -828,7 +1102,7 @@ impl Painter {
             SetTextCharacterExtra(self.hdc, extra);
         }
         // Chakra Petch's capitals are small for their size: drawn a little bigger to read like the old labels.
-        let size = size * 1.18;
+        let size = size * CAPS_SCALE;
         let width = (self.width_of(&upper, size, FW_SEMIBOLD as i32, Face::Label) * self.s).round() as i32 - extra;
         let left = if align == DT_RIGHT {
             r.right - width
@@ -844,6 +1118,71 @@ impl Painter {
         }
     }
 
+    /// Where the ink of `s` (its letters and figures, not dots or signs) falls when `text` draws it in a box `box_h`
+    /// design units tall: its top and bottom, in design units from the box's top. Figures (`Face::Num`) are centred on
+    /// their ink, other faces on the font's line, exactly as `text` places them. Nothing without a letter or figure.
+    pub(super) fn ink_span(&mut self, s: &str, size: f32, weight: i32, face: Face, box_h: f32) -> Option<(f32, f32)> {
+        let font = self.font(size, weight, face);
+        let identity = MAT2 {
+            eM11: FIXED { fract: 0, value: 1 },
+            eM12: FIXED { fract: 0, value: 0 },
+            eM21: FIXED { fract: 0, value: 0 },
+            eM22: FIXED { fract: 0, value: 1 },
+        };
+        let (mut ink, mut metrics): (Option<(i32, i32)>, TEXTMETRICW) = (None, unsafe { std::mem::zeroed() });
+        let have_metrics = unsafe {
+            let old = SelectObject(self.hdc, font);
+            for c in s.chars().filter(|c| c.is_alphanumeric()) {
+                let mut glyph: GLYPHMETRICS = std::mem::zeroed();
+                if GetGlyphOutlineW(self.hdc, c as u32, GGO_METRICS, &mut glyph, 0, null_mut(), &identity) == u32::MAX {
+                    continue;
+                }
+                let above = glyph.gmptGlyphOrigin.y;
+                let below = above - glyph.gmBlackBoxY as i32;
+                ink = Some(ink.map_or((above, below), |(a, b)| (a.max(above), b.min(below))));
+            }
+            let have = GetTextMetricsW(self.hdc, &mut metrics) != 0;
+            SelectObject(self.hdc, old);
+            have
+        };
+        let (above, below) = ink.filter(|_| have_metrics)?;
+        let box_px = self.px(box_h);
+        let baseline = if face == Face::Num {
+            box_px / 2 + (above + below) / 2
+        } else {
+            (box_px - metrics.tmHeight) / 2 + metrics.tmAscent
+        };
+        Some(((baseline - above) as f32 / self.s, (baseline - below) as f32 / self.s))
+    }
+
+    /// `ink_span` of an upper-case label as `caps` draws it.
+    pub(super) fn caps_ink_span(&mut self, s: &str, size: f32, box_h: f32) -> Option<(f32, f32)> {
+        self.ink_span(&s.to_uppercase(), size * CAPS_SCALE, FW_SEMIBOLD as i32, Face::Label, box_h)
+    }
+
+    /// `caps` at `size`, or smaller (never under `T_LABEL_MIN`) when the label would not fit the box's width less `pad`
+    /// on each side: a word never runs out of its tile (owner, 2026-11-19).
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn caps_fit(&mut self, s: &str, r: RECT, size: f32, pad: f32, color: COLORREF, align: u32) {
+        let room = ((r.right - r.left) as f32 / self.s - 2.0 * pad).max(1.0);
+        let size = self.caps_fit_size(s, size, room);
+        self.caps(s, r, size, color, align);
+    }
+
+    /// The size `caps_fit` draws `s` at to fit `room` design units, from `size` down to `T_LABEL_MIN`.
+    pub(super) fn caps_fit_size(&mut self, s: &str, size: f32, room: f32) -> f32 {
+        let mut fit = size;
+        for _ in 0..6 {
+            let wide = self.caps_width(s, fit);
+            if wide <= room || fit <= T_LABEL_MIN {
+                break;
+            }
+            // In proportion, then a little more while it still runs out (glyph widths round to whole pixels).
+            fit = (fit * (room / wide).min(0.97)).max(T_LABEL_MIN);
+        }
+        fit
+    }
+
     /// The width of an upper-case label as `caps` draws it, in design units.
     pub(super) fn caps_width(&mut self, s: &str, size: f32) -> f32 {
         let upper = s.to_uppercase();
@@ -851,7 +1190,7 @@ impl Painter {
         unsafe {
             SetTextCharacterExtra(self.hdc, extra);
         }
-        let width = self.width_of(&upper, size * 1.18, FW_SEMIBOLD as i32, Face::Label);
+        let width = self.width_of(&upper, size * CAPS_SCALE, FW_SEMIBOLD as i32, Face::Label);
         unsafe {
             SetTextCharacterExtra(self.hdc, 0);
         }
@@ -947,6 +1286,9 @@ pub(super) fn fit_size(measured: f32, size: f32, room: f32, floor: f32) -> f32 {
 /// into premultiplied 32-bit pixels at 120 x 96 (`*.bgra`, made from the SVGs with headless Chrome; `*.png` are the
 /// same pixels to look at).
 pub(super) const FLAG_W: i32 = 120;
+
+/// Chakra Petch's capitals are small for their size: `caps` draws its labels this much bigger.
+pub(super) const CAPS_SCALE: f32 = 1.18;
 
 pub(super) const FLAG_H: i32 = 96;
 

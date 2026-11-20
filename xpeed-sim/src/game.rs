@@ -45,6 +45,10 @@
 //! | `CarState::water_c`, `oil_c` | Celsius | coolant and oil |
 //! | `g_lat` | g | positive toward the car's right (a right-hand corner is positive) |
 //! | `g_long` | g | positive forward (accelerating is positive, braking negative) |
+//! | `race_position`, `class_position`, `cars` | 1.., 1.., 1.. | the player's place overall (1 is the leader) and in the class, and how many cars are in the session; never above `cars` |
+//! | `session_time_left_s`, `session_laps` | seconds 0 to 86 400, laps 1 to 999 | what is left of a timed session, and the length of a lap-based one; the game's "unlimited" or "none" is not given |
+//! | `field` | `field::Field` (units in `field.rs`) | every other car of the session, read at a few Hz: `None` on the frames between two readings and for a game with no per-car data; never written to a lap file |
+//! | `spotter` | `Spotter` | the game's own spotter signal (clear, one or two cars on the left, on the right, or both sides), where the game gives one; `None` otherwise |
 //! | `sectors_ms`, `air_temp_c`, `track_temp_c` | milliseconds, Celsius | the first two sector times of the lap; the air and track temperature |
 //!
 //! ## How each reader maps its game's raw value
@@ -161,6 +165,23 @@ pub enum Flag {
     White,
     Black,
     Chequered,
+}
+
+/// What the game's own spotter says about the cars beside the player.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Spotter {
+    /// Nobody beside the car.
+    Clear,
+    /// A car on the left.
+    Left,
+    /// A car on the right.
+    Right,
+    /// A car on each side.
+    Both,
+    /// Two cars on the left.
+    TwoLeft,
+    /// Two cars on the right.
+    TwoRight,
 }
 
 /// The rear wing's state where the car has DRS (or a push to pass the game reports the same way).
@@ -333,6 +354,22 @@ pub struct Frame {
     /// (an `Option`, not `NaN`, so frames still compare equal in tests).
     pub g_lat: Option<f32>,
     pub g_long: Option<f32>,
+    /// The player's place in the whole field, 1 is the leader. `None` when the game gives none (or a place outside the
+    /// field, see `norm::place`).
+    pub race_position: Option<u16>,
+    /// The player's place among the cars of the same class, 1 is the class leader.
+    pub class_position: Option<u16>,
+    /// How many cars are in the session.
+    pub cars: Option<u16>,
+    /// Seconds left in the session, when it is timed and the game says (`None` for an unlimited or lap-based session).
+    pub session_time_left_s: Option<f64>,
+    /// The length of the session in laps, when it is lap-based and the game says.
+    pub session_laps: Option<u16>,
+    /// The other cars of the session (the rivals layer), read at a few Hz: `None` between two readings and for a game
+    /// that gives none. Never written to a lap file.
+    pub field: Option<std::sync::Arc<crate::field::Field>>,
+    /// The game's own spotter (cars beside the player), where it gives one.
+    pub spotter: Option<Spotter>,
 }
 
 impl Frame {
@@ -408,6 +445,16 @@ impl Frame {
         add(self.tyre_compound.is_some(), Caps::TYRE_COMPOUND);
         add(self.g_lat.is_some(), Caps::G_LAT);
         add(self.g_long.is_some(), Caps::G_LONG);
+        add(self.race_position.is_some(), Caps::RACE_POSITION);
+        add(self.class_position.is_some(), Caps::CLASS_POSITION);
+        add(self.cars.is_some(), Caps::CARS);
+        add(self.session_time_left_s.is_some(), Caps::SESSION_TIME_LEFT);
+        add(self.session_laps.is_some(), Caps::SESSION_LAPS);
+        if let Some(field) = &self.field {
+            add(!field.cars.is_empty(), Caps::RIVALS);
+            add(field.cars.iter().any(|c| c.world.is_some()), Caps::RIVALS_WORLD);
+        }
+        add(self.spotter.is_some(), Caps::SPOTTER);
         let s = &self.state;
         add(s.pit_limiter.is_some(), Caps::PIT_LIMITER);
         add(s.abs_active.is_some(), Caps::ABS_ACTIVE);
@@ -471,6 +518,13 @@ impl Frame {
             tyre_compound: None,
             g_lat: None,
             g_long: None,
+            race_position: None,
+            class_position: None,
+            cars: None,
+            session_time_left_s: None,
+            session_laps: None,
+            field: None,
+            spotter: None,
         }
     }
 }
@@ -596,6 +650,24 @@ caps_table! {
     DAMAGE_ENGINE,
     DAMAGE_GEARBOX,
     DAMAGE_SUSPENSION,
+    // Frame: the race (the player's place and how long the session is).
+    /// The player's place in the whole field.
+    RACE_POSITION,
+    /// The player's place in the class.
+    CLASS_POSITION,
+    /// How many cars are in the session.
+    CARS,
+    /// Seconds left in a timed session.
+    SESSION_TIME_LEFT,
+    /// The length of a lap-based session, in laps.
+    SESSION_LAPS,
+    // Frame: the rivals layer (`Frame::field`).
+    /// A per-car array of the other cars is filled.
+    RIVALS,
+    /// The cars' world positions are filled.
+    RIVALS_WORLD,
+    /// The game's own spotter (`Frame::spotter`).
+    SPOTTER,
 }
 
 #[allow(dead_code)] // the set operations are used by the tests now and by the panel in step 1b
@@ -765,6 +837,9 @@ mod tests {
         assert!(frame.session_kind.is_none() && frame.weather.is_none() && frame.tyre_compound.is_none());
         assert!(frame.air_temp_c.is_none() && frame.track_temp_c.is_none());
         assert!(frame.g_lat.is_none() && frame.g_long.is_none());
+        assert!(frame.race_position.is_none() && frame.class_position.is_none() && frame.cars.is_none());
+        assert!(frame.session_time_left_s.is_none() && frame.session_laps.is_none());
+        assert!(frame.field.is_none() && frame.spotter.is_none());
     }
 
     #[test]
@@ -857,6 +932,16 @@ mod tests {
         (f.air_temp_c, f.track_temp_c) = (Some(1.0), Some(1.0));
         f.tyre_compound = Some("x".into());
         (f.g_lat, f.g_long) = (Some(1.0), Some(1.0));
+        (f.race_position, f.class_position, f.cars) = (Some(1), Some(1), Some(2));
+        (f.session_time_left_s, f.session_laps) = (Some(1.0), Some(1));
+        f.field = Some(std::sync::Arc::new(crate::field::Field {
+            cars: vec![crate::field::Car {
+                world: Some([0.0; 3]),
+                ..crate::field::Car::named(0, "A")
+            }],
+            at_s: 0.0,
+        }));
+        f.spotter = Some(Spotter::Clear);
         f.state = CarState {
             pit_limiter: Some(true),
             abs_active: Some(true),

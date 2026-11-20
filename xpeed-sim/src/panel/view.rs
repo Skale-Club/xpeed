@@ -63,7 +63,7 @@ pub struct View<'a> {
     pub coach_available: bool,
     pub recent_laps: &'a [SavedLap],
     /// What happened, in the person's language: `(time as HH:MM, text)`, newest first.
-    pub activity: &'a [(String, String)],
+    pub activity: &'a [(String, String, Role)],
     /// The games and their covers for the waiting screen; empty draws the games' names as chips instead.
     pub covers: &'a [CoverArt],
     pub brands: &'a [BrandArt],
@@ -80,8 +80,21 @@ pub struct View<'a> {
     /// The dashboard's layout in use: read at the start of a frame and set by it, so a window dragged through a
     /// threshold only changes layout when another one is clearly better (`pick_layout_sticky`).
     pub layout: std::cell::Cell<Option<Layout>>,
+    /// The dashboard chosen by hand for the game that is open; `None` is automatic (picked from the session).
+    pub(super) dashboard: Option<DashboardId>,
+    /// The views the driver saved for the dashboards (the built-in rows where there is none).
+    pub(super) views: &'a Views,
+    /// The layout being edited (edit mode), else `None`: the dashboard is drawn for editing and the toolbar is shown.
+    pub(super) edit: Option<&'a EditUi>,
+    /// Where edit mode drew the canvas in this frame (scale and origin, pixels), for the mouse that follows.
+    pub(super) edit_xf: std::cell::Cell<Option<Xf>>,
+    /// How many phones are watching the panel through the Xpeed server (none unless "Show the panel on my phone" is on).
+    pub phone_viewers: u32,
     /// The language list under the language button is open.
     pub lang_open: bool,
+    /// The workspace menu under the header's dashboard pill is open, and until when (ms) its reset waits for the second click.
+    pub(super) workspace_open: bool,
+    pub(super) workspace_reset_until: i64,
     /// The diagnostics were copied a moment ago: the Monitor tab says so for two seconds.
     pub copied: bool,
     /// The background parts that stopped for good, named (empty when none): the Monitor tab says so in red.
@@ -93,8 +106,17 @@ pub struct View<'a> {
     pub download_percent: Option<u8>,
     /// The game that is open, when one is (its id, name and state): the waiting screen is about it, not the list.
     pub focus: Option<(&'static str, &'static str, Game)>,
+    /// What the person has driven, per game: the line under the cover in the middle of the waiting screen.
+    pub played: crate::played::History,
     /// The games list's scroll bar as drawn in this frame, when the list is longer than its card.
     pub scroll: std::cell::Cell<Option<ScrollBar>>,
+}
+
+impl View<'_> {
+    /// The dashboard on screen: the manual choice, else the one that fits the session.
+    pub(super) fn dashboard_in_use(&self) -> DashboardId {
+        pick(self.live.and_then(|l| l.session_kind), self.dashboard)
+    }
 }
 
 /// A list's scroll bar as drawn (pixels): the list, the bar's track and thumb, how far the list scrolls (design

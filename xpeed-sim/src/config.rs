@@ -24,6 +24,9 @@ pub struct Config {
     /// Whether Xpeed Companion installs a newer version by itself (when no game is running). On unless the file says
     /// `"autoUpdate": false`: an old file without the field, or with a value that is not true or false, means on.
     pub auto_update: bool,
+    /// Whether the panel is also sent to the person's phone through the Xpeed server (`"phoneView": true`). Off unless the file
+    /// says so: nothing leaves this computer for the phone until the person switches it on in the tray menu.
+    pub phone_view: bool,
 }
 
 // A derived Debug would put the key in any log or test failure that prints a Config.
@@ -35,6 +38,7 @@ impl std::fmt::Debug for Config {
             .field("device_name", &self.device_name)
             .field("account", &self.account)
             .field("auto_update", &self.auto_update)
+            .field("phone_view", &self.phone_view)
             .finish()
     }
 }
@@ -251,6 +255,8 @@ fn parse(text: &str, path: &Path) -> Result<(Config, bool), LoadError> {
         account: text_of("account"),
         // Only an explicit `false` turns it off.
         auto_update: value.get(AUTO_UPDATE_KEY).and_then(Value::as_bool).unwrap_or(true),
+        // Only an explicit `true` turns it on.
+        phone_view: value.get(PHONE_VIEW_KEY).and_then(Value::as_bool).unwrap_or(false),
     };
     Ok((config, plain))
 }
@@ -278,6 +284,8 @@ pub fn load(path: &Path) -> Result<Option<Config>, String> {
 const PROTECTED_KEY: &str = "tokenProtected";
 /// The file's optional field for "Update automatically".
 const AUTO_UPDATE_KEY: &str = "autoUpdate";
+/// The file's optional field for "Show the panel on my phone".
+const PHONE_VIEW_KEY: &str = "phoneView";
 
 fn render(config: &Config, key_field: (&str, String)) -> String {
     let mut value = json!({
@@ -291,6 +299,10 @@ fn render(config: &Config, key_field: (&str, String)) -> String {
     // Written only when it is off, so a file that never changed the setting looks as it always did.
     if !config.auto_update {
         value[AUTO_UPDATE_KEY] = json!(false);
+    }
+    // Written only when it is on, for the same reason.
+    if config.phone_view {
+        value[PHONE_VIEW_KEY] = json!(true);
     }
     serde_json::to_string_pretty(&value).unwrap_or_default() + "\n"
 }
@@ -396,6 +408,26 @@ pub fn set_auto_update(path: &Path, on: bool) -> Result<bool, String> {
     };
     if config.auto_update != on {
         config.auto_update = on;
+        save(path, &config)?;
+    }
+    Ok(true)
+}
+
+/// Whether "Show the panel on my phone" is on for the pairing in `path`: off when there is no file, no such field, or a value that
+/// is not true (and when the file cannot be read: nothing is sent to a phone on a guess).
+pub fn phone_view_of(path: &Path) -> bool {
+    load(path).ok().flatten().is_some_and(|config| config.phone_view)
+}
+
+/// Remembers the choice "Show the panel on my phone" in the configuration file, keeping everything else in it (the key stays
+/// protected). Returns whether it was written: with no pairing there is no file to keep it in, and the choice then only lasts
+/// until the program is closed.
+pub fn set_phone_view(path: &Path, on: bool) -> Result<bool, String> {
+    let Some(mut config) = load(path)? else {
+        return Ok(false);
+    };
+    if config.phone_view != on {
+        config.phone_view = on;
         save(path, &config)?;
     }
     Ok(true)
@@ -578,6 +610,7 @@ mod tests {
             device_name: "RIG".into(),
             account: None,
             auto_update: true,
+            phone_view: false,
         };
         save(&path, &config).unwrap();
         assert!(update_account(&path, "xpd_key", " ana@example.com ").unwrap());
@@ -740,6 +773,7 @@ mod tests {
             device_name: "RIG".into(),
             account: Some("ana@example.com".into()),
             auto_update: true,
+            phone_view: false,
         };
         assert_eq!(load(&path), Ok(None));
         save(&path, &config).unwrap();
@@ -807,6 +841,47 @@ mod tests {
     }
 
     #[test]
+    fn the_phone_view_is_off_until_switched_on_and_the_choice_is_kept_with_the_pairing() {
+        let dir = scratch_dir("config-phone-view");
+        let path = dir.join("config.json");
+        assert!(!phone_view_of(&path), "no file: off");
+        assert_eq!(set_phone_view(&path, true), Ok(false), "no pairing, no file to keep it in");
+        assert!(!path.exists());
+        save(&path, &sample()).unwrap();
+        assert!(!phone_view_of(&path), "no field means off");
+        assert!(
+            !std::fs::read_to_string(&path).unwrap().contains("phoneView"),
+            "off is the absence of the field"
+        );
+        // Only an explicit true turns it on.
+        for odd in ["\"yes\"", "1", "null", "[]", "\"true\""] {
+            let body = format!(r#"{{"server":"https://xpeed.skale.club","token":"xpd_old","phoneView":{odd}}}"#);
+            std::fs::write(&path, body).unwrap();
+            assert!(!load(&path).unwrap().unwrap().phone_view, "{odd}");
+        }
+        std::fs::write(&path, "not json").unwrap();
+        assert!(!phone_view_of(&path), "a file that cannot be read is off");
+        save(&path, &sample()).unwrap();
+        assert_eq!(set_phone_view(&path, true), Ok(true));
+        assert!(phone_view_of(&path));
+        // Another change to the file keeps it, and the key; the other choice is its own.
+        assert!(update_account(&path, &sample().token, "bob@example.com").unwrap());
+        let saved = load(&path).unwrap().unwrap();
+        assert!(saved.phone_view);
+        assert_eq!(saved.token, sample().token);
+        assert_eq!(set_auto_update(&path, false), Ok(true));
+        let saved = load(&path).unwrap().unwrap();
+        assert!(saved.phone_view && !saved.auto_update);
+        assert_eq!(set_phone_view(&path, false), Ok(true));
+        let saved = load(&path).unwrap().unwrap();
+        assert!(!saved.phone_view && !saved.auto_update);
+        assert!(
+            !std::fs::read_to_string(&path).unwrap().contains("phoneView"),
+            "off is the absence of the field"
+        );
+    }
+
+    #[test]
     fn an_old_config_file_without_an_account_still_loads() {
         let dir = scratch_dir("config-old");
         let path = dir.join("config.json");
@@ -830,6 +905,7 @@ mod tests {
             device_name: "RIG".into(),
             account: Some("ana@example.com".into()),
             auto_update: true,
+            phone_view: false,
         }
     }
 
@@ -953,6 +1029,7 @@ mod tests {
             device_name: String::new(),
             account: None,
             auto_update: true,
+            phone_view: false,
         };
         assert!(!format!("{config:?}").contains("xpd_secret"));
     }

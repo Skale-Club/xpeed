@@ -148,6 +148,59 @@ Content-Type: application/json
 - **O servidor** confere a chave (revogada ou desconhecida: `401`), conta 10 por minuto por aparelho, calcula a própria impressão digital (mensagem e primeiro quadro do rastro, sem os números, mais o `worker`) e agrupa; quem vê é o admin, em "Problemas". Ocorrências ficam 30 dias.
 - **Respostas:** `200 { "ok": true }`; `400`/`413` (`invalid_json`, `invalid_version`, `invalid_worker`, `invalid_message`, `invalid_backtrace`, `invalid_os`, `too_large`: o relatório é descartado); `401`; `429` com `Retry-After`; `404`/`405`/`501` (servidor antigo) e `5xx`: o relatório espera até a próxima abertura.
 
+## 2e. Volta de referência (`GET /api/sim/reference`)
+
+O Xpeed Companion pede ao servidor a volta contra a qual compara a volta atual (o "delta para a referência" do painel). Chave do aparelho, como o envio; sem CORS.
+
+```
+GET /api/sim/reference?game=lmu&track=<nome da pista>&car=<nome do carro>[&variant=<layout>]&kind=best|personal
+Authorization: Bearer xpd_…
+```
+
+- `kind=personal`: a volta **mais rápida válida da própria dona do aparelho** naquele jogo, pista e carro.
+- `kind=best` (padrão): a volta mais rápida do **placar público como a dona o enxerga** (as mesmas regras do placar, `sim_board`: perfil privado, oculto ou bloqueado nunca aparece; volta inválida, reprovada na plausibilidade ou oculta não conta). Se o placar não tem nenhuma volta visível, volta a melhor volta pessoal dela.
+- Os nomes são casados como o envio os casa (apelidos do catálogo, só pelo nome da pista e do carro); nada é criado no catálogo. `variant` é lido e validado, mas não entra na busca: a volta é arquivada só pelo nome da pista.
+- Parâmetros: `game` `^[a-z][a-z0-9_]{0,31}$`; `track` e `car` de 1 a 120 caracteres, sem caracteres de controle; `variant` opcional, mesma regra; `kind` `best` ou `personal`.
+
+`200`:
+
+```
+{ "kind": "best" | "personal", "lapId": "<uuid>", "timeMs": 91234, "driver": "Ana" | null, "recordedAt": "2026-11-10T12:00:00.000Z",
+  "stepM": 5, "points": [0, 412, 819, …] }
+```
+
+`points[i]` é o tempo da volta, em ms, aos `i × 5` m de distância desde a linha, até o fim da volta (uns 1200 inteiros numa pista de 6 km). Vem dos canais `t` e `dist` do arquivo da volta (`FORMATO-DE-VOLTA.md`) por interpolação linear; amostra sem número (NaN) ou cuja distância ou tempo volta para trás é ignorada, então a sequência sempre cresce; se a volta começa depois dos 0 m, os primeiros pontos valem o tempo da primeira amostra. `kind` é o da volta que veio (um `best` que caiu para a melhor pessoal diz `personal`); `driver` é o nome de exibição (ou o handle) do piloto público, e `null` quando a volta é da própria dona.
+
+| Resposta | Significado |
+| --- | --- |
+| `200` | A referência, com `ETag: "<lapId>"` e `Cache-Control: private, max-age=300`. |
+| `304` | `If-None-Match` já é o `ETag` da volta; sem corpo, e o arquivo nem é lido. |
+| `400` | `invalid_game`, `invalid_track`, `invalid_car`, `invalid_variant` ou `invalid_kind`. |
+| `401` | Chave ausente, desconhecida ou revogada. |
+| `404` `no_reference` | Nenhuma volta serve (nome nunca enviado, nada válido, arquivo sumido ou sem distância utilizável). |
+| `405` | Só `GET`. |
+| `429` (com `Retry-After`) | Mais de **30 por minuto por aparelho**. |
+| `5xx` | Problema passageiro (`retryable: true`). |
+
+Toda recusa traz `{ "error": "…", "retryable": true|false }`. Código: `api/sim/reference.ts` (rota), `api/sim/_reference.ts` (os pontos), função `sim_reference_lap` (`supabase/migrations/20261119140000_sim_reference_lap.sql`, só leitura). Testes: `src/lib/sim/sim-reference.test.ts` e `npm run test:sim`.
+
+## 2f. Painel ao vivo para o celular (`POST /api/sim/live`)
+
+O Xpeed Companion manda o painel que está desenhando para o servidor, e o celular (a página PWA do site) o recebe de lá: **retransmissão pela nuvem** (decisão da dona, 2026-11-19), não ponto a ponto. Chave do aparelho, como o envio; sem CORS. O servidor guarda **só o último quadro de cada conta, na memória** (nada vai para o banco nem para o armazenamento) e nunca olha dentro de `model`.
+
+```
+POST /api/sim/live
+Authorization: Bearer xpd_…
+{ "v": 1, "seq": 1234, "sentAt": 1763550000000, "game": "lmu", "dashboard": "race" | "qualifying" | "practice" | "time_trial",
+  "rows": [["times"], ["session", "flag"]], "model": { … } }
+```
+
+- `v` é `1`; `seq` é um inteiro ≥ 0 que cresce a cada quadro; `sentAt` é a hora do computador em ms; `game` `^[a-z][a-z0-9_]{0,31}$`; `rows` tem até 30 linhas, cada uma com 1 a 12 ids de widget `^[a-z_]{2,24}$` (o desenho do celular); `model` é um objeto qualquer (o `DashModel` do painel em camelCase), opaco para o servidor. O corpo tem no máximo **64 KB**.
+- Um quadro com `seq` menor que o último aceito do mesmo aparelho é descartado (a resposta continua `200`), a não ser que o Companion tenha recomeçado: `seq` < 10 depois de mais de 10 s de silêncio.
+- `200 { "viewers": N }`: quantos celulares estão com a transmissão aberta. **O Companion manda uns 10 por segundo enquanto `viewers` > 0, senão um a cada 2 s** (sem ninguém olhando, o quadro só mantém o servidor sabendo que o painel existe).
+- `401` chave ausente, desconhecida ou revogada (o servidor lembra uma chave válida por 30 s: uma chave revogada ainda vale por esse tempo); `400 invalid_json | invalid_request | invalid_version | invalid_seq | invalid_sent_at | invalid_game | invalid_dashboard | invalid_rows | invalid_model`; `413 too_large`; `429 too_many_requests` (mais de **25 por segundo por aparelho**, com `Retry-After`); `503` (`retryable: true`; `busy` se o servidor está cheio de contas assistidas). Toda recusa traz `{ "error", "retryable" }`.
+- Quadros com mais de 30 s são esquecidos. O lado do celular (`GET /api/sim/live`, `GET /api/sim/live/stream`) está em `docs/platform/API-V1.md`. Código: `api/sim/live.ts` (rotas), `api/sim/_live.ts` (memória e regras). Testes: `src/lib/sim/sim-live.test.ts`, `src/lib/sim/sim-live-hub.test.ts`.
+
 ## 3. O que o Xpeed Sim guarda e o que ele nunca faz
 
 - **A pasta de voltas é a fila.** Uma volta só é pendente se estiver na pasta e não constar em `.xpeed-upload.json`, ao lado dela, que lista o que já foi enviado ou recusado (com o endereço do servidor; se a pessoa parear com outro servidor, a lista de enviadas recomeça). Se o computador desligar no meio, a próxima execução continua de onde parou. Nenhum arquivo de volta é apagado, movido nem alterado pelo envio.

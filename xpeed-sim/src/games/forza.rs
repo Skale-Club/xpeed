@@ -65,6 +65,8 @@
 //! * car `"Car #<CarOrdinal>"` with class letter and PI (`"A 800"`); track `"Track #<TrackOrdinal>"` only in the
 //!   331-byte format (the others carry no track).
 //! * `fuel_l` stays NaN: `Fuel` is a fraction of the tank (0..1) and no packet says how big the tank is.
+//! * `race_position`: `RacePosition` (U8, 1 is first, 0 none), only while the race is on. The packet has no count of cars, no
+//!   class position, no time left and no race length, so those stay `None`.
 //! * `in_pits` stays false and `lap_valid` stays `None`: no format says either.
 
 use std::net::{Ipv4Addr, SocketAddr};
@@ -111,6 +113,7 @@ const D_LAST_LAP: usize = 56; // F32, seconds
 const D_CURRENT_LAP: usize = 60; // F32, seconds
 const D_RACE_TIME: usize = 64; // F32: CurrentRaceTime, seconds
 const D_LAP_NUMBER: usize = 68; // U16: laps completed
+const D_RACE_POSITION: usize = 70; // U8: 1 is first, 0 none
 const D_ACCEL: usize = 71; // U8 0..255
 const D_BRAKE: usize = 72; // U8 0..255
 const D_CLUTCH: usize = 73; // U8 0..255
@@ -356,6 +359,7 @@ impl Decoder {
         f.last_lap_s = norm::seconds(last, false);
         if race_on {
             f.dist_m = self.lap_distance(f64::from(p.f32_at(d + D_DISTANCE)), lap_number, ordinal);
+            f.race_position = norm::place(p.u8_at(d + D_RACE_POSITION), None);
         }
 
         let race_time = p.f32_at(d + D_RACE_TIME);
@@ -519,7 +523,8 @@ fn caps_of(game: Game) -> Caps {
         .or(Caps::POSITION)
         .or(Caps::TYRE_TEMP)
         .or(Caps::CAR_CLASS)
-        .or(Caps::HANDBRAKE);
+        .or(Caps::HANDBRAKE)
+        .or(Caps::RACE_POSITION);
     if game == Game::Fm {
         caps.or(Caps::TYRE_WEAR)
     } else {
@@ -691,6 +696,7 @@ mod tests {
         assert_eq!(offset_of(DASH_FIELDS, "CurrentLap"), D_CURRENT_LAP);
         assert_eq!(offset_of(DASH_FIELDS, "CurrentRaceTime"), D_RACE_TIME);
         assert_eq!(offset_of(DASH_FIELDS, "LapNumber"), D_LAP_NUMBER);
+        assert_eq!(offset_of(DASH_FIELDS, "RacePosition"), D_RACE_POSITION);
         assert_eq!(offset_of(DASH_FIELDS, "Accel"), D_ACCEL);
         assert_eq!(offset_of(DASH_FIELDS, "Brake"), D_BRAKE);
         assert_eq!(offset_of(DASH_FIELDS, "Clutch"), D_CLUTCH);
@@ -790,6 +796,7 @@ mod tests {
         current: f32,
         race_time: f32,
         lap_number: u16,
+        position: u8,
         accel: u8,
         brake: u8,
         clutch: u8,
@@ -807,6 +814,7 @@ mod tests {
             current: 45.5,
             race_time: 136.75,
             lap_number: 1,
+            position: 3,
             accel: 255,
             brake: 51,
             clutch: 0,
@@ -823,7 +831,7 @@ mod tests {
         }
         w.f32(14.5).f32(0.62).f32(d.distance); // Boost, Fuel, DistanceTraveled
         w.f32(88.125).f32(d.last).f32(d.current).f32(d.race_time); // BestLap, LastLap, CurrentLap, CurrentRaceTime
-        w.u16(d.lap_number).u8(3); // LapNumber, RacePosition
+        w.u16(d.lap_number).u8(d.position); // LapNumber, RacePosition
         w.u8(d.accel).u8(d.brake).u8(d.clutch).u8(200).u8(d.gear).i8(d.steer); // .., HandBrake, ..
         w.i8(-5).i8(17); // NormalizedDrivingLine, NormalizedAIBrakeDifference
     }
@@ -892,6 +900,11 @@ mod tests {
         assert_eq!(f.dist_m, Some(0.0), "the first packet of a lap is its start");
         assert!(!f.in_pits);
         assert_eq!(f.lap_valid, None);
+        assert_eq!(f.race_position, Some(3));
+        assert_eq!(
+            (f.class_position, f.cars, f.session_time_left_s, f.session_laps),
+            (None, None, None, None)
+        );
         assert!(f.fuel_l.is_nan(), "a fraction of an unknown tank is not litres");
         // The packet's handbrake input (200 of 255) is the only part of the car's state it has.
         assert_eq!(
@@ -907,6 +920,22 @@ mod tests {
             assert!(close(tyre.temp_c, c), "{} °C", tyre.temp_c);
             assert!(tyre.pressure_kpa.is_nan());
         }
+    }
+
+    #[test]
+    fn no_race_position_is_not_given_and_a_menu_packet_gives_none() {
+        let mut d = Decoder::new(Game::Fm7);
+        let none = Dash {
+            position: 0,
+            ..sample_dash()
+        };
+        let f = d.feed(&fm7_packet(&sample_sled(), &none), 2.5).expect("a frame");
+        assert_eq!(f.race_position, None, "0 is no place");
+        // A stopped race (IsRaceOn = 0) that still holds a place says nothing about one.
+        let mut sled = sample_sled();
+        sled.race_on = 0;
+        let f = d.feed(&fm7_packet(&sled, &sample_dash()), 2.6).expect("a frame");
+        assert_eq!(f.race_position, None);
     }
 
     #[test]

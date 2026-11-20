@@ -53,6 +53,10 @@
 //! * The player's scoring entry is the one with `isPlayer` set. From it: `lastLapTime` (-1 while there is no
 //!   completed lap), `lapDist` (the distance around the track, which the lap file calls `dist`), `inPits` and
 //!   `vehicleClass`. The header exports no vehicle name: the class string stands for the car.
+//! * The race: `place` of the player's scoring entry (1 is first), `numVehicles` (the cars in the session),
+//!   `endET - currentET` (seconds left, only while `endET` is above 0) and `maxLaps`, each through `norm` (a place past
+//!   the field, a session with no end time and a `maxLaps` that is the game's "unlimited" are not given). There is no class
+//!   place: the plugin exports none. Not seen live (ASSUMED: `endET` 0 or very large when the session has no time limit).
 //! * The top-level `lapDist` is the track length in metres (the ISI `ScoringInfo.mLapDist` is the distance around the
 //!   track), not the player's position on it.
 //!
@@ -82,11 +86,20 @@
 //! flag). Outside `Driving` the gear, pedals, steering, speed and rpm are `NaN`: the plugin writes the telemetry only
 //! while the player is in the car, so what the memory holds then is the last values the car gave.
 //!
+//! # The rivals
+//!
+//! `Frame::field` is read from the same copy as the frame, at most every 200 ms (`FieldPace`): per car of `vehicle[]` the
+//! driver's name, the class string, `place`, `totalLaps`, `lapDist` over the track's length (the share of the lap),
+//! `inPits`, `lastLapTime`, `bestLapTime`, `timeBehindNext` and `timeBehindLeader` (only for a car on the leader's / the
+//! next car's lap: `lapsBehind*` is 0) and `pos`. The class place is computed by `field::complete`.
+//!
 //! Never read: another process's memory. Only the plugin's own shared memory, read-only and copied out.
 
+use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use crate::field::{self, Car, Field, FieldPace};
 use crate::game::{Caps, CarState, Frame, Phase, Source};
 use crate::norm::{self, pedal, seconds, within};
 use crate::shm::{Mapping, Page};
@@ -125,6 +138,9 @@ mod at {
     pub const OVERHEATING: usize = 233;
     pub const DENT_SEVERITY: usize = 235;
     pub const CURRENT_ET: usize = 535;
+    /// `float endET` (when the session ends, on the `currentET` clock) and `long maxLaps`, right after `currentET`.
+    pub const END_ET: usize = 539;
+    pub const MAX_LAPS: usize = 543;
     pub const LAP_DIST: usize = 547;
     pub const NUM_VEHICLES: usize = 551;
     pub const GAME_PHASE: usize = 555;
@@ -136,8 +152,26 @@ mod at {
     pub const V_IS_PLAYER: usize = 84;
     pub const V_CONTROL: usize = 85;
     pub const V_IN_PITS: usize = 86;
+    /// `unsigned char place`, the position in the race (1 is first).
+    pub const V_PLACE: usize = 87;
     pub const V_VEHICLE_CLASS: usize = 88;
+    // The rest of an `rfVehicleInfo`, for the rivals (`field_from`).
+    /// `char driverName[32]`, the first field.
+    pub const V_DRIVER_NAME: usize = 0;
+    /// `short totalLaps`: the laps completed.
+    pub const V_TOTAL_LAPS: usize = 32;
+    /// `float bestLapTime` (-1 none).
+    pub const V_BEST_LAP_TIME: usize = 56;
+    /// `float timeBehindNext`, `long lapsBehindNext`, `float timeBehindLeader`, `long lapsBehindLeader`.
+    pub const V_TIME_BEHIND_NEXT: usize = 120;
+    pub const V_LAPS_BEHIND_NEXT: usize = 124;
+    pub const V_TIME_BEHIND_LEADER: usize = 128;
+    pub const V_LAPS_BEHIND_LEADER: usize = 132;
+    /// `rfVec3 pos`: the car's world position, in the same space as the player's own `pos`.
+    pub const V_POS: usize = 140;
 }
+
+const DRIVER_NAME_LENGTH: usize = 32;
 
 const TRACK_NAME_LENGTH: usize = 64;
 const CLASS_NAME_LENGTH: usize = 32;
@@ -204,6 +238,8 @@ struct RFactor1 {
     stale_after: Duration,
     /// The pause between the two copies (nothing in tests).
     settle: Duration,
+    /// When the other cars are read (a few Hz; the scoring part of the memory only moves twice a second anyway).
+    pace: FieldPace,
 }
 
 /// The first 8 bytes are the version marker the header describes.
@@ -230,6 +266,7 @@ impl RFactor1 {
             last_change: now,
             stale_after: STALE,
             settle: SETTLE,
+            pace: FieldPace::default(),
         })
     }
 
@@ -250,7 +287,12 @@ impl RFactor1 {
             return None;
         }
         self.last_change = Instant::now();
-        let frame = frame_from(&copy, self.started.elapsed().as_secs_f64());
+        let mut frame = frame_from(&copy, self.started.elapsed().as_secs_f64());
+        if let Some(frame) = frame.as_mut() {
+            if self.pace.due(frame.clock_s) {
+                frame.field = field_from(&copy, frame);
+            }
+        }
         self.last_used = Some(copy);
         frame
     }
@@ -297,6 +339,15 @@ fn lap_time(current_et: f32, lap_start_et: f32) -> Option<f64> {
     }
     let t = f64::from(current_et) - f64::from(lap_start_et);
     (-1.0..=86_400.0).contains(&t).then(|| t.max(0.0))
+}
+
+/// The time left in the session: the clock at its end minus the clock now. An end of 0 (or less) is "no time limit"; a
+/// negative difference (the end has passed) or one past a day is not given.
+fn session_time_left(end_et: f32, current_et: f32) -> Option<f64> {
+    if !(end_et.is_finite() && end_et > 0.0 && current_et.is_finite()) {
+        return None;
+    }
+    norm::time_left_s(f64::from(end_et) - f64::from(current_et))
 }
 
 /// The slot of the player's car in the scoring array: the first car the plugin marks `isPlayer`.
@@ -378,6 +429,10 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
     frame.track = page.ascii_at(at::TRACK_NAME, TRACK_NAME_LENGTH);
     let length = within(page.f32_at(at::LAP_DIST), 0.0, 1_000_000.0);
     frame.track_length_m = (length > 0.0).then(|| f64::from(length));
+    frame.cars = norm::cars(vehicles);
+    frame.race_position = norm::place(page.u8_at(me + at::V_PLACE), frame.cars);
+    frame.session_time_left_s = session_time_left(page.f32_at(at::END_ET), page.f32_at(at::CURRENT_ET));
+    frame.session_laps = norm::race_laps(page.i32_at(at::MAX_LAPS));
     // The telemetry is written only while the player is in the car: out of it (the monitor, a pause between
     // sessions) the memory holds the last values, which are stale. No car values outside `Driving`.
     frame.withhold_car_values_unless_driving();
@@ -387,8 +442,59 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
     Some(frame)
 }
 
+/// The cars of the session from a stable copy of the memory (the same one the frame was made from, so no second read).
+/// Per car: the driver's name, the class string, the place, `totalLaps`, `lapDist` over the track's length as the share of the
+/// lap, `inPits`, the last and best lap, the gaps (`timeBehindNext`, `timeBehindLeader`, given only when the car is on the
+/// same lap: a gap of laps is not a time) and `pos`. The class place is not in the memory; `field::complete` works it
+/// out. A slot with no name and no place is empty and left out; `None` when no car is left.
+fn field_from(bytes: &[u8], frame: &Frame) -> Option<Arc<Field>> {
+    if bytes.len() < SIZE || !has_version(bytes) {
+        return None;
+    }
+    let page = Page(bytes);
+    let vehicles = page.i32_at(at::NUM_VEHICLES);
+    if !(1..=VEHICLES_MAX).contains(&vehicles) {
+        return None;
+    }
+    let length = within(page.f32_at(at::LAP_DIST), 0.0, 1_000_000.0);
+    let cars_in_session = norm::cars(vehicles);
+    let mut cars = Vec::new();
+    for slot in 0..vehicles as usize {
+        let v = at::VEHICLES + slot * VEHICLE_SIZE;
+        let name = page.ascii_at(v + at::V_DRIVER_NAME, DRIVER_NAME_LENGTH);
+        let position = norm::place(page.u8_at(v + at::V_PLACE), cars_in_session);
+        if name.is_empty() && position.is_none() {
+            continue;
+        }
+        let mut car = Car::named(slot as u16, &name);
+        car.class = Some(page.ascii_at(v + at::V_VEHICLE_CLASS, CLASS_NAME_LENGTH)).filter(|c| !c.is_empty());
+        car.position = position;
+        let laps = i32::from(page.u16_at(v + at::V_TOTAL_LAPS) as i16);
+        car.laps_done = (0..=100_000).contains(&laps).then_some(laps);
+        if length > 0.0 {
+            car.lap_share = field::lap_share(f64::from(page.f32_at(v + at::V_LAP_DIST)), f64::from(length));
+        }
+        car.in_pits = page.u8_at(v + at::V_IN_PITS) == 1;
+        car.last_lap_s = seconds(page.f32_at(v + at::V_LAST_LAP_TIME), false);
+        car.best_lap_s = seconds(page.f32_at(v + at::V_BEST_LAP_TIME), false);
+        // The first car has nobody ahead: its "time behind next" is 0 or -1, neither a gap.
+        let same_lap = |laps_at: usize| page.i32_at(v + laps_at) == 0;
+        if same_lap(at::V_LAPS_BEHIND_NEXT) && position != Some(1) {
+            car.gap_ahead_s = seconds(page.f32_at(v + at::V_TIME_BEHIND_NEXT), true);
+        }
+        if same_lap(at::V_LAPS_BEHIND_LEADER) {
+            car.gap_leader_s = seconds(page.f32_at(v + at::V_TIME_BEHIND_LEADER), true);
+        }
+        let world = [0, 4, 8].map(|d| norm::position(page.f32_at(v + at::V_POS + d)));
+        car.world = world.iter().all(|c| c.is_finite()).then_some(world);
+        car.is_player = page.u8_at(v + at::V_IS_PLAYER) == 1;
+        cars.push(car);
+    }
+    (!cars.is_empty()).then(|| field::publish(cars, frame.clock_s, frame.track_length_m))
+}
+
 /// What a frame can fill. The plugin exports no lights, flags, aids, brake bias, tyres, or engine and gearbox damage
-/// (the car's dents are the body damage), no tank size and no session or weather data.
+/// (the car's dents are the body damage), no tank size, no class place and no weather data.
 const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::LAST_LAP)
     .or(Caps::DIST)
@@ -406,7 +512,13 @@ const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::ENGINE_WARNING)
     .or(Caps::WATER_TEMP)
     .or(Caps::OIL_TEMP)
-    .or(Caps::DAMAGE_BODY);
+    .or(Caps::DAMAGE_BODY)
+    .or(Caps::RACE_POSITION)
+    .or(Caps::CARS)
+    .or(Caps::SESSION_TIME_LEFT)
+    .or(Caps::SESSION_LAPS)
+    .or(Caps::RIVALS)
+    .or(Caps::RIVALS_WORLD);
 
 /// The overheating light, the temperatures and the dents. The plugin exports no lights, flags, aids, brake bias or
 /// engine and gearbox damage, so those are not given.
@@ -622,7 +734,16 @@ mod tests {
             ("isPlayer", at::V_IS_PLAYER),
             ("control", at::V_CONTROL),
             ("inPits", at::V_IN_PITS),
+            ("place", at::V_PLACE),
             ("vehicleClass", at::V_VEHICLE_CLASS),
+            ("driverName", at::V_DRIVER_NAME),
+            ("totalLaps", at::V_TOTAL_LAPS),
+            ("bestLapTime", at::V_BEST_LAP_TIME),
+            ("timeBehindNext", at::V_TIME_BEHIND_NEXT),
+            ("lapsBehindNext", at::V_LAPS_BEHIND_NEXT),
+            ("timeBehindLeader", at::V_TIME_BEHIND_LEADER),
+            ("lapsBehindLeader", at::V_LAPS_BEHIND_LEADER),
+            ("pos", at::V_POS),
         ] {
             assert_eq!(offset_of(&v, name), want, "vehicle.{name}");
         }
@@ -700,6 +821,8 @@ mod tests {
             ("overheating", at::OVERHEATING),
             ("dentSeverity", at::DENT_SEVERITY),
             ("currentET", at::CURRENT_ET),
+            ("endET", at::END_ET),
+            ("maxLaps", at::MAX_LAPS),
             ("lapDist", at::LAP_DIST),
             ("numVehicles", at::NUM_VEHICLES),
             ("gamePhase", at::GAME_PHASE),
@@ -748,6 +871,7 @@ mod tests {
         want.track = "Interlagos".into();
         want.track_variant = None;
         want.track_length_m = Some(4309.0);
+        want.cars = Some(3);
         want.state = CarState {
             engine_warning: Some(true),
             water_c: Some(92.5),
@@ -757,6 +881,33 @@ mod tests {
         };
         assert_eq!(frame, want);
         assert!(reader.alive());
+    }
+
+    #[test]
+    fn the_race_values_come_from_the_players_entry_and_the_session() {
+        let mut image = Image::on_track();
+        image.0[Image::vehicle(PLAYER) + at::V_PLACE] = 2;
+        image.0[Image::vehicle(0) + at::V_PLACE] = 1;
+        image.f32(at::END_ET, 2863.75); // 1063.75 now: 1800 s to go
+        image.i32(at::MAX_LAPS, 12);
+        let frame = frame_from(&image.0, 0.0).unwrap();
+        assert_eq!((frame.race_position, frame.class_position, frame.cars), (Some(2), None, Some(3)));
+        assert_eq!((frame.session_time_left_s, frame.session_laps), (Some(1800.0), Some(12)));
+        // No end time (0), the end already passed, and an "unlimited" number of laps are not given.
+        image.f32(at::END_ET, 0.0);
+        image.i32(at::MAX_LAPS, i32::MAX);
+        let frame = frame_from(&image.0, 0.0).unwrap();
+        assert_eq!((frame.session_time_left_s, frame.session_laps), (None, None));
+        image.f32(at::END_ET, 900.0);
+        image.i32(at::MAX_LAPS, 0);
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().session_time_left_s, None);
+        image.f32(at::END_ET, 1.0e9);
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().session_time_left_s, None);
+        // A place past the three cars is not given, nor is 0 (no place yet).
+        image.0[Image::vehicle(PLAYER) + at::V_PLACE] = 4;
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().race_position, None);
+        image.0[Image::vehicle(PLAYER) + at::V_PLACE] = 0;
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().race_position, None);
     }
 
     #[test]
@@ -842,6 +993,107 @@ mod tests {
         let mut image = Image::on_track();
         image.0[at::GAME_PHASE] = 9;
         assert!(frame_from(&image.0, 0.0).is_none());
+    }
+
+    /// Writes the rivals-related fields of one car: name, class, place, laps, lap distance, best and last lap, the time behind
+    /// the next car and the leader (both on the same lap) and the position.
+    fn write_rival(i: &mut Image, slot: usize, name: &str, place: u8, laps: i16, dist: f32, behind: (f32, f32)) {
+        let v = Image::vehicle(slot);
+        i.text(v + at::V_DRIVER_NAME, DRIVER_NAME_LENGTH, name);
+        i.text(v + at::V_VEHICLE_CLASS, CLASS_NAME_LENGTH, "GT");
+        i.0[v + at::V_PLACE] = place;
+        i.0[v + at::V_IN_PITS] = 0;
+        i.0[v + at::V_TOTAL_LAPS..v + at::V_TOTAL_LAPS + 2].copy_from_slice(&laps.to_le_bytes());
+        i.f32(v + at::V_LAP_DIST, dist);
+        i.f32(v + at::V_BEST_LAP_TIME, 88.5);
+        i.f32(v + at::V_LAST_LAP_TIME, 89.5);
+        i.f32(v + at::V_TIME_BEHIND_NEXT, behind.0);
+        i.f32(v + at::V_TIME_BEHIND_LEADER, behind.1);
+        i.i32(v + at::V_LAPS_BEHIND_NEXT, 0);
+        i.i32(v + at::V_LAPS_BEHIND_LEADER, 0);
+        i.f32(v + at::V_POS, 10.0 * (slot + 1) as f32);
+        i.f32(v + at::V_POS + 4, 1.5);
+        i.f32(v + at::V_POS + 8, -20.0);
+    }
+
+    /// Slots 0 and 2 are other cars, the player (slot 1) is third; the track is 5000 m long.
+    fn three_cars() -> Image {
+        let mut i = Image::on_track();
+        i.f32(at::LAP_DIST, 5000.0);
+        write_rival(&mut i, 0, "Leader A", 1, 3, 2500.0, (0.0, 0.0));
+        write_rival(&mut i, 2, "Second", 2, 3, 1250.0, (4.5, 4.5));
+        write_rival(&mut i, 1, "Some Driver", 3, 3, 1000.0, (1.5, 6.0));
+        let me = Image::vehicle(PLAYER);
+        i.0[me + at::V_IS_PLAYER] = 1;
+        i
+    }
+
+    #[test]
+    fn reads_the_other_cars_into_a_field() {
+        let image = three_cars();
+        let frame = frame_from(&image.0, 7.5).unwrap();
+        let field = field_from(&image.0, &frame).unwrap();
+        assert_eq!(field.at_s, 7.5);
+        let names: Vec<&str> = field.cars.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["Leader A", "Second", "Some Driver"], "sorted by place");
+        let slots: Vec<u16> = field.cars.iter().map(|c| c.slot).collect();
+        assert_eq!(slots, [0, 2, 1]);
+        let positions: Vec<Option<u16>> = field.cars.iter().map(|c| c.position).collect();
+        assert_eq!(positions, [Some(1), Some(2), Some(3)]);
+        // One class: the shared place is worked out from the overall one.
+        let classes: Vec<(Option<&str>, Option<u16>)> = field.cars.iter().map(|c| (c.class.as_deref(), c.class_position)).collect();
+        assert_eq!(classes, [(Some("GT"), Some(1)), (Some("GT"), Some(2)), (Some("GT"), Some(3))]);
+        let shares: Vec<Option<f32>> = field.cars.iter().map(|c| c.lap_share).collect();
+        assert_eq!(shares, [Some(0.5), Some(0.25), Some(0.2)]);
+        let laps: Vec<Option<i32>> = field.cars.iter().map(|c| c.laps_done).collect();
+        assert_eq!(laps, [Some(3); 3]);
+        let ahead: Vec<Option<f64>> = field.cars.iter().map(|c| c.gap_ahead_s).collect();
+        assert_eq!(ahead, [None, Some(4.5), Some(1.5)], "the leader has nobody ahead");
+        let leader: Vec<Option<f64>> = field.cars.iter().map(|c| c.gap_leader_s).collect();
+        assert_eq!(leader, [Some(0.0), Some(4.5), Some(6.0)]);
+        assert!(field.cars.iter().all(|c| c.best_lap_s == Some(88.5) && c.last_lap_s == Some(89.5)));
+        let player: Vec<bool> = field.cars.iter().map(|c| c.is_player).collect();
+        assert_eq!(player, [false, false, true]);
+        assert_eq!(field.player().unwrap().world, Some([20.0, 1.5, -20.0]));
+        assert!(field.cars.iter().all(|c| !c.in_pits));
+    }
+
+    #[test]
+    fn a_car_a_lap_behind_has_no_time_gap_and_an_empty_slot_is_left_out() {
+        let mut image = three_cars();
+        let lapped = Image::vehicle(2);
+        image.i32(lapped + at::V_LAPS_BEHIND_NEXT, 1);
+        image.i32(lapped + at::V_LAPS_BEHIND_LEADER, 1);
+        image.0[Image::vehicle(0) + at::V_IN_PITS] = 1;
+        let frame = frame_from(&image.0, 0.0).unwrap();
+        let field = field_from(&image.0, &frame).unwrap();
+        assert_eq!((field.cars[1].gap_ahead_s, field.cars[1].gap_leader_s), (None, None));
+        assert!(field.cars[0].in_pits);
+        // No name and no place: not a car.
+        let mut image = three_cars();
+        let empty = Image::vehicle(2);
+        image.text(empty + at::V_DRIVER_NAME, DRIVER_NAME_LENGTH, "");
+        image.0[empty + at::V_PLACE] = 0;
+        let frame = frame_from(&image.0, 0.0).unwrap();
+        assert_eq!(field_from(&image.0, &frame).unwrap().cars.len(), 2);
+        assert!(field_from(&Image::new().0, &frame).is_none(), "no vehicles");
+        assert!(field_from(&image.0[..100], &frame).is_none(), "too short");
+    }
+
+    #[test]
+    fn the_reader_publishes_the_field_with_a_frame_and_not_on_every_one() {
+        let mut rig = Rig::new("rf1_field", three_cars());
+        let mut reader = rig.reader();
+        let frame = reader.next(NOW).unwrap();
+        assert_eq!(
+            frame.field.as_ref().expect("the first reading carries the other cars").cars.len(),
+            3
+        );
+        crate::game::assert_frame_within_caps(&frame, CAPS, "rfactor1");
+        assert!(frame.filled().has(Caps::RIVALS.or(Caps::RIVALS_WORLD)));
+        rig.image.f32(at::FUEL, 40.0);
+        rig.publish();
+        assert!(reader.next(NOW).unwrap().field.is_none(), "inside the 200 ms");
     }
 
     #[test]

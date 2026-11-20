@@ -507,6 +507,29 @@ invalid_game | invalid_pending_laps`, `413 too_large`, `429 too_many_requests` (
 A change of state or game drops the person's overview cache, so it shows at once. The site treats a computer as online when `lastSeenAt` is within
 3 minutes. `GET /api/sim/devices` lists the same facts as `companion_version`, `last_state`, `last_game`, `last_state_at`. Checks: `npm run test:sim-v1`.
 
+### Reference lap: `GET /api/sim/reference` (device key)
+`?game&track&car[&variant]&kind=best|personal` (names, not ids). Answers the lap Xpeed Companion compares against, as `{ kind, lapId, timeMs, driver, recordedAt, stepM: 5, points }`
+where `points[i]` is the lap's time in ms at `i * 5` m (from the stored file's `t` and `dist`). `personal` is the owner's fastest valid, plausible, not hidden lap;
+`best` is the leader of the public board as the owner sees it (`sim_board`, so private, hidden and blocked drivers and failed or invalid laps never appear), else the personal best
+(`kind` then says `personal`). `driver` is the public display name, `null` for the owner's own lap. `ETag: "<lapId>"`, `Cache-Control: private, max-age=300`, `304` on a matching
+`If-None-Match`; `400 invalid_game | invalid_track | invalid_car | invalid_variant | invalid_kind`, `401`, `404 no_reference`, `429` (30 a minute per device), `503`.
+One read-only function, `sim_reference_lap` (migration `20261119140000_sim_reference_lap.sql`). Contract: `ENVIO-DE-VOLTAS.md` section 2e. Checks: `npm run test:sim`, `src/lib/sim/sim-reference.test.ts`.
+
+### Live dashboard relay: `/api/sim/live` (phone view)
+Xpeed Companion pushes the dashboard it is drawing and the phone page reads it, through this server (a cloud relay; owner decision 2026-11-19). Only the **latest frame of each
+account is kept, in this process's memory** (at most 1000 accounts, least recently used out; frames older than 30 s are forgotten); nothing is written to the database or storage, and
+`model` (the panel's `DashModel` as camelCase JSON) is opaque: never read beyond being an object, never logged. Code: `api/sim/live.ts`, `api/sim/_live.ts`.
+
+- `POST /api/sim/live` (device key, see `ENVIO-DE-VOLTAS.md` 2f): `{ v: 1, seq, sentAt, game, dashboard, rows, model }`, at most 64 KB, 25 a second per device. `200 { viewers }`.
+- `GET /api/sim/live/stream` (the signed-in person: the same bearer token as every other signed-in route here): `text/event-stream` (`Cache-Control: no-cache, no-transform`, `X-Accel-Buffering: no`).
+  Read it with `fetch` and the `Authorization` header, as a stream (EventSource cannot send headers). The first bytes are `retry: 2000`. Then, at once, `event: frame` with the latest frame when it is
+  younger than 5 s (else `event: idle`); `event: frame` with `data: <frame JSON plus receivedAt>` for every newer frame, at most 15 a second (newer frames replace one still waiting);
+  `event: idle` with `data: {}` once when no frame arrived for 5 s (frames resume with `event: frame`); a `: ping` comment every 15 s; the server closes the stream after 30 minutes (reconnect).
+  At most 4 open streams per person: `429 too_many_streams` (`Retry-After`). `401` without a valid token, `405` for other methods.
+- `GET /api/sim/live` (the signed-in person): the latest frame (no older than 30 s) as JSON including `receivedAt`, else `204`.
+
+A reverse proxy must not buffer or time out this route: the server sends `X-Accel-Buffering: no`, pings every 15 s, and never wraps the stream. Checks: `src/lib/sim/sim-live.test.ts`, `src/lib/sim/sim-live-hub.test.ts`, `npm run test:http`.
+
 # Social side (profiles, friends, shares, leaderboards, reports, privacy rights)
 
 Same base path, same rules as above (sign-in token only, `{ "error", "retryable" }`, cursor paging, CORS for the app: the allowed

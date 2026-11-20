@@ -2954,6 +2954,26 @@
     "validOf": "{{valid}} de {{laps}}",
     "yourBest": "Tu mejor"
   },
+  "phoneLive": {
+    "title": "En vivo en tu móvil",
+    "back": "Volver a Xpeed Companion",
+    "stateLive": "En vivo",
+    "stateWaiting": "Esperando al Companion",
+    "stateReconnecting": "Reconectando",
+    "stateConnecting": "Conectando",
+    "waitingTitle": "Esperando al Companion",
+    "waitingBody": "Abre un juego con “Mostrar el panel en mi móvil” activado en el menú de la bandeja del Companion.",
+    "reconnectingBanner": "Se cortó la conexión. Reintentando…",
+    "dashboards": {
+      "race": "Carrera",
+      "qualifying": "Clasificación",
+      "practice": "Entrenamiento",
+      "time_trial": "Hot lap"
+    },
+    "cardTitle": "Ábrelo en tu móvil",
+    "cardBody": "Mira el panel del Companion en vivo en tu móvil mientras conduces. En el menú de la bandeja del Companion, activa “Mostrar el panel en mi móvil” y abre esta página en el móvil.",
+    "cardOpen": "Abrir la vista del móvil"
+  },
   "communityDash": {
     "companion": {
       "online": "En línea",

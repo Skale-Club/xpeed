@@ -20,6 +20,10 @@
 //! | tyre pressure (`pressure_kpa`) | above 0 ..= 1000 kPa | not given | as it is |
 //! | gear (`gear`) | -1 ..= 30 | not given | as it is |
 //! | world position (`position`) | -1e7 ..= 1e7 m | not given | as it is |
+//! | cars in the session (`cars`) | 1 ..= 256 | not given | as it is |
+//! | race or class place (`place`) | 1 ..= the number of cars (256 when that is not known) | not given | as it is |
+//! | session time left (`time_left_s`) | 0 ..= 86 400 s | not given (negative and "unlimited" markers too) | as it is |
+//! | session length in laps (`race_laps`) | 1 ..= 999 | not given (0 is "not lap-based") | as it is |
 //!
 //! | flag (`flag_code`, `flag_showing`) | the game's own table | no flag, or one `Flag` has no value for (red...): `None` | the most serious showing |
 //!
@@ -171,6 +175,35 @@ pub fn position(v: f32) -> f32 {
     within(v, -1.0e7, 1.0e7)
 }
 
+/// The most cars a session can hold: no game's grid is larger.
+pub const MAX_CARS: i64 = 256;
+
+/// How many cars are in the session; 0, negative or a count above `MAX_CARS` is "not given".
+pub fn cars(n: impl Into<i64>) -> Option<u16> {
+    let n = n.into();
+    (1..=MAX_CARS).contains(&n).then_some(n as u16)
+}
+
+/// The player's place (1 is the leader), in the field or in a class: it must be at least 1 and no more than the number of
+/// cars when that is known (`MAX_CARS` when it is not). Anything else (0 is "no place yet") is "not given".
+pub fn place(raw: impl Into<i64>, cars: Option<u16>) -> Option<u16> {
+    let raw = raw.into();
+    let top = cars.map_or(MAX_CARS, i64::from);
+    (1..=top).contains(&raw).then_some(raw as u16)
+}
+
+/// Seconds left in a timed session. The games write a negative number, a huge number or NaN for "unlimited" or "none":
+/// all of them are "not given", like a time above a day (`MAX_SECONDS`).
+pub fn time_left_s(v: f64) -> Option<f64> {
+    (v.is_finite() && (0.0..=MAX_SECONDS).contains(&v)).then_some(v)
+}
+
+/// The length of a lap-based session in laps, 1 to 999; 0 (not lap-based) or a sentinel such as 65 535 is "not given".
+pub fn race_laps(n: impl Into<i64>) -> Option<u16> {
+    let n = n.into();
+    (1..=999).contains(&n).then_some(n as u16)
+}
+
 /// The flags from the most to the least serious. When a game shows several at once, the first of this list is the one the panel
 /// shows (the game's own table for each flag stays the reader's: the numbers differ from game to game).
 const FLAG_PRIORITY: [Flag; 6] = [Flag::Black, Flag::Chequered, Flag::Yellow, Flag::Blue, Flag::White, Flag::Green];
@@ -315,6 +348,31 @@ mod tests {
         assert!(same(position(123_456.0), 123_456.0));
         assert!(same(position(-9.9e6), -9.9e6));
         assert!(position(1.1e7).is_nan() && position(f32::INFINITY).is_nan());
+    }
+
+    #[test]
+    fn the_race_values_have_one_range_each() {
+        assert_eq!((cars(1), cars(22), cars(256)), (Some(1), Some(22), Some(256)));
+        assert_eq!((cars(0), cars(-1), cars(257), cars(i32::MAX)), (None, None, None, None));
+        assert_eq!(
+            (place(1, Some(20)), place(20, Some(20)), place(5, None), place(256, None)),
+            (Some(1), Some(20), Some(5), Some(256))
+        );
+        assert_eq!(
+            (place(0, Some(20)), place(21, Some(20)), place(-1, None), place(257, None)),
+            (None, None, None, None)
+        );
+        assert_eq!(time_left_s(0.0), Some(0.0));
+        assert_eq!(time_left_s(1800.5), Some(1800.5));
+        assert_eq!(time_left_s(86_400.0), Some(86_400.0));
+        for none in [-1.0, 86_400.5, 1.0e9, f64::MAX, f64::NAN, f64::INFINITY] {
+            assert_eq!(time_left_s(none), None, "{none}");
+        }
+        assert_eq!((race_laps(1), race_laps(999)), (Some(1), Some(999)));
+        assert_eq!(
+            (race_laps(0), race_laps(-1), race_laps(1000), race_laps(65_535)),
+            (None, None, None, None)
+        );
     }
 
     #[test]

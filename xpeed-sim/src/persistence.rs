@@ -170,6 +170,7 @@ impl<'a> Saver<'a> {
                         s.last_lap = Some(saved.clone());
                     });
                     self.shared.note_lap_saved(&lap.game, build, late);
+                    self.shared.note_played(&saved);
                     self.shared.notify_lap_saved(saved, generation);
                     self.shared.wake_uploader();
                     let mut queue = crate::util::lock(&self.queue);
@@ -283,6 +284,7 @@ mod tests {
             game: lap.game.clone(),
             track: String::new(),
             car: String::new(),
+            speed_kmh: Vec::new(),
         }
     }
 

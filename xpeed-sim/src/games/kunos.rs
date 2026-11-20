@@ -50,6 +50,12 @@
 //!   a real time (Competizione shows `i32::MAX` before a first lap).
 //! * `lap_valid`: Competizione's `isValidLap`; the other two games do not say, so `None`.
 //! * `in_pits`: `isInPit` (and, for Competizione, `isInPitLane`).
+//! * The rivals (`Frame::field`, Competizione only; Assetto Corsa gives only the player's own coordinates and Rally has no
+//!   layout), at most every 200 ms (`FieldPace`), ASSUMED and not seen live: the first `activeCars` (at most 60) of
+//!   `carID[60]` and `carCoordinates[60][3]` are the cars, each with its world position as the game gives it (the same
+//!   as the player's own, `RIVALS_WORLD`) and the name `Car <carID>` (the page has no names); a car whose coordinates are
+//!   not numbers is left out. The player's own car is the slot whose `carID` is `playerCarID`; only that car carries a
+//!   place, the laps done, the last lap and the pit lane (from the frame). No class and no gaps.
 //! * `dist_m` is left `None` on purpose, so the lap cutter integrates the speed. The games give
 //!   `normalizedCarPosition` (0..1 along the spline), but a fraction cannot become metres without the length of the
 //!   lap, and none of them gives one that can be vouched for (Competizione's `trackSplineLength` is "not used in
@@ -85,8 +91,10 @@
 //! Competizione's `fuel` is documented in kilograms and is taken as litres, the way the game's own fuel gauge and
 //! `maxFuel` read (and Assetto Corsa's `maxFuel` is the tank's capacity, in litres). The clutch pedal is not read: its polarity (1 = pressed or released) is not documented.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::field::{self, Car, Field, FieldPace};
 use crate::game::{AidSettings, Caps, CarState, Drs, Flag, Frame, Phase, SectorTracker, SessionKind, Source, Tyre};
 use crate::norm;
 use crate::shm::{Mapping, Page};
@@ -166,12 +174,18 @@ mod layout {
     /// `int session`: -1 unknown, 0 practice, 1 qualify, 2 race, 3 hotlap, 4 time attack, 5 drift, 6 drag.
     pub const GFX_SESSION: usize = 8;
     pub const GFX_COMPLETED_LAPS: usize = 132;
+    /// `int position`: the player's place, 1 is first.
+    pub const GFX_POSITION: usize = 136;
     pub const GFX_I_CURRENT_TIME: usize = 140;
     pub const GFX_I_LAST_TIME: usize = 144;
+    /// `float sessionTimeLeft`: milliseconds (ASSUMED: the header gives no unit; the tools that read it divide by 1000).
+    pub const GFX_SESSION_TIME_LEFT: usize = 152;
     pub const GFX_IS_IN_PIT: usize = 160;
     /// `int currentSectorIndex` (0 is the first sector) and `int lastSectorTime` (milliseconds).
     pub const GFX_CURRENT_SECTOR_INDEX: usize = 164;
     pub const GFX_LAST_SECTOR_TIME: usize = 168;
+    /// `int numberOfLaps`: the length of the session in laps (0 when it is timed).
+    pub const GFX_NUMBER_OF_LAPS: usize = 172;
     /// `wchar_t tyreCompound[33]`.
     pub const GFX_TYRE_COMPOUND: usize = 176;
     /// Not read (see the module comment on distance); here for the layout test.
@@ -290,8 +304,12 @@ impl Family {
             .or(Caps::PIT_LIMITER)
             .or(Caps::TC_ACTIVE)
             .or(Caps::ABS_ACTIVE);
+        // The race: the place, the time left and the laps of the session lie in the graphics prefix of Assetto Corsa and
+        // Competizione (not read for Rally, whose page is not checked).
+        let race = Caps::RACE_POSITION.or(Caps::SESSION_TIME_LEFT).or(Caps::SESSION_LAPS);
         match self {
             Family::Ac => shared
+                .or(race)
                 .or(Caps::POSITION)
                 .or(Caps::TYRE_TREAD)
                 .or(Caps::BRAKE_TEMP)
@@ -309,6 +327,8 @@ impl Family {
                 .or(Caps::G_LAT)
                 .or(Caps::G_LONG),
             Family::Acc => shared
+                .or(race)
+                .or(Caps::CARS)
                 .or(Caps::POSITION)
                 .or(Caps::TYRE_TREAD)
                 .or(Caps::BRAKE_TEMP)
@@ -317,7 +337,9 @@ impl Family {
                 .or(Caps::WATER_TEMP)
                 .or(Caps::TC_LEVEL)
                 .or(Caps::ABS_LEVEL)
-                .or(Caps::FLAG),
+                .or(Caps::FLAG)
+                .or(Caps::RIVALS)
+                .or(Caps::RIVALS_WORLD),
             Family::Acr => shared,
         }
     }
@@ -422,6 +444,8 @@ struct KunosSource {
     epoch: Instant,
     /// The first two sectors of the lap being driven (Assetto Corsa).
     sectors: SectorTracker,
+    /// When the other cars are read (Competizione; a few Hz, not on every sample).
+    pace: FieldPace,
 }
 
 impl KunosSource {
@@ -450,6 +474,7 @@ impl KunosSource {
             last_ids: None,
             epoch: Instant::now(),
             sectors: SectorTracker::default(),
+            pace: FieldPace::default(),
         })
     }
 
@@ -491,6 +516,9 @@ impl KunosSource {
             if let Some((sector, last_ms)) = sector_reading(&g, &s) {
                 frame.sectors_ms = self.sectors.update(frame.lap, sector, last_ms);
             }
+        }
+        if self.family == Family::Acc && self.pace.due(frame.clock_s) {
+            frame.field = acc_field(&g, &frame);
         }
         Some(frame)
     }
@@ -574,6 +602,36 @@ fn acc_player_position(g: &Page) -> Option<[f32; 3]> {
     let slot = (0..active).find(|&i| g.i32_at(GFX_ACC_CAR_ID + 4 * i) == me)?;
     let at = GFX_ACC_CAR_COORDINATES + 12 * slot;
     Some([g.f32_at(at), g.f32_at(at + 4), g.f32_at(at + 8)])
+}
+
+/// The cars of Competizione's graphics page (`activeCars`, `carID`, `carCoordinates`), see the module comment. `frame` is the
+/// player's reading of the same moment.
+fn acc_field(g: &Page, frame: &Frame) -> Option<Arc<Field>> {
+    let active = usize::try_from(g.i32_at(GFX_ACC_ACTIVE_CARS)).ok()?.min(MAX_CARS);
+    let id_of = |slot: usize| g.i32_at(GFX_ACC_CAR_ID + 4 * slot);
+    let me = g.i32_at(GFX_ACC_PLAYER_CAR_ID);
+    let player = (0..active).find(|&slot| id_of(slot) == me);
+    let mut cars = Vec::new();
+    for slot in 0..active {
+        let at = GFX_ACC_CAR_COORDINATES + 12 * slot;
+        let world = [0, 4, 8].map(|d| norm::position(g.f32_at(at + d)));
+        let world = world.iter().all(|v| v.is_finite()).then_some(world);
+        let is_player = player == Some(slot);
+        if world.is_none() && !is_player {
+            continue;
+        }
+        let mut car = Car::named(slot as u16, &format!("Car {}", id_of(slot)));
+        car.world = world;
+        car.is_player = is_player;
+        if is_player {
+            car.position = frame.race_position;
+            car.laps_done = Some(g.i32_at(GFX_COMPLETED_LAPS)).filter(|l| (0..=100_000).contains(l));
+            car.last_lap_s = frame.last_lap_s;
+            car.in_pits = frame.in_pits;
+        }
+        cars.push(car);
+    }
+    (!cars.is_empty()).then(|| field::publish(cars, frame.clock_s, frame.track_length_m))
 }
 
 /// The flag of `ACC_FLAG_TYPE` (the same numbers in Assetto Corsa's `AC_FLAG_TYPE`, which stops at 6): 0 none, 1 blue,
@@ -689,6 +747,15 @@ fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Fra
     f.lap_time_s = norm::seconds_ms(g.i32_at(GFX_I_CURRENT_TIME), true);
     f.last_lap_s = norm::seconds_ms(g.i32_at(GFX_I_LAST_TIME), false);
     f.in_pits = g.i32_at(GFX_IS_IN_PIT) != 0;
+    if matches!(family, Family::Ac | Family::Acc) {
+        // Only Competizione's page says how many cars are active.
+        if family == Family::Acc {
+            f.cars = norm::cars(g.i32_at(GFX_ACC_ACTIVE_CARS));
+        }
+        f.race_position = norm::place(g.i32_at(GFX_POSITION), f.cars);
+        f.session_time_left_s = norm::time_left_s(f64::from(g.f32_at(GFX_SESSION_TIME_LEFT)) / 1000.0);
+        f.session_laps = norm::race_laps(g.i32_at(GFX_NUMBER_OF_LAPS));
+    }
 
     f.throttle = norm::pedal(p.f32_at(PHYS_GAS));
     f.brake = norm::pedal(p.f32_at(PHYS_BRAKE));
@@ -1154,11 +1221,14 @@ mod tests {
             ("status", GFX_STATUS),
             ("session", GFX_SESSION),
             ("completedLaps", GFX_COMPLETED_LAPS),
+            ("position", GFX_POSITION),
             ("iCurrentTime", GFX_I_CURRENT_TIME),
             ("iLastTime", GFX_I_LAST_TIME),
+            ("sessionTimeLeft", GFX_SESSION_TIME_LEFT),
             ("isInPit", GFX_IS_IN_PIT),
             ("currentSectorIndex", GFX_CURRENT_SECTOR_INDEX),
             ("lastSectorTime", GFX_LAST_SECTOR_TIME),
+            ("numberOfLaps", GFX_NUMBER_OF_LAPS),
             ("tyreCompound", GFX_TYRE_COMPOUND),
             ("normalizedCarPosition", GFX_NORMALIZED_POSITION),
         ] {
@@ -1463,6 +1533,55 @@ mod tests {
     }
 
     #[test]
+    fn competizione_gives_the_cars_with_world_positions_and_assetto_corsa_gives_none() {
+        let mut sim = Sim::live("1.8.12");
+        sim.gfx_i32(GFX_ACC_ACTIVE_CARS, 3);
+        for (i, id) in [101, 202, 303].into_iter().enumerate() {
+            sim.gfx_i32(GFX_ACC_CAR_ID + 4 * i, id);
+            for axis in 0..3 {
+                sim.gfx_f32(GFX_ACC_CAR_COORDINATES + 12 * i + 4 * axis, (i * 1000 + axis) as f32);
+            }
+        }
+        sim.gfx_i32(GFX_ACC_PLAYER_CAR_ID, 202);
+        sim.gfx_i32(GFX_POSITION, 3);
+        let mut source = open_sim(&sim, processes(&["AC2-Win64-Shipping.exe"]));
+        let f = source.next(SOON).expect("a frame");
+        assert_frame_within_caps(&f, source.caps(), "competizione");
+        assert!(f.filled().has(Caps::RIVALS.or(Caps::RIVALS_WORLD)));
+        let field = f.field.as_ref().expect("the first reading carries the cars");
+        let mut cars = field.cars.clone();
+        cars.sort_by_key(|c| c.slot);
+        let names: Vec<&str> = cars.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["Car 101", "Car 202", "Car 303"]);
+        let player: Vec<bool> = cars.iter().map(|c| c.is_player).collect();
+        assert_eq!(player, [false, true, false]);
+        let world: Vec<Option<[f32; 3]>> = cars.iter().map(|c| c.world).collect();
+        assert_eq!(
+            world,
+            [
+                Some([0.0, 1.0, 2.0]),
+                Some([1000.0, 1001.0, 1002.0]),
+                Some([2000.0, 2001.0, 2002.0])
+            ]
+        );
+        // Only the player's own car has a place, laps and a last lap.
+        let places: Vec<Option<u16>> = cars.iter().map(|c| c.position).collect();
+        assert_eq!(places, [None, Some(3), None]);
+        let laps: Vec<Option<i32>> = cars.iter().map(|c| c.laps_done).collect();
+        assert_eq!(laps, [None, Some(4), None]);
+        assert_eq!(cars[1].last_lap_s, Some(91.5));
+        assert!(cars.iter().all(|c| c.class.is_none() && c.lap_share.is_none()));
+        // The next reading is inside the 200 ms: no field.
+        sim.step();
+        assert!(source.next(SOON).expect("a frame").field.is_none());
+        // Assetto Corsa's page has no such list (offset 252 is the player's own coordinates).
+        let ac = Sim::live("1.7");
+        let mut source = open_sim(&ac, processes(&["acs.exe"]));
+        let f = source.next(SOON).expect("a frame");
+        assert!(f.field.is_none() && !source.caps().has(Caps::RIVALS));
+    }
+
+    #[test]
     fn a_reading_becomes_a_frame_with_exact_values_competizione() {
         let sim = Sim::live("1.8.12");
         sim.gfx_i32(GFX_ACC_ACTIVE_CARS, 3);
@@ -1607,6 +1726,46 @@ mod tests {
         sim.step();
         let f = source.next(SOON).expect("a frame");
         assert_eq!((f.g_lat, f.g_long), (None, None));
+    }
+
+    #[test]
+    fn assetto_corsa_and_competizione_give_the_race_values_and_rally_none() {
+        for (exe, version, cars) in [
+            ("acs.exe", "1.7", None),
+            ("AC2-Win64-Shipping.exe", "1.8.12", Some(20)),
+            ("acr.exe", "", None),
+        ] {
+            let sim = Sim::live(version);
+            sim.gfx_i32(GFX_POSITION, 4);
+            sim.gfx_i32(GFX_NUMBER_OF_LAPS, 12);
+            sim.gfx.write(GFX_SESSION_TIME_LEFT, &1_500_500.0f32.to_le_bytes());
+            sim.gfx_i32(GFX_ACC_ACTIVE_CARS, 20);
+            let exes: &'static [&'static str] = Box::leak(vec![exe].into_boxed_slice());
+            let mut source = open_sim(&sim, processes(exes));
+            let f = source.next(SOON).expect("a frame");
+            if exe == "acr.exe" {
+                assert_eq!(
+                    (f.race_position, f.cars, f.session_time_left_s, f.session_laps),
+                    (None, None, None, None),
+                    "{exe}"
+                );
+                continue;
+            }
+            assert_eq!((f.race_position, f.class_position, f.cars), (Some(4), None, cars), "{exe}");
+            assert_eq!((f.session_time_left_s, f.session_laps), (Some(1500.5), Some(12)), "{exe}");
+            // Not given: no place yet, a time that is negative, a lap count that is garbage.
+            sim.gfx_i32(GFX_POSITION, 0);
+            sim.gfx.write(GFX_SESSION_TIME_LEFT, &(-1.0f32).to_le_bytes());
+            sim.gfx_i32(GFX_NUMBER_OF_LAPS, 70_000);
+            let mut sim = sim;
+            sim.step();
+            let f = source.next(SOON).expect("a frame");
+            assert_eq!(
+                (f.race_position, f.session_time_left_s, f.session_laps),
+                (None, None, None),
+                "{exe}"
+            );
+        }
     }
 
     #[test]

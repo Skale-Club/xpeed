@@ -83,6 +83,12 @@ pub fn heartbeat_agent() -> ureq::Agent {
     agent_with(Duration::from_secs(15))
 }
 
+/// The agent of the phone view's frames (about ten a second): the same rules, and its connection is kept between requests. A frame
+/// the server has not taken in 5 s is stale, and the next one is a tenth of a second behind it.
+pub fn live_agent() -> ureq::Agent {
+    agent_with(Duration::from_secs(5))
+}
+
 fn agent_with(global: Duration) -> ureq::Agent {
     let config = ureq::Agent::config_builder()
         .tls_config(ureq::tls::TlsConfig::builder().provider(ureq::tls::TlsProvider::NativeTls).build())
@@ -170,16 +176,15 @@ struct Reply {
     after: Option<Duration>,
 }
 
-fn read_reply(mut response: ureq::http::Response<ureq::Body>) -> Reply {
+fn read_reply(response: ureq::http::Response<ureq::Body>) -> Reply {
+    read_reply_up_to(response, MAX_REPLY_BYTES)
+}
+
+fn read_reply_up_to(mut response: ureq::http::Response<ureq::Body>, limit: u64) -> Reply {
     let after = retry_after(&response);
     let status = response.status().as_u16();
     // A body that cannot be read is no reason to lose the status.
-    let body = response
-        .body_mut()
-        .with_config()
-        .limit(MAX_REPLY_BYTES)
-        .read_to_string()
-        .unwrap_or_default();
+    let body = response.body_mut().with_config().limit(limit).read_to_string().unwrap_or_default();
     Reply { status, body, after }
 }
 
@@ -655,6 +660,137 @@ pub fn send_error_report(agent: &ureq::Agent, config: &Config, body: &str) -> Re
         }),
         _ => Err(SendError::Later {
             reason: explain(&reply, "the server could not take the report"),
+            after: reply.after,
+        }),
+    }
+}
+
+/// How long a server that does not know the live route (an older one) is left alone.
+const LIVE_ROUTE_RETRY: Duration = Duration::from_secs(300);
+
+/// How many phones the server says are watching, from the body of an accepted frame (none when it does not say).
+fn viewers_in(body: &str) -> u32 {
+    let value: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    let viewers = value.get("viewers").and_then(Value::as_u64).unwrap_or(0);
+    u32::try_from(viewers).unwrap_or(u32::MAX)
+}
+
+/// Sends one frame of the phone view (`POST /api/sim/live`, contract in `ENVIO-DE-VOLTAS.md`, section 2f) with the device key and
+/// gives back how many phones are watching. Judged by the status: a refused key is `Unauthorized`; a frame the server will not take
+/// (too big, not valid) is `Rejected`; a rate limit (with its `Retry-After`), a busy, older or unreachable server is a later try. The
+/// frame is never in a message: only the status and the server's own word.
+pub fn post_live(agent: &ureq::Agent, config: &Config, body: &str) -> Result<u32, SendError> {
+    let response = agent
+        .post(format!("{}/api/sim/live", config.server))
+        .header("Authorization", format!("Bearer {}", config.token))
+        .content_type("application/json")
+        .send(body)
+        .map_err(|error| SendError::Later {
+            reason: network_problem(&error),
+            after: None,
+        })?;
+    let reply = read_reply(response);
+    match reply.status {
+        200..=299 => Ok(viewers_in(&reply.body)),
+        401 | 403 => Err(SendError::Unauthorized),
+        400 | 413 | 415 | 422 => Err(SendError::Rejected(explain(&reply, "the server refused the frame"))),
+        404 | 405 | 501 => Err(SendError::Later {
+            reason: "this server does not take the phone view yet".into(),
+            after: Some(LIVE_ROUTE_RETRY),
+        }),
+        300..=399 => Err(SendError::Later {
+            reason: "the server moved; pair again with its final address".into(),
+            after: None,
+        }),
+        _ => Err(SendError::Later {
+            reason: explain(&reply, "the server could not take the frame"),
+            after: reply.after,
+        }),
+    }
+}
+
+/// The most a reference lap's answer may weigh (about 7 bytes a point, a point every 5 m: a 25 km track is under 40 KB).
+const MAX_REFERENCE_BYTES: u64 = 512 * 1024;
+
+/// How long a server that does not know the reference route (an older one) is left alone.
+const REFERENCE_ROUTE_RETRY: Duration = Duration::from_secs(600);
+
+/// What to ask of `GET /api/sim/reference` (contract: `ENVIO-DE-VOLTAS.md`, section 2e). `etag` is the `If-None-Match` value
+/// (the quoted id of the lap already kept), when there is one.
+pub struct ReferenceRequest<'a> {
+    pub game: &'a str,
+    pub track: &'a str,
+    pub car: &'a str,
+    pub variant: Option<&'a str>,
+    /// `best` or `personal`.
+    pub kind: &'a str,
+    pub etag: Option<&'a str>,
+}
+
+/// What the server answered to a reference request, other than a failure.
+#[derive(Debug, PartialEq)]
+pub enum ReferenceAnswer {
+    /// 200: the answer's body, as received.
+    Body(String),
+    /// 304: the lap kept here is still the one.
+    Unchanged,
+    /// 404 `no_reference`: no lap serves.
+    Missing,
+}
+
+/// A text as a piece of an address: everything but letters, digits and `-_.~` becomes `%XX`.
+fn percent_encoded(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            out.push(char::from(byte));
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+/// Asks the server for a reference lap with the device key (`GET /api/sim/reference`). Judged by the status: a refused key is
+/// `Unauthorized`; names the server will not take are `Rejected`; a busy, older or unreachable server (and a rate limit, with
+/// its `Retry-After`) is a later try.
+pub fn get_reference(agent: &ureq::Agent, config: &Config, request: &ReferenceRequest) -> Result<ReferenceAnswer, SendError> {
+    let mut url = format!(
+        "{}/api/sim/reference?game={}&track={}&car={}",
+        config.server,
+        percent_encoded(request.game),
+        percent_encoded(request.track),
+        percent_encoded(request.car)
+    );
+    if let Some(variant) = request.variant {
+        url.push_str(&format!("&variant={}", percent_encoded(variant)));
+    }
+    url.push_str(&format!("&kind={}", percent_encoded(request.kind)));
+    let mut call = agent.get(url).header("Authorization", format!("Bearer {}", config.token));
+    if let Some(tag) = request.etag {
+        call = call.header("If-None-Match", tag);
+    }
+    let response = call.call().map_err(|error| SendError::Later {
+        reason: network_problem(&error),
+        after: None,
+    })?;
+    let reply = read_reply_up_to(response, MAX_REFERENCE_BYTES);
+    match reply.status {
+        200 => Ok(ReferenceAnswer::Body(reply.body)),
+        304 => Ok(ReferenceAnswer::Unchanged),
+        404 if server_detail(&reply.body).code.as_deref() == Some("no_reference") => Ok(ReferenceAnswer::Missing),
+        401 | 403 => Err(SendError::Unauthorized),
+        400 | 413 | 422 => Err(SendError::Rejected(explain(&reply, "the server refused the reference lap request"))),
+        404 | 405 | 501 => Err(SendError::Later {
+            reason: "this server does not give reference laps yet".into(),
+            after: Some(REFERENCE_ROUTE_RETRY),
+        }),
+        300..=399 => Err(SendError::Later {
+            reason: "the server moved; pair again with its final address".into(),
+            after: None,
+        }),
+        _ => Err(SendError::Later {
+            reason: explain(&reply, "the server could not give the reference lap"),
             after: reply.after,
         }),
     }

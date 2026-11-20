@@ -69,17 +69,17 @@ pub(crate) fn coach_backdrop(hdc: HDC, width: i32, height: i32, scale: f32, card
     // the panel's thread, so the two sizes would keep replacing each other. The Coach repaints seldom.
     draw_backdrop(hdc, width, height, (7.0 * scale).max(5.0));
     for card in cards {
-        g.round(*card, R_CARD, CARD, Some(BORDER));
+        g.round(*card, CARD, Some(BORDER));
     }
     for (input, focused) in inputs {
-        g.round(*input, R_TILE, SURFACE, Some(if *focused { PRIMARY } else { BORDER }));
+        g.round(*input, SURFACE, Some(if *focused { PRIMARY } else { BORDER }));
     }
     for rule in rules {
         g.fill(*rule, BORDER);
     }
 }
 
-/// A button: the yellow pill of the panel's chosen tab for the main action, a quiet card-coloured one for the others.
+/// A button: the yellow square pill of the panel's chosen tab for the main action, a quiet card-coloured one for the others.
 pub(crate) fn coach_button(hdc: HDC, r: RECT, label: &str, kind: CoachButton, state: CoachState, scale: f32) {
     let mut g = Painter::new(hdc, scale);
     g.fill(r, CARD);
@@ -98,7 +98,7 @@ pub(crate) fn coach_button(hdc: HDC, r: RECT, label: &str, kind: CoachButton, st
     } else {
         edge
     };
-    g.round(r, R_TILE, fill, edge);
+    g.round(r, fill, edge);
     g.text(label, r, T_BODY, FW_SEMIBOLD as i32, Face::Ui, ink, DT_CENTER);
 }
 
@@ -109,7 +109,6 @@ pub(crate) fn coach_switch(hdc: HDC, r: RECT, label: &str, on: bool, state: Coac
     let (track_w, track_h) = (g.px(40.0), g.px(22.0));
     let top = (r.top + r.bottom - track_h) / 2;
     let track = rect(r.left + g.px(2.0), top, r.left + g.px(2.0) + track_w, top + track_h);
-    let pill = track_h as f32 / 2.0 / scale;
     let (fill, edge, knob) = match (on, state.disabled) {
         (true, false) => (PRIMARY, None, ON_PRIMARY),
         (true, true) => (mix(CARD, PRIMARY, 0.35), None, mix(CARD, ON_PRIMARY, 0.6)),
@@ -117,16 +116,11 @@ pub(crate) fn coach_switch(hdc: HDC, r: RECT, label: &str, on: bool, state: Coac
         (false, true) => (SURFACE, Some(BORDER), mix(CARD, MUTED_TEXT, 0.5)),
     };
     let edge = if state.focus && !state.disabled { Some(FOREGROUND) } else { edge };
-    g.round(track, pill, fill, edge);
+    g.round(track, fill, edge);
     let inset = g.px(3.0);
     let size = track_h - 2 * inset;
     let x = if on { track.right - inset - size } else { track.left + inset };
-    g.round(
-        rect(x, track.top + inset, x + size, track.top + inset + size),
-        size as f32 / 2.0 / scale,
-        knob,
-        None,
-    );
+    g.round(rect(x, track.top + inset, x + size, track.top + inset + size), knob, None);
     let text = rect(track.right + g.px(S3), r.top, r.right, r.bottom);
     let ink = if state.disabled { MUTED_TEXT } else { FOREGROUND };
     g.text(label, text, T_BODY, FW_SEMIBOLD as i32, Face::Ui, ink, DT_LEFT);
@@ -169,7 +163,7 @@ pub(crate) fn coach_select(hdc: HDC, r: RECT, value: &str, state: CoachState, op
     } else {
         BORDER
     };
-    g.round(r, R_TILE, if state.disabled { CARD } else { SURFACE }, Some(edge));
+    g.round(r, if state.disabled { CARD } else { SURFACE }, Some(edge));
     let chevron_w = g.px(S8);
     let text = rect(r.left + g.px(S3), r.top, r.right - chevron_w, r.bottom);
     let ink = if state.disabled { MUTED_TEXT } else { FOREGROUND };
@@ -252,8 +246,10 @@ mod tests {
         assert_eq!(primary(8, 18), PRIMARY);
         assert_eq!(secondary(8, 18), SECONDARY);
         assert_eq!(off(8, 18), CARD);
-        // The rounded corner shows the card behind it.
-        assert_eq!(primary(0, 0), CARD);
+        // The panel's near-square corner (`R_CORNER`): the very corner pixel is cut, two pixels in is already the button.
+        let near = |a: COLORREF, b: COLORREF| (0..3).all(|i| ((a >> (8 * i)) & 0xff).abs_diff((b >> (8 * i)) & 0xff) <= 12);
+        assert_ne!(primary(0, 0), PRIMARY);
+        assert!(near(primary(2, 1), PRIMARY), "the main button's corner is rounder than R_CORNER");
     }
 
     #[test]

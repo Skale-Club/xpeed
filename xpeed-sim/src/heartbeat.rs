@@ -893,6 +893,7 @@ mod tests {
             device_name: "MY RIG".into(),
             account: Some("someone@example.com".into()),
             auto_update: true,
+            phone_view: false,
         }
     }
 

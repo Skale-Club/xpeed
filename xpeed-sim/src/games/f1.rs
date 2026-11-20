@@ -51,9 +51,9 @@
 //! | id | packet        | 2026 | 2025 | 2024 | 2023 | used for                                                             |
 //! |----|---------------|------|------|------|------|----------------------------------------------------------------------|
 //! | 0  | Motion        | 1325 | 1349 | 1349 | 1349 | world position x, y, z of the player's car                           |
-//! | 1  | Session       | 926  | 753  | 753  | 644  | track id, track length, session type, spectating                     |
-//! | 2  | Lap Data      | 1399 | 1285 | 1285 | 1131 | lap time, last lap time, lap distance, lap number, pits, lap invalid |
-//! | 4  | Participants  | 1470 | 1284 | 1350 | 1306 | team id of the player's car (the car name)                           |
+//! | 1  | Session       | 926  | 753  | 753  | 644  | track id, track length, session type, spectating, total laps, time left |
+//! | 2  | Lap Data      | 1399 | 1285 | 1285 | 1131 | lap time, last lap time, lap distance, lap number, pits, lap invalid, car position |
+//! | 4  | Participants  | 1470 | 1284 | 1350 | 1306 | team id of the player's car (the car name), `numActiveCars`          |
 //! | 6  | Car Telemetry | 1448 | 1352 | 1352 | 1352 | speed, throttle, steer, brake, clutch, gear, rpm: one `Frame` each   |
 //!
 //! What changes between the years, for these packets: the Session packet of 2023 has 56 weather forecast samples (64
@@ -71,6 +71,17 @@
 //! 2026 team table adds the 2026 F1 cars (ids 476 to 486, with Audi and Cadillac) and the 2025 F2 teams; Madrid is
 //! track 42.
 //!
+//! The race: `carPosition` of the player's Lap Data entry (1 is first; at 32 in the 2024 to 2026 entries, at 30 in 2023),
+//! the Session packet's `totalLaps` (32, u8, the race length in laps) and `sessionTimeLeft` (38, u16, seconds; 0 is taken
+//! as "none", because a session whose time has run out is over), and the Participants packet's `numActiveCars` (the
+//! first byte after the header) as the number of cars. No class position: the formats have none (single class). Each goes
+//! through `norm`. Not seen live: what the game writes in `totalLaps` and `sessionTimeLeft` in the sessions where they do
+//! not apply (practice, a race that is lap-based) is ASSUMED to be 0.
+//!
+//! The rivals (`Frame::field`, at most every 200 ms): every car's Lap Data entry (position, `currentLapNum`, `lapDistance`
+//! over the Session's track length, pit status, last lap, `deltaToCarInFront` and `deltaToRaceLeader`), the Participants'
+//! names and the Motion world positions, for the first `numActiveCars` cars. No best lap (Lap Data has none) and no class.
+//!
 //! Car Status (1239 bytes in the three years before 2026, 1445 in it) and Car Damage (953 bytes in 2023 and 2024, 1041 in 2025, which added
 //! `tyreBlisters[4]`) also feed the car's state: the aids, the brake bias, the pit limiter, the DRS permission and the
 //! FIA flag from Car Status, the wing, floor, gearbox and engine damage (percentages) from Car Damage. Every other
@@ -87,8 +98,10 @@
 //! outside `Driving`: the game fills it in the garage, and sends nothing where it would be stale.
 
 use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::field::{self, Car, Field, FieldPace};
 use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, Source};
 use crate::games::udp::{Door, Wait};
 use crate::norm;
@@ -126,6 +139,8 @@ const S_TRACK_LENGTH: usize = 33; // u16, metres
 const S_SESSION_TYPE: usize = 35; // u8, 0 unknown
 const S_TRACK_ID: usize = 36; // i8, -1 unknown
 const S_IS_SPECTATING: usize = 44; // u8
+const S_TOTAL_LAPS: usize = 32; // u8, 0 when the session has no lap count
+const S_SESSION_TIME_LEFT: usize = 38; // u16, seconds
 
 // Per-car fields (offsets from the start of the car's entry).
 const M_POS_X: usize = 0; // f32 x3: worldPositionX, Y, Z (metres)
@@ -168,11 +183,15 @@ const D_TAIL: usize = 18;
 #[derive(Debug)]
 struct LapFields {
     distance: usize,      // f32, metres; negative before the line is first crossed
+    position: usize,      // u8: carPosition, 1 is first
     lap_num: usize,       // u8
     pit_status: usize,    // u8: 0 none, 1 pitting, 2 in pit area
     invalid: usize,       // u8: 0 valid, 1 invalid
     driver_status: usize, // u8: 0 in garage, 1 flying lap, 2 in lap, 3 out lap, 4 on track
     result_status: usize, // u8: 0 invalid, 1 inactive, 2 active, 3 finished, ...
+    delta_front: usize,   // u16 milliseconds (2024 on: followed by a u8 of minutes): the time to the car in front
+    delta_leader: usize,  // the same for the time to the race leader
+    delta_minutes: bool,  // 2024 and later: each delta has a minutes part after its milliseconds
 }
 
 /// What one year's packet format looks like, as far as this reader goes.
@@ -197,8 +216,10 @@ struct Layout {
     /// One car's entry in Lap Data, and where its fields are.
     lap_car: usize,
     lap: LapFields,
-    /// One car's entry in Participants.
+    /// One car's entry in Participants, and where the driver's name (a zero-ended UTF-8 `name[..]`) is in it.
     participant_car: usize,
+    name_at: usize,
+    name_len: usize,
     /// Where `frontLeftWingDamage` sits in a `CarDamageData`: after tyresWear[4] (f32), tyresDamage[4] and
     /// brakesDamage[4], and in 2025 also tyreBlisters[4]. The entry ends `D_TAIL` bytes later.
     damage_wings: usize,
@@ -263,13 +284,19 @@ const F1_25: Layout = Layout {
     lap_car: 57,
     lap: LapFields {
         distance: 20,
+        position: 32,
         lap_num: 33,
         pit_status: 34,
         invalid: 37,
         driver_status: 44,
         result_status: 45,
+        delta_front: 14,
+        delta_leader: 17,
+        delta_minutes: true,
     },
     participant_car: 57,
+    name_at: 7,
+    name_len: 32,
     damage_wings: 28,
     team: team_25,
 };
@@ -290,13 +317,19 @@ const F1_24: Layout = Layout {
     lap_car: 57,
     lap: LapFields {
         distance: 20,
+        position: 32,
         lap_num: 33,
         pit_status: 34,
         invalid: 37,
         driver_status: 44,
         result_status: 45,
+        delta_front: 14,
+        delta_leader: 17,
+        delta_minutes: true,
     },
     participant_car: 60,
+    name_at: 7,
+    name_len: 48,
     damage_wings: 24,
     team: team_24,
 };
@@ -319,13 +352,19 @@ const F1_23: Layout = Layout {
     lap_car: 50,
     lap: LapFields {
         distance: 18,
+        position: 30,
         lap_num: 31,
         pit_status: 32,
         invalid: 35,
         driver_status: 42,
         result_status: 43,
+        delta_front: 14,
+        delta_leader: 16,
+        delta_minutes: false,
     },
     participant_car: 58,
+    name_at: 7,
+    name_len: 48,
     damage_wings: 24,
     team: team_23,
 };
@@ -351,13 +390,19 @@ const F1_25_2026: Layout = Layout {
     lap_car: 57,
     lap: LapFields {
         distance: 20,
+        position: 32,
         lap_num: 33,
         pit_status: 34,
         invalid: 37,
         driver_status: 44,
         result_status: 45,
+        delta_front: 14,
+        delta_leader: 17,
+        delta_minutes: true,
     },
     participant_car: 60,
+    name_at: 10,
+    name_len: 32,
     damage_wings: 28,
     team: team_26,
 };
@@ -619,6 +664,8 @@ struct SessionInfo {
     track_id: i8,
     track_length_m: u16,
     spectating: bool,
+    total_laps: u8,
+    time_left_s: u16,
 }
 
 /// What Car Status says of the player's car.
@@ -647,11 +694,44 @@ struct LapInfo {
     last_lap_ms: u32,
     current_lap_ms: u32,
     distance_m: f32,
+    position: u8,
     lap_number: u8,
     pit_status: u8,
     invalid: bool,
     driver_status: u8,
     result_status: u8,
+}
+
+/// What the Lap Data packet says of one car (any car, not only the player's).
+#[derive(Clone, Copy, Debug)]
+struct RivalLap {
+    last_lap_ms: u32,
+    distance_m: f32,
+    position: u8,
+    lap_number: u8,
+    pit_status: u8,
+    result_status: u8,
+    /// The time to the car in front and to the leader, in milliseconds.
+    delta_front_ms: u32,
+    delta_leader_ms: u32,
+}
+
+/// What the packets of one session say of one car: its name (Participants), its lap data and its world position (Motion).
+#[derive(Clone, Debug, Default)]
+struct Rival {
+    name: String,
+    lap: Option<RivalLap>,
+    world: Option<[f32; 3]>,
+}
+
+/// A time of the Lap Data packet: the milliseconds part, and from 2024 on the minutes part after it.
+fn delta_ms(page: &Page, at: usize, with_minutes: bool) -> u32 {
+    let ms = u32::from(page.u16_at(at));
+    if with_minutes {
+        ms + 60_000 * u32::from(page.u8_at(at + 2))
+    } else {
+        ms
+    }
 }
 
 /// Turns the packets of one game session into frames: keeps the latest Motion, Session, Lap Data and Participants of
@@ -665,8 +745,14 @@ struct Decoder {
     lap: Option<LapInfo>,
     position: Option<[f32; 3]>,
     team_id: Option<u16>,
+    /// `numActiveCars` of the last Participants packet.
+    active_cars: Option<u8>,
     status: Option<StatusInfo>,
     damage: Option<DamageInfo>,
+    /// Every car's latest names, lap data and positions, by car index (the rivals layer).
+    rivals: Vec<Rival>,
+    /// When the other cars are published with a frame (a few Hz, not on every telemetry packet).
+    pace: FieldPace,
 }
 
 impl Decoder {
@@ -692,6 +778,11 @@ impl Decoder {
             ID_MOTION => {
                 let base = at(layout.motion_car) + M_POS_X;
                 self.position = Some([page.f32_at(base), page.f32_at(base + 4), page.f32_at(base + 8)]);
+                self.rivals.resize(layout.cars, Rival::default());
+                for (i, rival) in self.rivals.iter_mut().enumerate() {
+                    let at = HEADER_SIZE + i * layout.motion_car + M_POS_X;
+                    rival.world = Some([page.f32_at(at), page.f32_at(at + 4), page.f32_at(at + 8)]);
+                }
                 None
             }
             ID_SESSION => {
@@ -700,6 +791,8 @@ impl Decoder {
                     track_id: page.i8_at(S_TRACK_ID),
                     track_length_m: page.u16_at(S_TRACK_LENGTH),
                     spectating: page.u8_at(S_IS_SPECTATING) != 0,
+                    total_laps: page.u8_at(S_TOTAL_LAPS),
+                    time_left_s: page.u16_at(S_SESSION_TIME_LEFT),
                 });
                 None
             }
@@ -710,16 +803,37 @@ impl Decoder {
                     last_lap_ms: page.u32_at(car + L_LAST_LAP_MS),
                     current_lap_ms: page.u32_at(car + L_CURRENT_LAP_MS),
                     distance_m: page.f32_at(car + f.distance),
+                    position: page.u8_at(car + f.position),
                     lap_number: page.u8_at(car + f.lap_num),
                     pit_status: page.u8_at(car + f.pit_status),
                     invalid: page.u8_at(car + f.invalid) != 0,
                     driver_status: page.u8_at(car + f.driver_status),
                     result_status: page.u8_at(car + f.result_status),
                 });
+                self.rivals.resize(layout.cars, Rival::default());
+                for (i, rival) in self.rivals.iter_mut().enumerate() {
+                    let car = HEADER_SIZE + i * layout.lap_car;
+                    rival.lap = Some(RivalLap {
+                        last_lap_ms: page.u32_at(car + L_LAST_LAP_MS),
+                        distance_m: page.f32_at(car + f.distance),
+                        position: page.u8_at(car + f.position),
+                        lap_number: page.u8_at(car + f.lap_num),
+                        pit_status: page.u8_at(car + f.pit_status),
+                        result_status: page.u8_at(car + f.result_status),
+                        delta_front_ms: delta_ms(&page, car + f.delta_front, f.delta_minutes),
+                        delta_leader_ms: delta_ms(&page, car + f.delta_leader, f.delta_minutes),
+                    });
+                }
                 None
             }
             ID_PARTICIPANTS => {
                 // numActiveCars comes first, then the entries.
+                self.active_cars = Some(page.u8_at(HEADER_SIZE));
+                self.rivals.resize(layout.cars, Rival::default());
+                for (i, rival) in self.rivals.iter_mut().enumerate() {
+                    let at = HEADER_SIZE + 1 + i * layout.participant_car + layout.name_at;
+                    rival.name = page.ascii_at(at, layout.name_len);
+                }
                 let entry = HEADER_SIZE + 1 + header.player_car * layout.participant_car + layout.team_id_at;
                 self.team_id = Some(if layout.team_id_u16 {
                     page.u16_at(entry)
@@ -756,9 +870,51 @@ impl Decoder {
                 });
                 None
             }
-            ID_CAR_TELEMETRY => Some(self.frame(layout, &page, at(layout.telemetry_car), clock_s)),
+            ID_CAR_TELEMETRY => {
+                let mut frame = self.frame(layout, &page, at(layout.telemetry_car), clock_s);
+                if self.pace.due(clock_s) {
+                    frame.field = self.field(header.player_car, &frame);
+                }
+                Some(frame)
+            }
             _ => None,
         }
+    }
+
+    /// The cars of the session: the first `numActiveCars` entries (the game fills the arrays from index 0) that have lap data and
+    /// whose result status is not "invalid" or "inactive" (0, 1). Per car: the name (a car with none is "Car <n>"), the
+    /// position, the laps done (`currentLapNum` - 1), the lap distance over the track's length (the share of the lap), the
+    /// pit status, the last lap, the gaps (the time to the car in front, and to the leader, only where above 0: the
+    /// game writes 0 for a leader and in a session with no gaps) and the world position. No best lap (Lap Data has none), no
+    /// class (a single class: `Frame::car_class` has the player's team).
+    fn field(&self, player: usize, frame: &Frame) -> Option<Arc<Field>> {
+        let active = usize::from(self.active_cars?);
+        let mut cars = Vec::new();
+        for (slot, rival) in self.rivals.iter().enumerate().take(active) {
+            let Some(lap) = rival.lap.filter(|l| l.result_status >= 2) else {
+                continue;
+            };
+            let name = if rival.name.is_empty() {
+                format!("Car {}", slot + 1)
+            } else {
+                rival.name.clone()
+            };
+            let mut car = Car::named(slot as u16, &name);
+            car.position = norm::place(lap.position, frame.cars);
+            car.laps_done = lap.lap_number.checked_sub(1).map(i32::from);
+            if let Some(length) = frame.track_length_m {
+                car.lap_share = field::lap_share(f64::from(lap.distance_m.max(0.0)), length);
+            }
+            car.in_pits = lap.pit_status != 0;
+            car.last_lap_s = (lap.last_lap_ms > 0).then(|| f64::from(lap.last_lap_ms) / 1000.0);
+            let first = lap.position == 1;
+            car.gap_ahead_s = (!first && lap.delta_front_ms > 0).then(|| f64::from(lap.delta_front_ms) / 1000.0);
+            car.gap_leader_s = (!first && lap.delta_leader_ms > 0).then(|| f64::from(lap.delta_leader_ms) / 1000.0);
+            car.world = rival.world.filter(|w| w.iter().all(|c| norm::position(*c).is_finite()));
+            car.is_player = slot == player;
+            cars.push(car);
+        }
+        (!cars.is_empty()).then(|| field::publish(cars, frame.clock_s, frame.track_length_m))
     }
 
     fn frame(&self, layout: &Layout, page: &Page, car: usize, clock_s: f64) -> Frame {
@@ -795,7 +951,10 @@ impl Decoder {
                 f.track = track_name(s.track_id);
             }
             f.track_length_m = (s.track_length_m > 0).then_some(f64::from(s.track_length_m));
+            f.session_laps = norm::race_laps(s.total_laps);
+            f.session_time_left_s = norm::time_left_s(f64::from(s.time_left_s)).filter(|t| *t > 0.0);
         }
+        f.cars = self.active_cars.and_then(norm::cars);
         if let Some(l) = &self.lap {
             f.lap = i32::from(l.lap_number);
             f.lap_time_s = Some(f64::from(l.current_lap_ms) / 1000.0);
@@ -803,6 +962,7 @@ impl Decoder {
             f.lap_valid = Some(!l.invalid);
             f.dist_m = l.distance_m.is_finite().then(|| f64::from(l.distance_m.max(0.0)));
             f.in_pits = l.pit_status != 0;
+            f.race_position = norm::place(l.position, f.cars);
         }
         f.set_phase(self.phase());
         // Every frame the reader tests make is held to the caps and the phase invariant.
@@ -998,7 +1158,13 @@ const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::ENGINE_WARNING)
     .or(Caps::DAMAGE_BODY)
     .or(Caps::DAMAGE_ENGINE)
-    .or(Caps::DAMAGE_GEARBOX);
+    .or(Caps::DAMAGE_GEARBOX)
+    .or(Caps::RACE_POSITION)
+    .or(Caps::CARS)
+    .or(Caps::SESSION_TIME_LEFT)
+    .or(Caps::SESSION_LAPS)
+    .or(Caps::RIVALS)
+    .or(Caps::RIVALS_WORLD);
 
 #[cfg(test)]
 mod tests {
@@ -1140,6 +1306,7 @@ mod tests {
         last_ms: u32,
         current_ms: u32,
         distance: f32,
+        position: u8,
         lap_num: u8,
         pit: u8,
         invalid: u8,
@@ -1153,6 +1320,7 @@ mod tests {
                 last_ms,
                 current_ms,
                 distance,
+                position: 3,
                 lap_num,
                 pit: 0,
                 invalid: 0,
@@ -1175,15 +1343,20 @@ mod tests {
     /// 2023 (50 bytes): the same, but deltaToCarInFrontInMS and deltaToRaceLeaderInMS are a u16 each (no minutes
     /// part) and there are no speed trap fields.
     fn lap_car(y: &Layout, w: &mut W, l: &Lap) {
+        lap_car_with_gaps(y, w, l, (333, 444));
+    }
+
+    /// `lap_car` with the milliseconds to the car in front and to the leader (the minutes part, when the year has one, 0).
+    fn lap_car_with_gaps(y: &Layout, w: &mut W, l: &Lap, gaps: (u16, u16)) {
         w.u32(l.last_ms).u32(l.current_ms);
         w.u16(11_111).u8(0).u16(22_222).u8(0);
         if y.format == 2023 {
-            w.u16(333).u16(444);
+            w.u16(gaps.0).u16(gaps.1);
         } else {
-            w.u16(333).u8(0).u16(444).u8(0);
+            w.u16(gaps.0).u8(0).u16(gaps.1).u8(0);
         }
         w.f32(l.distance).f32(l.distance + 1000.0).f32(0.0);
-        w.u8(3)
+        w.u8(l.position)
             .u8(l.lap_num)
             .u8(l.pit)
             .u8(0)
@@ -1207,6 +1380,7 @@ mod tests {
             last_ms: 99_999,
             current_ms: 88_888,
             distance: 123.0,
+            position: 15,
             lap_num: 9,
             pit: 2,
             invalid: 1,
@@ -1221,6 +1395,21 @@ mod tests {
         w.0
     }
 
+    /// A Lap Data packet of the cars the test describes (index = car), the rest "invalid" (result status 0).
+    fn lap_cars_in(y: &Layout, player: u8, cars: &[(Lap, (u16, u16))]) -> Vec<u8> {
+        let mut gone = Lap::on_track(0, 0, 0, 0.0);
+        gone.result_status = 0;
+        let mut w = header(y.format, ID_LAP_DATA, UID, player);
+        for i in 0..y.cars {
+            match cars.get(i) {
+                Some((lap, gaps)) => lap_car_with_gaps(y, &mut w, lap, *gaps),
+                None => lap_car(y, &mut w, &gone),
+            }
+        }
+        w.u8(255).u8(255);
+        w.0
+    }
+
     fn lap_packet(player: u8, l: &Lap) -> Vec<u8> {
         lap_in(&F1_25, player, l)
     }
@@ -1232,7 +1421,7 @@ mod tests {
     /// 2023: name[48], yourTelemetry, showOnlineNames, platform.
     fn participants_in(y: &Layout, player: u8, team_id: u16) -> Vec<u8> {
         let mut w = header(y.format, ID_PARTICIPANTS, UID, player);
-        w.u8(y.cars as u8); // numActiveCars
+        w.u8(20); // numActiveCars (the same in every year: fewer than the arrays hold)
         for i in 0..y.cars {
             let team_id = if i == usize::from(player) { team_id } else { 8 };
             if y.format == 2026 {
@@ -1708,6 +1897,120 @@ mod tests {
         assert_eq!(F1_25.status_size(), 1239);
     }
 
+    /// Three cars at Monza (5793 m): car 0 leads (lap 4, halfway round), car 2 is second and in the pit lane, car 1, the
+    /// player, is third. Their names, and the number of active cars (3), are written into the Participants packet.
+    fn rival_packets(y: &Layout) -> [Vec<u8>; 5] {
+        let car = |position: u8, distance: f32, last_ms: u32, pit: u8| Lap {
+            position,
+            pit,
+            ..Lap::on_track(4, 30_000, last_ms, distance)
+        };
+        let laps = [
+            (car(1, 2896.5, 90_000, 0), (0, 0)),
+            (car(3, 1448.25, 91_000, 0), (1500, 6000)),
+            (car(2, 2000.0, 0, 2), (4500, 4500)),
+        ];
+        let mut participants = participants_in(y, 1, 1);
+        participants[HEADER_SIZE] = 3;
+        for (i, name) in ["Leader A", "Some Driver", "Second"].into_iter().enumerate() {
+            let at = HEADER_SIZE + 1 + i * y.participant_car + y.name_at;
+            participants[at..at + name.len()].copy_from_slice(name.as_bytes());
+        }
+        [
+            motion_packet(y.format, UID, 1, [100.5, 12.25, -300.75]),
+            race_session(y, 1),
+            lap_cars_in(y, 1, &laps),
+            participants,
+            tele_packet_in(y.format, 1, &sample_tele()),
+        ]
+    }
+
+    #[test]
+    fn the_rivals_come_from_the_per_car_packets_in_every_year() {
+        for y in ALL {
+            let mut d = Decoder::default();
+            let [motion, session, lap, participants, tele] = rival_packets(y);
+            for packet in [motion, session, lap, participants] {
+                assert!(d.feed(&packet, 1.0).is_none());
+            }
+            let frame = d.feed(&tele, 2.5).expect("a frame");
+            crate::game::assert_frame_within_caps(&frame, CAPS, "f1");
+            assert!(frame.filled().has(Caps::RIVALS.or(Caps::RIVALS_WORLD)), "{}", y.format);
+            let field = frame.field.as_ref().expect("the first frame carries the other cars");
+            assert_eq!(field.at_s, 2.5);
+            let names: Vec<&str> = field.cars.iter().map(|c| c.name.as_str()).collect();
+            assert_eq!(names, ["Leader A", "Second", "Some Driver"], "{}: sorted by position", y.format);
+            let slots: Vec<u16> = field.cars.iter().map(|c| c.slot).collect();
+            assert_eq!(slots, [0, 2, 1]);
+            let positions: Vec<Option<u16>> = field.cars.iter().map(|c| c.position).collect();
+            assert_eq!(positions, [Some(1), Some(2), Some(3)]);
+            assert!(
+                field.cars.iter().all(|c| c.class.is_none() && c.class_position.is_none()),
+                "one class"
+            );
+            let shares: Vec<Option<f32>> = field.cars.iter().map(|c| c.lap_share).collect();
+            assert_eq!(shares, [Some(0.5), Some((2000.0f64 / 5793.0) as f32), Some(0.25)]);
+            let laps: Vec<Option<i32>> = field.cars.iter().map(|c| c.laps_done).collect();
+            assert_eq!(laps, [Some(3); 3]);
+            let pits: Vec<bool> = field.cars.iter().map(|c| c.in_pits).collect();
+            assert_eq!(pits, [false, true, false]);
+            let last: Vec<Option<f64>> = field.cars.iter().map(|c| c.last_lap_s).collect();
+            assert_eq!(last, [Some(90.0), None, Some(91.0)]);
+            let ahead: Vec<Option<f64>> = field.cars.iter().map(|c| c.gap_ahead_s).collect();
+            assert_eq!(ahead, [None, Some(4.5), Some(1.5)], "{}", y.format);
+            let leader: Vec<Option<f64>> = field.cars.iter().map(|c| c.gap_leader_s).collect();
+            assert_eq!(leader, [None, Some(4.5), Some(6.0)], "{}", y.format);
+            let player: Vec<bool> = field.cars.iter().map(|c| c.is_player).collect();
+            assert_eq!(player, [false, false, true]);
+            assert_eq!(field.player().unwrap().world, Some([100.5, 12.25, -300.75]));
+            assert_eq!(field.cars[0].world, Some([9000.0, -9000.0, 7.0]));
+        }
+    }
+
+    #[test]
+    fn the_field_is_published_at_most_every_200_ms() {
+        let y = &F1_25;
+        let mut d = Decoder::default();
+        let [motion, session, lap, participants, tele] = rival_packets(y);
+        for packet in [motion, session, lap, participants] {
+            d.feed(&packet, 1.0);
+        }
+        assert!(d.feed(&tele, 2.5).unwrap().field.is_some());
+        assert!(d.feed(&tele, 2.6).unwrap().field.is_none());
+        assert!(d.feed(&tele, 2.75).unwrap().field.is_some());
+    }
+
+    #[test]
+    fn a_car_with_no_lap_data_yet_or_an_inactive_one_is_not_in_the_field_and_a_nameless_one_is_numbered() {
+        let y = &F1_25;
+        let mut d = Decoder::default();
+        // Only the car count and the lap data: names are not known yet.
+        let [_, session, lap, mut participants, tele] = rival_packets(y);
+        participants[HEADER_SIZE] = 5; // numActiveCars: two cars past the three the test described, "invalid" in the lap data
+        d.feed(&session, 1.0);
+        d.feed(&participants, 1.0);
+        let none = d.feed(&tele, 2.0).unwrap();
+        assert!(none.field.is_none(), "no lap data yet");
+        d.feed(&lap, 2.1);
+        let frame = d.feed(&tele, 2.5).unwrap();
+        let field = frame.field.unwrap();
+        assert_eq!(field.cars.len(), 3, "the invalid ones are left out");
+        let mut d = Decoder::default();
+        d.feed(&session, 1.0);
+        d.feed(&lap, 1.0);
+        d.feed(&participants_in(y, 1, 1), 1.0);
+        let named: Vec<String> = d
+            .feed(&tele, 2.5)
+            .unwrap()
+            .field
+            .unwrap()
+            .cars
+            .iter()
+            .map(|c| c.name.clone())
+            .collect();
+        assert!(named.iter().all(|n| n.starts_with("Car ")), "{named:?}");
+    }
+
     #[test]
     fn sizes_of_2025() {
         // LapData (+ timeTrialPBCarIdx, timeTrialRivalCarIdx).
@@ -1719,6 +2022,10 @@ mod tests {
         assert_eq!(lap.iter().sum::<usize>(), F1_25.lap_car);
         assert_eq!(F1_25.lap_data_size(), 1285);
         assert_eq!(field_offsets(&lap)[10], F1_25.lap.distance);
+        assert_eq!(
+            (field_offsets(&lap)[6], field_offsets(&lap)[8]),
+            (F1_25.lap.delta_front, F1_25.lap.delta_leader)
+        );
         assert_eq!(field_offsets(&lap)[14], F1_25.lap.lap_num);
 
         // ParticipantData (+ numActiveCars): name[32], techLevel, numColours, liveryColours[4] of 3 bytes.
@@ -1726,6 +2033,7 @@ mod tests {
         assert_eq!(participant.iter().sum::<usize>(), F1_25.participant_car);
         assert_eq!(F1_25.participants_size(), 1284);
         assert_eq!(field_offsets(&participant)[3], F1_25.team_id_at);
+        assert_eq!((field_offsets(&participant)[7], participant[7]), (F1_25.name_at, F1_25.name_len));
 
         // PacketSessionData, field by field.
         let session: Vec<usize> = [session_2023_fields(64), session_2024_additions()].concat();
@@ -1761,6 +2069,8 @@ mod tests {
         assert_eq!(participant.iter().sum::<usize>(), F1_24.participant_car);
         assert_eq!(F1_24.participants_size(), 1350);
         assert_eq!(field_offsets(&participant)[3], F1_24.team_id_at);
+        assert_eq!((field_offsets(&participant)[7], participant[7]), (F1_24.name_at, F1_24.name_len));
+        assert_eq!((at[6], at[8]), (F1_24.lap.delta_front, F1_24.lap.delta_leader));
 
         // PacketSessionData: 64 forecast samples and the fields 2024 added.
         let session: Vec<usize> = [session_2023_fields(64), session_2024_additions()].concat();
@@ -1799,6 +2109,8 @@ mod tests {
         assert_eq!(participant.iter().sum::<usize>(), F1_23.participant_car);
         assert_eq!(F1_23.participants_size(), 1306);
         assert_eq!(field_offsets(&participant)[3], F1_23.team_id_at);
+        assert_eq!((field_offsets(&participant)[7], participant[7]), (F1_23.name_at, F1_23.name_len));
+        assert_eq!((at[6], at[7]), (F1_23.lap.delta_front, F1_23.lap.delta_leader));
 
         // PacketSessionData: 56 forecast samples, ends after numRedFlagPeriods.
         let session = session_2023_fields(56);
@@ -1847,6 +2159,7 @@ mod tests {
         assert_eq!(participant.iter().sum::<usize>(), y.participant_car);
         assert_eq!(y.participants_size(), 1470);
         assert_eq!(field_offsets(&participant)[3], y.team_id_at);
+        assert_eq!((field_offsets(&participant)[7], participant[7]), (y.name_at, y.name_len));
         assert!(y.team_id_u16);
 
         // CarTelemetryData (+ mfdPanelIndex x2, suggestedGear): engineTemperature is a u8.
@@ -2082,15 +2395,66 @@ mod tests {
         assert_eq!(f.car_class.as_deref(), Some("F1"));
         assert!(f.fuel_l.is_nan());
         assert_eq!(f.track_variant, None);
+        // The race: third of the 20 active cars, a 5-lap session, no time left given (0).
+        assert_eq!((f.race_position, f.class_position, f.cars), (Some(3), None, Some(20)));
+        assert_eq!((f.session_laps, f.session_time_left_s), (Some(5), None));
+    }
+
+    #[test]
+    fn the_race_values_come_from_the_players_entries_in_every_year_and_the_implausible_are_not_given() {
+        for y in ALL {
+            let mut d = Decoder::default();
+            let mut session = race_session(y, 0);
+            session[S_SESSION_TIME_LEFT..S_SESSION_TIME_LEFT + 2].copy_from_slice(&1234u16.to_le_bytes());
+            d.feed(&session, 0.0);
+            d.feed(&lap_in(y, 0, &Lap::on_track(2, 100, 0, 5.0)), 0.0);
+            d.feed(&participants_in(y, 0, 1), 0.0);
+            let f = d.feed(&tele_packet_in(y.format, 0, &sample_tele()), 0.0).unwrap();
+            assert_eq!(
+                (f.race_position, f.cars, f.session_laps),
+                (Some(3), Some(20), Some(5)),
+                "{}",
+                y.format
+            );
+            assert_eq!(f.session_time_left_s, Some(1234.0), "{}", y.format);
+            // A position past the active cars, no total laps, and no active cars are not given.
+            let mut d = Decoder::default();
+            let mut session = race_session(y, 0);
+            session[S_TOTAL_LAPS] = 0;
+            d.feed(&session, 0.0);
+            let lap = Lap {
+                position: 21,
+                ..Lap::on_track(2, 100, 0, 5.0)
+            };
+            d.feed(&lap_in(y, 0, &lap), 0.0);
+            d.feed(&participants_in(y, 0, 1), 0.0);
+            let f = d.feed(&tele_packet_in(y.format, 0, &sample_tele()), 0.0).unwrap();
+            assert_eq!((f.race_position, f.cars, f.session_laps), (None, Some(20), None), "{}", y.format);
+            let mut participants = participants_in(y, 0, 1);
+            participants[HEADER_SIZE] = 0;
+            d.feed(&participants, 0.0);
+            let f = d.feed(&tele_packet_in(y.format, 0, &sample_tele()), 0.0).unwrap();
+            assert_eq!(f.cars, None, "{}", y.format);
+            // Before those packets came, nothing is said.
+            let mut d = Decoder::default();
+            let f = d.feed(&tele_packet_in(y.format, 0, &sample_tele()), 0.0).unwrap();
+            assert_eq!(
+                (f.race_position, f.cars, f.session_laps, f.session_time_left_s),
+                (None, None, None, None)
+            );
+        }
     }
 
     /// The same session in each year's own layout gives the same frame.
     #[test]
     fn every_year_gives_the_same_frame_from_its_own_layout() {
-        let (_, want) = running(0);
+        let (_, mut want) = running(0);
+        // The rivals depend on which slot is the player's: compared in their own tests.
+        want.field = None;
         for y in ALL {
             for player in [0u8, 7, 21] {
-                let (d, f) = running_in(y, player);
+                let (d, mut f) = running_in(y, player);
+                f.field = None;
                 assert_eq!(d.layout.map(|l| l.format), Some(y.format));
                 // Compared as text: the values the game does not give are NaN, which is never equal to itself.
                 assert_eq!(format!("{f:?}"), format!("{want:?}"), "{} player {player}", y.format);
@@ -2107,6 +2471,7 @@ mod tests {
                 last_ms: 0,
                 current_ms: 1500,
                 distance: -12.5,
+                position: 0,
                 lap_num: 1,
                 pit: 1,
                 invalid: 1,

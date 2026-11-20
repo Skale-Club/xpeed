@@ -98,6 +98,7 @@ pub fn save_once(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Result
     for finding in &findings {
         say(format!("Data check {} (lap {}): {}", finding.id, lap.lap_number, finding.detail));
     }
+    let speed = lap.channels.iter().find(|channel| channel.id == "speed");
     Ok(SavedLap {
         number: lap.lap_number,
         time_ms: lap.time_ms,
@@ -106,6 +107,7 @@ pub fn save_once(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Result
         game: lap.game.clone(),
         track: lap.track_name.clone(),
         car: lap.car_name.clone(),
+        speed_kmh: speed.map_or_else(Vec::new, |channel| crate::status::speed_profile(&channel.values)),
     })
 }
 

@@ -33,6 +33,7 @@ mod diagnostics;
 #[cfg(windows)]
 mod engine;
 mod extra;
+mod field;
 mod game;
 #[cfg(windows)]
 mod games;
@@ -52,9 +53,12 @@ mod panel;
 #[cfg(windows)]
 mod persistence;
 mod perspective;
+mod phone;
+mod played;
 mod present;
 #[cfg(test)]
 mod rcgen;
+mod reference;
 #[cfg(windows)]
 mod replay;
 mod sanity;
@@ -472,6 +476,7 @@ fn pair_command(server: &str, code: &str, name: Option<String>) -> ExitCode {
             account: None,
             // Pairing again keeps the person's choice about updates.
             auto_update: config::auto_update_of(&path),
+            phone_view: config::phone_view_of(&path),
         },
     ) {
         Ok(()) => {
@@ -670,6 +675,7 @@ mod live {
         };
         println!("Writing laps to {} (Ctrl+C to stop).", out.display());
         let shared = Shared::new(config.is_some());
+        shared.use_played(crate::played::path());
         // A thread of its own: a slow network must never make the reading of the game miss a sample.
         if let Some(config) = config {
             println!(

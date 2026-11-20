@@ -44,7 +44,7 @@ use windows_sys::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpeci
 use windows_sys::Win32::UI::HiDpi::{
     AdjustWindowRectExForDpi, GetDpiForWindow, SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, ReleaseCapture, SetCapture};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyWindow, DispatchMessageW, GetClientRect, GetMessageW, GetWindowLongPtrW, IsWindow,
@@ -59,7 +59,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetWindowPlacement, SetWindowPlacement, CS_DBLCLKS, GWL_STYLE, HWND_TOP, SWP_FRAMECHANGED, SWP_NOOWNERZORDER, WINDOWPLACEMENT,
     WM_LBUTTONDBLCLK,
 };
-use windows_sys::Win32::UI::WindowsAndMessaging::{SetCursor, HTCLIENT, IDC_HAND, WM_SETCURSOR};
+use windows_sys::Win32::UI::WindowsAndMessaging::{SetCursor, HTCLIENT, IDC_HAND, IDC_SIZEALL, IDC_SIZENS, IDC_SIZEWE, WM_SETCURSOR};
 use windows_sys::Win32::UI::WindowsAndMessaging::{WM_ACTIVATE, WM_CAPTURECHANGED, WM_LBUTTONUP, WM_MOUSEWHEEL};
 
 use crate::connect::{self, Card, Note};
@@ -71,35 +71,62 @@ use crate::util::{clock, lock, now_ms};
 use crate::win;
 
 mod art;
+mod catalog;
 mod chrome;
 mod coach_look;
 mod dash_view;
+mod dashboards;
 mod demo;
+mod edit;
+#[cfg(test)]
+mod edit_tests;
+mod edit_ui;
+#[cfg(test)]
+mod edit_ui_tests;
+mod edit_view;
 mod layout;
 mod model;
 mod monitor_view;
 mod paint;
 mod perspective_paint;
+mod relay;
 #[cfg(test)]
 mod tests;
 mod tokens;
 mod view;
+mod views;
 mod waiting_view;
+mod widgets;
+mod widgets_view;
 mod window;
+mod workspace_menu;
+#[cfg(test)]
+mod workspace_menu_tests;
 
 use art::*;
 use chrome::*;
 use dash_view::*;
+use dashboards::*;
+use edit::*;
+use edit_ui::*;
+use edit_view::*;
 use layout::*;
 use model::*;
 use monitor_view::*;
 use paint::*;
+#[cfg(test)]
+use relay::*;
 use tokens::*;
 use view::*;
+use views::*;
 use waiting_view::*;
+use widgets::*;
+use widgets_view::*;
 use window::*;
+use workspace_menu::*;
 
 pub(crate) use coach_look::*;
 pub use demo::demo;
+pub(crate) use relay::Relay;
 pub use view::{Account, Context};
 pub use window::show;
