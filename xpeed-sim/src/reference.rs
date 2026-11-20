@@ -701,7 +701,7 @@ mod tests {
     #[test]
     fn asks_for_both_kinds_with_the_device_key_then_says_if_none_match_and_keeps_the_answer() {
         let stub = Stub::start(|request: &Recorded| {
-            if request.headers.get("if-none-match").is_some() {
+            if request.headers.contains_key("if-none-match") {
                 return Reply::new(304, "");
             }
             let kind = kind_of(request);
