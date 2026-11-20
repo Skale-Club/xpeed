@@ -43,7 +43,8 @@ pub(super) fn dashboard_screen(g: &mut Painter, body: RECT, view: &View) {
         slots: &slots,
     };
     let in_use = view.dashboard_in_use();
-    let layout = pick_layout_sticky(
+    let layout = pick_layout_sticky_with(
+        view.views,
         in_use,
         (body.right - body.left) as f32,
         (body.bottom - body.top) as f32,
@@ -51,7 +52,7 @@ pub(super) fn dashboard_screen(g: &mut Painter, body: RECT, view: &View) {
         view.layout.get(),
     );
     view.layout.set(Some(layout));
-    let plan = layout.plan_in(in_use, &slots, m.laps.rows.len());
+    let plan = layout.plan_with(view.views, in_use, &slots, m.laps.rows.len());
     let (s, ox, oy) = canvas_fit_wh(body, plan.w, plan.h);
     g.place(s, ox, oy);
     header(g, &d, plan.w);

@@ -393,13 +393,8 @@ pub(super) fn row_heights(rows: &[(f32, Vec<Pane>)], lap_rows: usize) -> Vec<f32
 }
 
 impl Layout {
-    /// The canvas width and the rows of `dashboard` in this layout.
-    fn spec(self, dashboard: DashboardId) -> (f32, &'static [Row]) {
-        (self.width(), dashboards::builtin(dashboard).rows_for(self))
-    }
-
     /// The canvas width in design units.
-    fn width(self) -> f32 {
+    pub(super) fn width(self) -> f32 {
         match self {
             Layout::Classic | Layout::Square => 1000.0,
             Layout::Ultrawide => 1900.0,
@@ -435,10 +430,22 @@ impl Layout {
         self.plan_in(DashboardId::Practice, slots, lap_rows)
     }
 
-    /// `plan_for` for a dashboard: its rows, with the cards the game cannot fill left out.
+    /// `plan_for` for a dashboard: its built-in rows, with the cards the game cannot fill left out.
+    #[cfg(test)]
     pub(super) fn plan_in(self, dashboard: DashboardId, slots: &Slots, lap_rows: usize) -> Plan {
-        let (w, rows) = self.spec(dashboard);
-        let present: Vec<(f32, Vec<(Pane, f32)>)> = rows
+        self.plan_with(&Views::default(), dashboard, slots, lap_rows)
+    }
+
+    /// `plan_in` for the view the driver saved for the dashboard in this layout, else its built-in rows.
+    pub(super) fn plan_with(self, views: &Views, dashboard: DashboardId, slots: &Slots, lap_rows: usize) -> Plan {
+        self.plan_view(&views.rows_for(dashboard, self), slots, lap_rows)
+    }
+
+    /// The places of the cards of a view (saved or built in alike), with the cards the game cannot fill left out.
+    pub(super) fn plan_view(self, view: &SavedView, slots: &Slots, lap_rows: usize) -> Plan {
+        let w = self.width();
+        let present: Vec<(f32, Vec<(Pane, f32)>)> = view
+            .rows
             .iter()
             .map(|row| {
                 (
@@ -480,9 +487,15 @@ impl Layout {
         self.size_in(DashboardId::Practice, slots)
     }
 
-    /// The canvas size of a dashboard.
+    /// The canvas size of a dashboard (built-in rows).
+    #[cfg(test)]
     pub(super) fn size_in(self, dashboard: DashboardId, slots: &Slots) -> (f32, f32) {
-        let plan = self.plan_in(dashboard, slots, usize::MAX);
+        self.size_with(&Views::default(), dashboard, slots)
+    }
+
+    /// The canvas size of a dashboard, with the driver's saved views.
+    pub(super) fn size_with(self, views: &Views, dashboard: DashboardId, slots: &Slots) -> (f32, f32) {
+        let plan = self.plan_with(views, dashboard, slots, usize::MAX);
         (plan.w, plan.h)
     }
 
@@ -507,10 +520,16 @@ fn fit_of(bw: f32, bh: f32, (w, h): (f32, f32)) -> (f32, f32) {
 /// The layout that fills a body of `bw` x `bh` pixels best while staying readable; between two that fill it about as
 /// well, the one that shows more. Classic, the smallest, is for when none of the others reads well. `dashboard` is the
 /// one on screen: each has its own rows, so its own canvas.
+#[cfg(test)]
 pub(super) fn pick_layout_in(dashboard: DashboardId, bw: f32, bh: f32, slots: &Slots) -> Layout {
+    pick_layout_with(&Views::default(), dashboard, bw, bh, slots)
+}
+
+/// `pick_layout_in` with the driver's saved views (they change the canvas, so the shape that fits).
+pub(super) fn pick_layout_with(views: &Views, dashboard: DashboardId, bw: f32, bh: f32, slots: &Slots) -> Layout {
     let order = [Layout::Wide, Layout::Ultrawide, Layout::Square, Layout::Portrait, Layout::Stack];
     let fill = |l: Layout| {
-        let (s, f) = fit_of(bw, bh, l.size_in(dashboard, slots));
+        let (s, f) = fit_of(bw, bh, l.size_with(views, dashboard, slots));
         (s >= l.min_scale()).then_some(f)
     };
     let best = order.iter().filter_map(|&l| fill(l)).fold(f32::NEG_INFINITY, f32::max);
@@ -543,13 +562,26 @@ const SCALE_SLACK: f32 = 0.06;
 
 /// `pick_layout`, but the layout already in use stays unless another one fills the window clearly better, or the one in
 /// use no longer reads at all. Classic is only a fallback: it is left as soon as another layout reads.
+#[cfg(test)]
 pub(super) fn pick_layout_sticky(dashboard: DashboardId, bw: f32, bh: f32, slots: &Slots, current: Option<Layout>) -> Layout {
-    let best = pick_layout_in(dashboard, bw, bh, slots);
+    pick_layout_sticky_with(&Views::default(), dashboard, bw, bh, slots, current)
+}
+
+/// `pick_layout_sticky` with the driver's saved views.
+pub(super) fn pick_layout_sticky_with(
+    views: &Views,
+    dashboard: DashboardId,
+    bw: f32,
+    bh: f32,
+    slots: &Slots,
+    current: Option<Layout>,
+) -> Layout {
+    let best = pick_layout_with(views, dashboard, bw, bh, slots);
     let Some(current) = current.filter(|c| *c != best && *c != Layout::Classic) else {
         return best;
     };
     let fill = |l: Layout, slack: f32| {
-        let (s, f) = fit_of(bw, bh, l.size_in(dashboard, slots));
+        let (s, f) = fit_of(bw, bh, l.size_with(views, dashboard, slots));
         (s >= l.min_scale() - slack).then_some(f)
     };
     match (fill(current, SCALE_SLACK), fill(best, 0.0)) {

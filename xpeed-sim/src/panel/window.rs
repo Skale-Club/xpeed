@@ -34,6 +34,8 @@ pub(super) struct State {
     pub(super) layout: Option<Layout>,
     /// The dashboards chosen by hand, per game (`dashboards.json`).
     pub(super) choices: Choices,
+    /// The views the driver saved for the dashboards (`dashboards.json`).
+    pub(super) views: Views,
     /// The back buffer frames are drawn into, kept for the window's size.
     pub(super) buffer: Option<Backdrop>,
     /// Where the mouse is over the window, while it is.
@@ -164,6 +166,7 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         scroll: Default::default(),
         carousel_step: Default::default(),
         dashboard: live.as_ref().and_then(|l| state.choices.get(l.game)),
+        views: &state.views,
         layout: std::cell::Cell::new(state.layout),
         phone_viewers: ctx.shared.phone_viewers(),
         lang_open: state.lang_open,
@@ -790,6 +793,7 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
         let state = Box::into_raw(Box::new(State {
             layout: None,
             choices: crate::config::home_dir().map(|h| Choices::load(&h)).unwrap_or_default(),
+            views: crate::config::home_dir().map(|h| Views::load(&h)).unwrap_or_default(),
             ctx: ctx(),
             tab: Tab::Dash,
             coach_window: null_mut(),

@@ -641,20 +641,44 @@ pub(super) struct Choices(BTreeMap<String, DashboardId>);
 
 const FILE: &str = "dashboards.json";
 
+/// The whole file as a JSON object; empty when it is missing, damaged or not an object.
+pub(super) fn read_file(home: &Path) -> serde_json::Map<String, serde_json::Value> {
+    std::fs::read_to_string(home.join(FILE))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|value| match value {
+            serde_json::Value::Object(map) => Some(map),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// Replaces one key of the file and keeps every other (the manual choices and the saved views are written by different
+/// parts of the panel). Written to a `.part` file that then takes the file's place, so a reader never sees half a file.
+pub(super) fn write_key(home: &Path, key: &str, value: serde_json::Value) -> Result<(), String> {
+    let mut file = read_file(home);
+    file.insert(key.to_owned(), value);
+    std::fs::create_dir_all(home).map_err(|e| format!("cannot create {}: {e}", home.display()))?;
+    let (path, part) = (home.join(FILE), home.join(format!("{FILE}.part")));
+    std::fs::write(&part, serde_json::Value::Object(file).to_string()).map_err(|e| format!("cannot write {}: {e}", part.display()))?;
+    std::fs::rename(&part, &path).map_err(|e| format!("cannot replace {}: {e}", path.display()))
+}
+
 impl Choices {
     /// Reads the file; a missing or damaged one means no choice anywhere (automatic), never an error.
     pub(super) fn load(home: &Path) -> Choices {
-        let read = || -> Option<Choices> {
-            let value: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(home.join(FILE)).ok()?).ok()?;
-            let manual = value.get("manual")?.as_object()?;
-            Some(Choices(
-                manual
-                    .iter()
-                    .filter_map(|(game, id)| Some((game.clone(), DashboardId::from_id(id.as_str()?)?)))
-                    .collect(),
-            ))
-        };
-        read().unwrap_or_default()
+        let file = read_file(home);
+        let manual = file.get("manual").and_then(|m| m.as_object());
+        Choices(
+            manual
+                .map(|manual| {
+                    manual
+                        .iter()
+                        .filter_map(|(game, id)| Some((game.clone(), DashboardId::from_id(id.as_str()?)?)))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        )
     }
 
     pub(super) fn get(&self, game: &str) -> Option<DashboardId> {
@@ -671,9 +695,6 @@ impl Choices {
 
     pub(super) fn save(&self, home: &Path) -> Result<(), String> {
         let manual: serde_json::Map<String, serde_json::Value> = self.0.iter().map(|(g, d)| (g.clone(), d.id().into())).collect();
-        let body = serde_json::json!({ "manual": manual });
-        std::fs::create_dir_all(home).map_err(|e| format!("cannot create {}: {e}", home.display()))?;
-        let path = home.join(FILE);
-        std::fs::write(&path, body.to_string()).map_err(|e| format!("cannot write {}: {e}", path.display()))
+        write_key(home, "manual", serde_json::Value::Object(manual))
     }
 }

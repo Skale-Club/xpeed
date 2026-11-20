@@ -11,9 +11,10 @@ const CHOICES_EVERY_MS: i64 = 1000;
 
 /// The rows of `dashboard` for the phone (the portrait layout) as widget ids: the cards the game can fill, the pairs as the dashboard
 /// defines them, and no row with nothing left in it.
-pub(super) fn phone_rows(dashboard: DashboardId, slots: &Slots) -> Vec<Vec<&'static str>> {
-    builtin(dashboard)
-        .rows_for(Layout::Portrait)
+pub(super) fn phone_rows_in(views: &Views, dashboard: DashboardId, slots: &Slots) -> Vec<Vec<&'static str>> {
+    views
+        .rows_for(dashboard, Layout::Portrait)
+        .rows
         .iter()
         .map(|row| {
             row.cards
@@ -26,9 +27,27 @@ pub(super) fn phone_rows(dashboard: DashboardId, slots: &Slots) -> Vec<Vec<&'sta
         .collect()
 }
 
+/// `phone_rows_in` with the built-in rows.
+#[cfg(test)]
+pub(super) fn phone_rows(dashboard: DashboardId, slots: &Slots) -> Vec<Vec<&'static str>> {
+    phone_rows_in(&Views::default(), dashboard, slots)
+}
+
+/// `build_frame_with` with the built-in rows.
+#[cfg(test)]
+pub(super) fn build_frame(live: &Live, game: &str, ctx: &ModelCtx, manual: Option<DashboardId>) -> Option<phone::Frame> {
+    build_frame_with(live, game, ctx, manual, &Views::default())
+}
+
 /// The frame for a reading: the dashboard the person chose for the game, else the one that fits the session; nothing when the reading is
 /// not live or `game` is not an id the server takes.
-pub(super) fn build_frame(live: &Live, game: &str, ctx: &ModelCtx, manual: Option<DashboardId>) -> Option<phone::Frame> {
+pub(super) fn build_frame_with(
+    live: &Live,
+    game: &str,
+    ctx: &ModelCtx,
+    manual: Option<DashboardId>,
+    views: &Views,
+) -> Option<phone::Frame> {
     if !phone::valid_game(game) || !fresh(live, ctx.now_ms) {
         return None;
     }
@@ -37,7 +56,7 @@ pub(super) fn build_frame(live: &Live, game: &str, ctx: &ModelCtx, manual: Optio
     Some(phone::Frame {
         game: game.to_owned(),
         dashboard: in_use.id(),
-        rows: phone_rows(in_use, &slots(live.caps)),
+        rows: phone_rows_in(views, in_use, &slots(live.caps)),
         model,
     })
 }
@@ -57,6 +76,8 @@ fn server_game(shared: &Shared, name: &str) -> Option<String> {
 pub(crate) struct Relay {
     home: Option<PathBuf>,
     choices: Choices,
+    /// The views saved in the panel: the phone gets the Portrait one.
+    views: Views,
     read_at: Option<i64>,
 }
 
@@ -65,6 +86,7 @@ impl Relay {
         Relay {
             home,
             choices: Choices::default(),
+            views: Views::default(),
             read_at: None,
         }
     }
@@ -79,6 +101,7 @@ impl Relay {
         if self.read_at.is_none_or(|at| now_ms - at >= CHOICES_EVERY_MS) {
             if let Some(home) = &self.home {
                 self.choices = Choices::load(home);
+                self.views = Views::load(home);
             }
             self.read_at = Some(now_ms);
         }
@@ -89,6 +112,6 @@ impl Relay {
             units,
             laps: &laps,
         };
-        build_frame(&live, &game, &ctx, self.choices.get(live.game))
+        build_frame_with(&live, &game, &ctx, self.choices.get(live.game), &self.views)
     }
 }

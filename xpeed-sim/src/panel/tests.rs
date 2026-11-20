@@ -370,6 +370,7 @@ struct Fixture {
     update: crate::update::UpdateState,
     check: crate::update::CheckState,
     percent: Option<u8>,
+    views: Views,
 }
 
 fn fixture() -> Fixture {
@@ -426,6 +427,7 @@ fn fixture() -> Fixture {
         update: crate::update::UpdateState::Nothing,
         check: crate::update::CheckState::Idle,
         percent: None,
+        views: Views::default(),
     }
 }
 
@@ -461,6 +463,7 @@ fn view<'a>(f: &'a Fixture, live: Option<&'a Live>, tab: Tab, scale: f32, lang: 
         scroll: Default::default(),
         carousel_step: Default::default(),
         dashboard: None,
+        views: &f.views,
         layout: Default::default(),
         lang_open: false,
         copied: false,
