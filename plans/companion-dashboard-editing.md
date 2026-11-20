@@ -1,7 +1,8 @@
 # Companion dashboards: workspaces you can edit, save and reset
 
-Status (2026-11-19, night): **approved by the owner, being built overnight** on `feat/dashboard-catalog` (Opus orchestrates,
-Sonnet writes, GitHub CI verifies: the Surface has no Rust toolchain). Follows `plans/companion-dashboard-catalog.md`.
+Status (2026-11-20): **built** on `feat/dashboard-catalog`, steps 0–4 done, CI green (1133 Companion tests, site CI green); not
+merged, not released, not tried by hand in the real window (the Surface has no Rust toolchain; CI renders the preview). Opus
+orchestrated, Sonnet wrote. Follows `plans/companion-dashboard-catalog.md`.
 
 ## What the owner asked (2026-11-19)
 
