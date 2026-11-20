@@ -63,7 +63,7 @@ pub struct View<'a> {
     pub coach_available: bool,
     pub recent_laps: &'a [SavedLap],
     /// What happened, in the person's language: `(time as HH:MM, text)`, newest first.
-    pub activity: &'a [(String, String)],
+    pub activity: &'a [(String, String, Role)],
     /// The games and their covers for the waiting screen; empty draws the games' names as chips instead.
     pub covers: &'a [CoverArt],
     pub brands: &'a [BrandArt],
@@ -97,6 +97,8 @@ pub struct View<'a> {
     pub download_percent: Option<u8>,
     /// The game that is open, when one is (its id, name and state): the waiting screen is about it, not the list.
     pub focus: Option<(&'static str, &'static str, Game)>,
+    /// What the person has driven, per game: the line under the cover in the middle of the waiting screen.
+    pub played: crate::played::History,
     /// The games list's scroll bar as drawn in this frame, when the list is longer than its card.
     pub scroll: std::cell::Cell<Option<ScrollBar>>,
 }

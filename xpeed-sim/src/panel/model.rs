@@ -11,18 +11,42 @@ pub(super) fn delta_text(d: Option<f64>) -> Option<String> {
         .map(|d| format!("{}{:.3}", if d < 0.0 { "-" } else { "+" }, d.abs()))
 }
 
-/// The gears either side of `gear` (R, N, 1, 2, ...): the one below and the one above. There is nothing below
-/// reverse, and nothing above the top gear when the car's forward gear count (`gears`) is known; when it is not, there
-/// is always one above a forward gear.
+/// The gears either side of `gear` (R, N, 1, 2, ...) at rest: the one below and the one above (see `gear_places`).
+/// There is nothing below reverse, and nothing above the top gear when the car's forward gear count (`gears`) is known;
+/// when it is not, there is always one above a forward gear.
+#[cfg(test)]
 pub(super) fn neighbour_gears(gear: f32, gears: Option<u8>) -> (Option<String>, Option<String>) {
+    let places = gear_places(gear, gears, None, 0);
+    let at = |place: f32| places.iter().find(|(_, p)| *p == place).map(|(text, _)| text.clone());
+    (at(-1.0), at(1.0))
+}
+
+/// The gears on the carousel's track (see `DashModel::gear_track`): the track stands on `gear`, or, for
+/// `GEAR_SLIDE_MS` after a shift (`shift`: the gear before it and when it was seen), on its way there, easing out. A gear
+/// is on it while it is less than one and a half places from where the track stands. There is nothing below reverse,
+/// and nothing above the top gear when the car's forward gear count (`gears`) is known.
+pub(super) fn gear_places(gear: f32, gears: Option<u8>, shift: Option<(f32, i64)>, now_ms: i64) -> Vec<(String, f32)> {
     if !gear.is_finite() {
-        return (None, None);
+        return Vec::new();
     }
-    let g = gear.round() as i32;
-    let below = (g > -1).then(|| gear_text((g - 1) as f32));
-    let in_top_gear = g >= 1 && gears.is_some_and(|count| g >= i32::from(count));
-    let above = (!in_top_gear).then(|| gear_text((g + 1) as f32));
-    (below, above)
+    let to = gear.round();
+    // A shift slides one place even when the reader went through neutral or skipped a gear (4, N, 5 is 4 to 5 on
+    // screen, not a spin through 1, 2 and 3); a reading stamped a hair ahead of the panel's clock starts the slide.
+    let at = match shift {
+        Some((from, since)) if from != to && now_ms - since < GEAR_SLIDE_MS => {
+            let from = if (to - from).abs() > 1.0 { to - (to - from).signum() } else { from };
+            let t = (now_ms - since).max(0) as f32 / GEAR_SLIDE_MS as f32;
+            from + (to - from) * (1.0 - (1.0 - t).powi(3))
+        }
+        _ => to,
+    };
+    let exists = |g: i32| g == to as i32 || (g >= -1 && (g < 1 || gears.is_none_or(|count| g <= i32::from(count))));
+    let (low, high) = (at.min(to).floor() as i32 - 1, at.max(to).ceil() as i32 + 1);
+    (low..=high)
+        .filter(|&g| exists(g))
+        .map(|g| (gear_text(g as f32), g as f32 - at))
+        .filter(|(_, place)| place.abs() < 1.5)
+        .collect()
 }
 
 pub(super) fn gear_text(gear: f32) -> String {
@@ -198,6 +222,19 @@ pub(super) fn line_title(title: &str, ids: &[&'static str], here: &[&'static str
 }
 
 /// An activity as a message of the person's language.
+/// The colour of an activity's dot in the Monitor (owner-approved module 10, 2026-11-19): green a lap saved, amber a lap
+/// not valid or something to do, blue a connection, red what failed, grey the rest.
+pub(super) fn activity_tone(event: &Activity) -> Role {
+    match event {
+        Activity::Notice(Notice::LapSaved(lap)) if lap.valid => Role::Good,
+        Activity::Notice(Notice::LapSaved(_) | Notice::NeedsSetup { .. }) | Activity::WorkerRestarting(_) => Role::Warn,
+        Activity::GameConnected(_) | Activity::Notice(Notice::Paired(_) | Notice::LapsSent(_)) => Role::Info,
+        Activity::GameUnsupported(_) | Activity::WorkerFailed(_) => Role::Danger,
+        Activity::Notice(Notice::Refused | Notice::UpdateBlocked(_)) => Role::Danger,
+        _ => Role::Muted,
+    }
+}
+
 pub(super) fn activity_message(event: Activity) -> Msg {
     match event {
         Activity::GameConnected(name) => Msg::ActivityGameConnected(name.to_owned()),
@@ -351,8 +388,8 @@ pub(super) struct Banner {
     pub(super) note: String,
 }
 
-/// An alert that is lit: its kind (for its colour), the words it says and how it is shown. Alerts that are not lit are
-/// not in the model at all.
+/// A light of the lights card: its kind (for its colour), whether it is off, on or ready, the words it says and how it is
+/// shown. Every light the game can give is in the model, lit or not, so each keeps its place.
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Light {
@@ -373,6 +410,29 @@ pub(super) struct Cell {
     pub(super) value: String,
     pub(super) role: Role,
     pub(super) show: Show,
+    /// How far towards its limit the value is (0..1), for a bar of blocks under it; none for a plain readout.
+    pub(super) frac: Option<f32>,
+}
+
+/// One of the fuel card's use numbers: a small caps label, the figure, and a short note in its own colour (owner-approved
+/// module 6, 2026-11-19).
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct FuelStat {
+    pub(super) label: String,
+    pub(super) value: String,
+    pub(super) note: String,
+    pub(super) note_role: Role,
+}
+
+/// The fuel card's stint planner: how much fuel a run of so many laps takes at the average use, against what is in
+/// the car, and how far a full tank goes (owner-approved module 6, 2026-11-19).
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct FuelPlanner {
+    pub(super) title: String,
+    /// `at 2.90 L/lap`.
+    pub(super) at: String,
+    /// What the run is, what it needs, and the colour of that.
+    pub(super) rows: Vec<(String, String, Role)>,
 }
 
 /// Where a tyre's temperature is, against what a racing tyre likes (°C, a guide: each game and compound has its own
@@ -491,6 +551,8 @@ pub(super) struct LapRow {
     pub(super) time_role: Role,
     pub(super) gap: String,
     pub(super) gap_role: Role,
+    /// How far behind the best lap a lap done was, 0..1 of `LAP_GAP_FULL_S`: a short bar beside its gap.
+    pub(super) gap_bar: Option<f32>,
     /// Sector 1, 2 and 3: nothing for a sector not done yet.
     pub(super) sectors: [Option<(String, Role)>; 3],
 }
@@ -535,9 +597,20 @@ pub(super) struct DashModel {
     pub(super) delta_vs: String,
     /// On the first lap, where the delta will be: why it is not there yet.
     pub(super) delta_note: Option<String>,
+    /// `Projected 1:46.934`: the best lap plus the delta now, while there is a delta.
+    pub(super) projected: Option<String>,
+    /// This lap's highest and lowest speed in the panel's unit, for the centre card's corners.
+    pub(super) lap_top: Option<String>,
+    pub(super) lap_min: Option<String>,
+    /// The inputs card's caption, whether the game marks ABS and TC on its trace, and this lap's time flat out, braking
+    /// and on neither pedal (`62%`), each with its word.
+    pub(super) inputs_title: String,
+    pub(super) aids: (bool, bool),
+    pub(super) lap_share: Option<[(String, String); 3]>,
     pub(super) gear: Elem,
-    pub(super) gear_below: Elem,
-    pub(super) gear_above: Elem,
+    /// The gears on the centre card's track at this instant: each one's text and its place, 0 the middle, -1 and 1 the
+    /// edges (the gears either side), in between while a shift slides (owner, 2026-11-19).
+    pub(super) gear_track: Vec<(String, f32)>,
     pub(super) speed: Elem,
     /// A pedal: its name (and a short one), the percentage as its text and the share as `frac`.
     pub(super) brake: Elem,
@@ -558,6 +631,11 @@ pub(super) struct DashModel {
     pub(super) fuel_tank: Elem,
     /// `2.6 L per lap · each tick = 1 lap`.
     pub(super) fuel_per_lap: Elem,
+    /// `~24 min`: how long the fuel left lasts at the recent lap time.
+    pub(super) fuel_minutes: Option<String>,
+    /// The average use a lap, the last lap against it, and this lap so far (those the run knows).
+    pub(super) fuel_stats: Vec<FuelStat>,
+    pub(super) fuel_planner: Option<FuelPlanner>,
     pub(super) fuel_low: bool,
     /// The water and the oil, when the game gives them.
     pub(super) engine: Vec<Cell>,
@@ -565,7 +643,7 @@ pub(super) struct DashModel {
     pub(super) progress: Elem,
     pub(super) distance: Elem,
     pub(super) alerts_title: String,
-    /// Only the alerts that are lit.
+    /// Every light the game can give, in a fixed order, lit or not.
     pub(super) alerts: Vec<Light>,
     pub(super) no_alerts: String,
     /// The driver's settings: TC, ABS, engine map, brake bias.
@@ -672,6 +750,11 @@ pub(super) fn fuel_text(litres: f32, unit: crate::config::FuelUnit) -> String {
     format!("{:.1}", fuel_in(litres, unit))
 }
 
+/// A fuel use, a lap's worth or less, with two decimals: `2.90`.
+pub(super) fn fuel_use_text(litres: f32, unit: crate::config::FuelUnit) -> String {
+    format!("{:.2}", fuel_in(litres, unit))
+}
+
 /// The tank's size, with its unit: `60 L` (whole when it is), `15.9 gal`.
 pub(super) fn tank_text(litres: f32, unit: crate::config::FuelUnit) -> String {
     let v = fuel_in(litres, unit);
@@ -744,8 +827,8 @@ pub(super) fn sector_text(ms: u32) -> String {
 }
 
 /// The laps table: the lap being driven first, then the laps saved, newest first. The fastest lap that counted says
-/// "best", the others their gap to it; a lap that did not count says so. A sector is in the best colour where it is
-/// the fastest sector of any lap that counted, and the sector of the lap being driven is green where it is faster.
+/// "best", the others their gap to it (and how far behind, for a bar); a lap that did not count says so. Sectors take the
+/// timing colours: purple the fastest of any lap that counted, green faster than the best lap there, yellow slower.
 fn laps_model(live: &Live, ctx: &ModelCtx, slots: &Slots, fresh: bool, lap_time: &Elem, delta: &Elem) -> LapsModel {
     let lang = ctx.lang;
     let say = |msg: Msg| text(lang, &msg);
@@ -760,16 +843,28 @@ fn laps_model(live: &Live, ctx: &ModelCtx, slots: &Slots, fresh: bool, lap_time:
         .min();
     let best_sector: [Option<u32>; 3] =
         std::array::from_fn(|i| saved.iter().filter(|l| l.valid).filter_map(|l| l.sectors_ms.get(i).copied()).min());
+    // The sectors of the best lap, to say where another lap was faster (green) or slower (yellow) than it.
+    let best_lap_sector: [Option<u32>; 3] = std::array::from_fn(|i| {
+        let best_lap = best_ms.and_then(|best| saved.iter().find(|l| l.valid && l.time_ms == best));
+        best_lap.and_then(|l| l.sectors_ms.get(i).copied())
+    });
+    // Timing colours (owner-approved module 4, 2026-11-19): purple the fastest sector of any lap that counted, green
+    // faster than the best lap there, yellow slower; with nothing to compare, `plain`.
+    let sector_role = |i: usize, ms: u32, plain: Role| -> Role {
+        match (best_sector[i], best_lap_sector[i]) {
+            (Some(best), _) if ms <= best => Role::Best,
+            (_, Some(lap)) if ms < lap => Role::Good,
+            (_, Some(lap)) if ms > lap => Role::Warn,
+            _ => plain,
+        }
+    };
     let steady = if fresh { Show::Shown } else { Show::Dimmed };
     let mut rows = Vec::new();
     // The lap being driven: only while there is a lap to number (not in a menu).
     if slots.lap_time && (live.driving || live.phase == crate::game::Phase::Paused) {
         let sectors = std::array::from_fn(|i| {
             let done = live.sectors_ms.get(i).copied().flatten();
-            done.map(|ms| {
-                let faster = best_sector[i].is_some_and(|best| ms < best);
-                (sector_text(ms), if faster { Role::Good } else { Role::Primary })
-            })
+            done.map(|ms| (sector_text(ms), sector_role(i, ms, Role::Primary)))
         });
         rows.push(LapRow {
             kind: LapKind::Live,
@@ -783,6 +878,7 @@ fn laps_model(live: &Live, ctx: &ModelCtx, slots: &Slots, fresh: bool, lap_time:
             time_role: Role::Primary,
             gap: if delta.visible() { delta.text.clone() } else { "–".to_owned() },
             gap_role: if delta.visible() { delta.role } else { Role::Muted },
+            gap_bar: None,
             sectors,
         });
     }
@@ -798,16 +894,25 @@ fn laps_model(live: &Live, ctx: &ModelCtx, slots: &Slots, fresh: bool, lap_time:
             (_, Some(best)) => (format!("+{:.3}", f64::from(lap.time_ms.saturating_sub(best)) / 1000.0), Role::Muted),
             (_, None) => ("–".to_owned(), Role::Muted),
         };
+        // A lap that did not count is never coloured: it sets nothing.
         let sectors = std::array::from_fn(|i| {
             lap.sectors_ms.get(i).map(|&ms| {
-                let role = if kind != LapKind::Invalid && best_sector[i] == Some(ms) {
-                    Role::Best
-                } else {
+                let role = if kind == LapKind::Invalid {
                     Role::Text
+                } else {
+                    sector_role(i, ms, Role::Text)
                 };
                 (sector_text(ms), role)
             })
         });
+        // How far behind the best: a short bar of blocks, full at `LAP_GAP_FULL_S`.
+        let gap_bar = match (kind, best_ms) {
+            (LapKind::Done, Some(best)) => {
+                let behind = f64::from(lap.time_ms.saturating_sub(best)) / 1000.0;
+                Some((behind / f64::from(LAP_GAP_FULL_S)).clamp(0.0, 1.0) as f32)
+            }
+            _ => None,
+        };
         rows.push(LapRow {
             kind,
             show: steady,
@@ -820,6 +925,7 @@ fn laps_model(live: &Live, ctx: &ModelCtx, slots: &Slots, fresh: bool, lap_time:
             },
             gap,
             gap_role,
+            gap_bar,
             sectors,
         });
     }
@@ -904,11 +1010,11 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     } else {
         Elem::hidden()
     };
-    let (below, above) = match gear_val.filter(|_| slots.gear) {
-        Some(g) => neighbour_gears(g, live.gears),
-        None => (None, None),
+    let shift = live.gear_shift.filter(|_| gear_now.is_some());
+    let gear_track = match gear_val.filter(|_| slots.gear) {
+        Some(g) => gear_places(g, live.gears, shift, ctx.now_ms),
+        None => Vec::new(),
     };
-    let neighbour = |t: Option<String>| t.map_or_else(Elem::hidden, |t| Elem::with(gear_show, Role::Muted, t));
     let speed_now = finite(live.speed_ms);
     let speed = if slots.speed {
         let value = speed_now
@@ -979,6 +1085,13 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     };
     // Before there is a best lap to compare with, the delta's place says when it will come.
     let delta_note = (slots.delta && !delta.visible() && !best_lap.visible()).then(|| say(Msg::PanelDeltaFirstLap));
+    // This lap's highest and lowest speed, for the centre card's corners.
+    let lap_speed = live.lap_speed_ms.filter(|_| slots.speed);
+    // The lap time this lap is heading for: the best lap plus the delta now (owner-approved module 5, 2026-11-19).
+    let projected = match (delta.visible(), live.best_lap_s, live.delta_s) {
+        (true, Some(best), Some(d)) => lap_clock(Some(best + d)).map(|t| say(Msg::PanelProjected(t))),
+        _ => None,
+    };
 
     // Fuel.
     let fuel_now = fuel_reading(live);
@@ -1031,6 +1144,80 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         _ => Elem::hidden(),
     };
 
+    // The fuel card's use numbers, minutes and stint planner (owner-approved module 6, 2026-11-19).
+    let amount = |l: f32| fuel_use_text(l, units.fuel);
+    let with_unit = |l: f32| format!("{} {}", fuel_text(l, units.fuel), units.fuel.label());
+    let mut fuel_stats = Vec::new();
+    if slots.fuel {
+        if let Some(avg) = per_lap {
+            fuel_stats.push(FuelStat {
+                label: say(Msg::FuelAvgLap),
+                value: amount(avg),
+                note: String::new(),
+                note_role: Role::Muted,
+            });
+            if let Some(last) = live.fuel_last_lap_l.filter(|l| l.is_finite() && *l > 0.0) {
+                let diff = last - avg;
+                // Under the average: green with a minus; over it: red with a plus.
+                let (sign, note_role) = if diff < 0.0 { ('-', Role::Good) } else { ('+', Role::Danger) };
+                let note = if diff.abs() < 0.005 {
+                    String::new()
+                } else {
+                    format!("{sign}{}", amount(diff.abs()))
+                };
+                fuel_stats.push(FuelStat {
+                    label: say(Msg::FuelLastLap),
+                    value: amount(last),
+                    note,
+                    note_role,
+                });
+            }
+        }
+        if let Some(this) = live.fuel_this_lap_l.filter(|l| l.is_finite() && *l >= 0.0) {
+            let note = match (live.dist_m, live.track_length_m) {
+                (Some(d), Some(l)) if l > 0.0 => format!("{:.0}%", (d / l).clamp(0.0, 1.0) * 100.0),
+                _ => String::new(),
+            };
+            fuel_stats.push(FuelStat {
+                label: say(Msg::FuelThisLap),
+                value: amount(this),
+                note,
+                note_role: Role::Muted,
+            });
+        }
+    }
+    let lap_s = live.last_lap_s.or(live.best_lap_s).filter(|s| s.is_finite() && *s > 0.0);
+    let fuel_minutes = match (slots.fuel, laps_left_val, lap_s) {
+        (true, Some(laps), Some(lap)) => Some(say(Msg::FuelMinutes(format!("{:.0}", f64::from(laps) * lap / 60.0)))),
+        _ => None,
+    };
+    let tank_l = live.fuel_tank_l.filter(|t| t.is_finite() && *t > 0.0);
+    let fuel_planner = match (slots.fuel, per_lap, fuel_val, tank_l) {
+        (true, Some(per), Some(have), Some(tank)) => {
+            let mut rows: Vec<(String, String, Role)> = FUEL_PLAN_LAPS
+                .iter()
+                .map(|&laps| {
+                    let need = per * laps as f32;
+                    let (value, role) = if need <= have {
+                        (say(Msg::FuelYouHaveIt(with_unit(need))), Role::Good)
+                    } else {
+                        let role = if need > tank { Role::Warn } else { Role::Text };
+                        (say(Msg::FuelAdd(with_unit(need), with_unit(need - have))), role)
+                    };
+                    (say(Msg::FuelPlanLaps(laps)), value, role)
+                })
+                .collect();
+            let full = format!("{:.1} {}", tank / per, say(Msg::PanelLapsWord));
+            rows.push((say(Msg::FuelFullTank), full, Role::Text));
+            Some(FuelPlanner {
+                title: say(Msg::FuelPlanTitle),
+                at: say(Msg::FuelPlanAt(with_unit(per))),
+                rows,
+            })
+        }
+        _ => None,
+    };
+
     // The water and oil, in the fuel card.
     let temp_cell = |on: bool, now: Option<f32>, last: Option<f32>, msg: Msg, warm: f32, hot: f32| {
         on.then(|| {
@@ -1041,6 +1228,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
                 value: val.map_or_else(|| "–".to_owned(), |t| temp_text(t, units.temperature)),
                 role: val.map_or(Role::Muted, |t| heat_role(t, warm, hot)),
                 show: if fresh && t.is_some() { Show::Shown } else { Show::Dimmed },
+                frac: val.map(|t| (t / hot).clamp(0.0, 1.0)),
             }
         })
     };
@@ -1062,21 +1250,22 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         _ => (Elem::hidden(), Elem::hidden()),
     };
 
-    // The alerts: only those that are lit. A light the game cannot give is not there at all; one it can give and has no
-    // value for now is not lit.
+    // The lights: every light the game can give, always in the same order and place (owner decision 2026-11-19), off
+    // with its name, on in its colour, ready (DRS allowed) outlined. A light the game cannot give is not there at all;
+    // one it can give and has no value for now is off.
     let mut alerts = Vec::new();
     let mut alert = |kind: PillKind, glow: Glow, flag: Option<crate::game::Flag>, word: Msg, present: bool| {
-        if glow != Glow::Off {
-            alerts.push(Light {
-                kind,
-                glow,
-                flag,
-                word: say(word),
-                show: reading(live_now, present),
-            });
-        }
+        alerts.push(Light {
+            kind,
+            glow,
+            flag,
+            word: say(word),
+            show: reading(live_now, present),
+        });
     };
     let lit = |on: bool| if on { Glow::On } else { Glow::Off };
+    // The word of a light: what it says when lit, its plain name when off.
+    // Every light says its short name, lit or not: the colour says it is on (a long word would not fit its tile).
     if caps.has(Caps::PIT_LIMITER) {
         alert(
             PillKind::Pit,
@@ -1105,12 +1294,12 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         );
     }
     if caps.has(Caps::DRS) {
-        let (glow, word) = match s.drs {
-            Some(Drs::Open) => (Glow::On, Msg::AlertDrsOpen),
-            Some(Drs::Available) => (Glow::Ready, Msg::AlertDrsAvailable),
-            _ => (Glow::Off, Msg::AlertDrsAvailable),
+        let glow = match s.drs {
+            Some(Drs::Open) => Glow::On,
+            Some(Drs::Available) => Glow::Ready,
+            _ => Glow::Off,
         };
-        alert(PillKind::Drs, glow, None, word, s.drs.is_some());
+        alert(PillKind::Drs, glow, None, Msg::LightDrs, s.drs.is_some());
     }
     if caps.has(Caps::HEADLIGHTS) {
         alert(
@@ -1153,6 +1342,8 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
                 crate::game::Flag::Chequered => Msg::PanelFlagChequered,
             };
             alert(PillKind::Flag, Glow::On, Some(flag), word, true);
+        } else {
+            alert(PillKind::Flag, Glow::Off, None, Msg::LightFlag, true);
         }
     }
 
@@ -1166,6 +1357,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
                 show: if fresh && value.is_some() { Show::Shown } else { Show::Dimmed },
                 value: value.unwrap_or_else(|| "–".to_owned()),
                 role: Role::Text,
+                frac: None,
             });
         }
     };
@@ -1278,9 +1470,17 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         delta,
         delta_vs: say(Msg::PanelVsBest),
         delta_note,
+        projected,
+        lap_top: lap_speed.map(|(top, _)| speed_text(top, units.speed)),
+        lap_min: lap_speed.map(|(_, min)| speed_text(min, units.speed)),
+        inputs_title: say(Msg::PanelInputsTitle),
+        aids: (caps.has(Caps::ABS_ACTIVE), caps.has(Caps::TC_ACTIVE)),
+        lap_share: live.lap_inputs.map(|share| {
+            let words = [say(Msg::InputsFull), say(Msg::InputsBrake), say(Msg::InputsCoast)];
+            std::array::from_fn(|k| (words[k].clone(), format!("{:.0}%", share[k] * 100.0)))
+        }),
         gear,
-        gear_below: neighbour(below),
-        gear_above: neighbour(above),
+        gear_track,
         speed,
         brake,
         throttle,
@@ -1293,6 +1493,9 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         fuel_laps,
         fuel_tank,
         fuel_per_lap,
+        fuel_minutes,
+        fuel_stats,
+        fuel_planner,
         fuel_low: low,
         engine,
         progress,

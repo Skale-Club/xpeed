@@ -271,6 +271,9 @@ pub struct Live {
     pub tyre_wear_per_lap: Option<[f32; 4]>,
     /// The size of the tank, as far as it is known (for the panel's fuel gauge);  until a fuel reading is seen.
     pub fuel_tank_l: Option<f32>,
+    /// The fuel the last counted lap used (litres), and what the lap being driven has used so far while it is clean.
+    pub fuel_last_lap_l: Option<f32>,
+    pub fuel_this_lap_l: Option<f32>,
     /// The track as the car has driven it (the best lap's path, or the first full lap's until there is a best one),
     /// in the game's x and z; shared, as it changes once a lap at most.
     pub map: Option<Arc<Vec<(f32, f32)>>>,
@@ -278,6 +281,18 @@ pub struct Live {
     pub road: Option<Arc<crate::perspective::Road>>,
     /// Actual recent positions, independent of the saved circuit and of a reference lap.
     pub trail: Arc<Vec<(f32, f32)>>,
+    /// The delta along the lap being driven: (share of the lap 0..1, seconds against the best lap), a point every
+    /// `1 / DELTA_TRACE_POINTS` of the lap; empty until there is a delta. Shared, as it grows by one point at a time.
+    pub delta_trace: Arc<Vec<(f32, f32)>>,
+    /// The throttle, the brake and the aids over the last `INPUT_TRACE_MS`, oldest first, a point every
+    /// `INPUT_TRACE_STEP_MS` at most, while driving. Shared, as it changes a point at a time.
+    pub inputs: Arc<Vec<InputPoint>>,
+    /// This lap's highest and lowest speed so far (m/s), while driving.
+    pub lap_speed_ms: Option<(f32, f32)>,
+    /// This lap's share of time flat out, on the brake and on neither pedal (0..1 each), once a second of it is known.
+    pub lap_inputs: Option<[f32; 3]>,
+    /// The gear before the last shift and when the shift was seen (ms): the panel slides the gears from it.
+    pub gear_shift: Option<(f32, i64)>,
     /// A valid best path from this session, shown only for an explicit practice/qualifying context.
     pub reference: Option<Arc<Vec<(f32, f32)>>>,
     /// Forward direction inferred from recent live movement, never from replay progression.
@@ -342,6 +357,15 @@ pub struct Tracker {
     partial_map: Option<Arc<Path>>,
     road: Option<Arc<crate::perspective::Road>>,
     trail: Arc<Path>,
+    /// The delta along the lap being driven (see `Live::delta_trace`).
+    delta_trace: Arc<Vec<(f32, f32)>>,
+    /// The throttle and the brake of the last seconds (see `Live::inputs`).
+    inputs: Arc<Vec<InputPoint>>,
+    /// This lap's highest and lowest speed (see `Live::lap_speed_ms`).
+    lap_speed: Option<(f32, f32)>,
+    /// This lap's time flat out, braking, on neither pedal, and in all (ms), and when the last driving frame came.
+    lap_input_ms: [f64; 4],
+    last_input_at: Option<i64>,
     heading: crate::perspective::MotionHeading,
     best_path: Option<Arc<Path>>,
     best: Option<(f64, Profile)>,
@@ -351,6 +375,9 @@ pub struct Tracker {
     /// The highest forward gear seen with this car, and whether the car was seen in a lower one afterwards.
     top_gear: u8,
     top_gear_left: bool,
+    /// The gear of the last reading that had one, and the last shift (the gear before it, when it was seen).
+    last_gear: Option<f32>,
+    gear_shift: Option<(f32, i64)>,
     /// The fuel (litres) when the lap being driven began, when this run saw it begin (a lap joined midway has none).
     fuel_lap_start: Option<f32>,
     /// The last fuel reading of this lap.
@@ -477,6 +504,21 @@ const MAP_STEP_METRES: f32 = 4.0;
 /// Two points of the path further apart than this are not one drive (points are kept every `MAP_STEP_METRES`): a
 /// restart, a return to the pits or a teleport. The map is not drawn across it, and such a lap is not a map.
 pub const MAP_JUMP_METRES: f32 = 40.0;
+/// How many points the delta along a lap keeps at most (one every 0.5% of the lap).
+pub const DELTA_TRACE_POINTS: usize = 200;
+/// One point of the inputs trace: when, the throttle and the brake (0..1), and whether ABS or TC was acting.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct InputPoint {
+    pub at_ms: i64,
+    pub throttle: f32,
+    pub brake: f32,
+    pub abs: bool,
+    pub tc: bool,
+}
+
+/// How far back the throttle and brake trace goes, and how often it takes a point.
+pub const INPUT_TRACE_MS: i64 = 5_000;
+pub const INPUT_TRACE_STEP_MS: i64 = 40;
 /// A path shorter than this is not a map yet.
 const MAP_MIN_POINTS: usize = 30;
 /// A finished lap must cover this share of the track (when its length is known) to be a full lap.
@@ -535,6 +577,9 @@ impl Tracker {
                 Event::LapStarted { number, from_line, .. } => {
                     self.lap = *number;
                     self.current_from_line = *from_line;
+                    self.delta_trace = Arc::default();
+                    self.lap_speed = None;
+                    self.lap_input_ms = [0.0; 4];
                 }
                 Event::SessionStarted { .. } => {}
             }
@@ -629,12 +674,65 @@ impl Tracker {
             self.rpm_top = frame.rpm;
         }
         self.see_gear(frame.gear);
+        self.see_shift(frame.gear, at_ms);
         let delta_s = match (&self.best, step.sample, frame.lap_time_s) {
             (Some((_, best)), Some(sample), Some(_)) if self.current_from_line => {
                 time_at(best, sample.dist_m).map(|best_t| sample.t_s - best_t)
             }
             _ => None,
         };
+        // The throttle and the brake of the last seconds, while driving; out of the car the trace is let go.
+        if frame.driving && frame.throttle.is_finite() && frame.brake.is_finite() {
+            let (throttle, brake) = (frame.throttle.clamp(0.0, 1.0), frame.brake.clamp(0.0, 1.0));
+            let due = |p: &InputPoint| at_ms - p.at_ms >= INPUT_TRACE_STEP_MS || at_ms < p.at_ms;
+            if self.inputs.last().is_none_or(due) {
+                let inputs = Arc::make_mut(&mut self.inputs);
+                inputs.retain(|p| at_ms - p.at_ms <= INPUT_TRACE_MS && p.at_ms <= at_ms);
+                inputs.push(InputPoint {
+                    at_ms,
+                    throttle,
+                    brake,
+                    abs: frame.state.abs_active == Some(true),
+                    tc: frame.state.tc_active == Some(true),
+                });
+            }
+            // This lap's time flat out, braking and on neither pedal; a gap over 200 ms counts as 200 ms.
+            let dt = self.last_input_at.map_or(0.0, |t| (at_ms - t).clamp(0, 200) as f64);
+            let kind = if brake > 0.05 {
+                Some(1)
+            } else if throttle >= 0.98 {
+                Some(0)
+            } else if throttle < 0.05 {
+                Some(2)
+            } else {
+                None
+            };
+            if let Some(k) = kind {
+                self.lap_input_ms[k] += dt;
+            }
+            self.lap_input_ms[3] += dt;
+            self.last_input_at = Some(at_ms);
+        } else {
+            self.last_input_at = None;
+            if !frame.driving && !self.inputs.is_empty() {
+                self.inputs = Arc::default();
+            }
+        }
+        if frame.driving && frame.speed_ms.is_finite() && frame.speed_ms >= 0.0 {
+            let v = frame.speed_ms;
+            self.lap_speed = Some(self.lap_speed.map_or((v, v), |(top, min)| (top.max(v), min.min(v))));
+        }
+        // The delta along the lap: a point each time the car is another share of the lap further on.
+        if let (Some(delta), Some(sample)) = (delta_s, step.sample) {
+            let best_length = self.best.as_ref().and_then(|(_, best)| best.last().map(|&(d, _)| d));
+            if let Some(length) = frame.track_length_m.or(best_length).filter(|l| *l > 0.0) {
+                let at = (sample.dist_m / length).clamp(0.0, 1.0) as f32;
+                let step_share = 1.0 / DELTA_TRACE_POINTS as f32;
+                if self.delta_trace.last().is_none_or(|&(last, _)| at >= last + step_share) {
+                    Arc::make_mut(&mut self.delta_trace).push((at, delta as f32));
+                }
+            }
+        }
         Live {
             game,
             track: frame.track.clone(),
@@ -683,10 +781,24 @@ impl Tracker {
             fuel_last_lap_l: self.fuel_laps.last().copied(),
             tyre_wear_per_lap: tyre_wear_average(&self.tyre_wear_laps),
             fuel_tank_l: (self.fuel_tank > 0.0).then_some(self.fuel_tank),
+            fuel_last_lap_l: self.fuel_laps.last().copied(),
+            fuel_this_lap_l: self
+                .fuel_lap_start
+                .zip(self.fuel_prev)
+                .filter(|_| self.fuel_clean)
+                .map(|(start, now)| (start - now).max(0.0)),
             map: self.map.clone().or_else(|| self.partial_map.clone()),
             map_complete: self.map.is_some(),
             road: self.road.clone(),
             trail: self.trail.clone(),
+            delta_trace: self.delta_trace.clone(),
+            inputs: self.inputs.clone(),
+            lap_speed_ms: self.lap_speed,
+            lap_inputs: (self.lap_input_ms[3] >= 1_000.0).then(|| {
+                let all = self.lap_input_ms[3];
+                [0, 1, 2].map(|k| (self.lap_input_ms[k] / all) as f32)
+            }),
+            gear_shift: self.gear_shift,
             reference: matches!(frame.session_kind, Some(SessionKind::Practice | SessionKind::Qualifying))
                 .then(|| self.best_path.clone())
                 .flatten(),
@@ -742,6 +854,9 @@ impl Tracker {
     /// a long time away): nothing of it becomes a best lap, a delta, a path or a fuel use.
     fn lap_lost(&mut self, frame: &Frame) {
         self.current.clear();
+        self.delta_trace = Arc::default();
+        self.lap_speed = None;
+        self.lap_input_ms = [0.0; 4];
         self.path.clear();
         self.partial_map = None;
         self.trail = Arc::default();
@@ -841,6 +956,18 @@ impl Tracker {
 
     /// Remembers the highest forward gear. It only counts as the car's top gear once the car has been seen in a lower
     /// one after it: just reaching a gear says nothing about whether there is another above it.
+    /// Remembers the last shift: the gear before it and when it was seen.
+    fn see_shift(&mut self, gear: f32, at_ms: i64) {
+        if !gear.is_finite() {
+            return;
+        }
+        let gear = gear.round();
+        if let Some(before) = self.last_gear.filter(|&before| before != gear) {
+            self.gear_shift = Some((before, at_ms));
+        }
+        self.last_gear = Some(gear);
+    }
+
     fn see_gear(&mut self, gear: f32) {
         if !gear.is_finite() || !(1.0..=30.0).contains(&gear.round()) {
             return;

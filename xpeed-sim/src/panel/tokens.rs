@@ -13,7 +13,8 @@ pub(super) const fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
     r as u32 | (g as u32) << 8 | (b as u32) << 16
 }
 
-/// `a` with `t` (0..1) of `b` mixed in. Only tokens and gradients use it: a view asks for a named colour instead.
+/// `a` with `t` (0..1) of `b` mixed in. Only tokens, gradients and the gear carousel's in-between colours use it: a
+/// view asks for a named colour instead.
 pub(super) const fn mix(a: COLORREF, b: COLORREF, t: f32) -> COLORREF {
     const fn channel(a: COLORREF, b: COLORREF, t: f32, shift: u32) -> COLORREF {
         let (x, y) = ((a >> shift & 0xff) as f32, (b >> shift & 0xff) as f32);
@@ -92,10 +93,58 @@ pub(super) const TYRE_HEAT_STOPS: [(f32, COLORREF); 8] = [
 ];
 /// The rubber around a tyre's tread when it is drawn from above (its sidewalls).
 pub(super) const TYRE_SIDEWALL: COLORREF = rgb(0x0b, 0x0b, 0x0c);
+/// The lights card (owner decision 2026-11-19): every light the game can give keeps its place in a grid of at most
+/// `LIGHT_COLUMNS` columns, off dark with its name, on filled in its colour, ready outlined. A light that lights never
+/// moves another. Tiles are `LIGHT_TILE_H` tall, never under `LIGHT_TILE_MIN_H` (with less room, only the lit ones show).
+pub(super) const LIGHT_COLUMNS: usize = 4;
+pub(super) const LIGHT_TILE_H: f32 = 40.0;
+pub(super) const LIGHT_TILE_MIN_H: f32 = 20.0;
 /// A drawn tyre is this wide for its height (seen from above).
 pub(super) const TYRE_ASPECT: f32 = 0.5;
-/// The height of a capital letter for its type size, to line a shape up with the top of a label's letters.
-pub(super) const TYRE_CAP_HEIGHT: f32 = 0.7;
+/// The times card's projected lap line and the delta graph under it (owner-approved module 5, 2026-11-19).
+pub(super) const PROJECTED_H: f32 = 18.0;
+pub(super) const DELTA_TRACE_H: f32 = 40.0;
+/// The delta graph's scale: at least this many seconds either side of zero, never more than `DELTA_TRACE_MAX_S`.
+pub(super) const DELTA_TRACE_MIN_S: f32 = 0.5;
+pub(super) const DELTA_TRACE_MAX_S: f32 = 2.0;
+/// How much of its colour the area between the delta line and zero takes.
+pub(super) const DELTA_TRACE_FILL: f32 = 0.28;
+/// The laps table's gap bar (owner-approved module 4, 2026-11-19): a lap this many seconds or more behind the best
+/// fills it; it is this tall.
+pub(super) const LAP_GAP_FULL_S: f32 = 2.0;
+pub(super) const LAP_GAP_BAR_H: f32 = 5.0;
+/// The inputs card (owner-approved 2026-11-19): the share of its height the trace takes, the width of a pedal bar
+/// in its column, the height of the lap line at the bottom, and a block's least height in a pedal bar.
+pub(super) const INPUT_TRACE_SHARE: f32 = 0.34;
+pub(super) const INPUT_BAR_WIDTH: f32 = 0.7;
+pub(super) const INPUT_LAP_H: f32 = 18.0;
+pub(super) const INPUT_BLOCK_H: f32 = 5.0;
+/// The input trace's grid (owner, 2026-11-19): a hairline every 10% of the pedal travel, barely lighter than the strip,
+/// so the trace reads like a chart without the lines competing with it.
+/// The gear carousel (owner, 2026-11-19): on a shift the gears slide one place in this long, easing out, the new gear
+/// growing into the middle and the old one shrinking to the side.
+/// The open-game checklist (owner-approved module 9, 2026-11-19): its width beside the cover, the square on the left of
+/// a step, and the inside margin of a step.
+pub(super) const STEPS_W: f32 = 470.0;
+pub(super) const STEP_ICON: f32 = 28.0;
+pub(super) const STEP_PAD: f32 = 12.0;
+pub(super) const GEAR_SLIDE_MS: i64 = 220;
+pub(super) const INPUT_GRID_INK: COLORREF = rgb(0x1c, 0x1d, 0x21);
+/// The gear takes at least this share of the centre card's inside height (owner, 2026-11-19: it is read from afar;
+/// nothing else may shrink it). The layout test pins it.
+#[cfg(test)]
+pub(super) const GEAR_MIN_SHARE: f32 = 0.5;
+/// The fuel card's stint planner: the runs it counts (owner-approved module 6, 2026-11-19).
+pub(super) const FUEL_PLAN_LAPS: [u32; 2] = [10, 20];
+/// The fuel card's rows: the use tiles, a planner row, and a temperature's bar.
+pub(super) const FUEL_STAT_H: f32 = 46.0;
+pub(super) const FUEL_PLAN_ROW_H: f32 = 20.0;
+pub(super) const FUEL_TEMP_BAR_H: f32 = 6.0;
+/// The track card's lap progress bar: how tall it is.
+pub(super) const LAP_BAR_H: f32 = 8.0;
+/// A tyre tile's wear bar: how far under the row above it starts, and how tall it is.
+pub(super) const WEAR_BAR_TOP: f32 = 2.0;
+pub(super) const WEAR_BAR_H: f32 = 3.0;
 /// The distance between two grooves across a drawn tread.
 pub(super) const TYRE_GROOVE_PITCH: f32 = 10.0;
 
@@ -133,6 +182,8 @@ pub(super) const BACKDROP_BOTTOM: COLORREF = mix(BACKGROUND, rgb(0, 0, 0), 0.35)
 pub(super) const ROAD_LINE: COLORREF = mix(SECONDARY, FOREGROUND, 0.5);
 /// The cover of a game that has not arrived yet.
 pub(super) const COVER_PLACEHOLDER: COLORREF = mix(BACKGROUND, CARD, 0.8);
+/// The name of a light that is off: present but quiet, well under the muted text.
+pub(super) const LIGHT_OFF_INK: COLORREF = mix(CARD, MUTED_TEXT, 0.45);
 /// The row under the mouse in the language list.
 pub(super) const ROW_HOVER: COLORREF = mix(CARD, FOREGROUND, 0.07);
 /// What the make marks stand on (the logos are drawn for a light ground).
@@ -160,6 +211,9 @@ pub(super) fn tint(base: COLORREF, colour: COLORREF, amount: f32) -> COLORREF {
 
 /// Captions, labels, notes and units.
 pub(super) const T_CAPTION: f32 = 12.0;
+/// The one exception to `T_CAPTION`: a label in a tile of fixed width (a light, a setting) shrinks to fit it, down to
+/// this, rather than run out of the tile (owner, 2026-11-19). `Painter::caps_fit`.
+pub(super) const T_LABEL_MIN: f32 = 9.0;
 /// Body text and buttons.
 pub(super) const T_BODY: f32 = 14.0;
 /// A heading or a small figure.
@@ -215,11 +269,14 @@ pub(super) const GEAR_FILL: f32 = 0.93;
 /// it; changing it is an owner decision, recorded in the journal before the code.
 pub(super) const R_CORNER: f32 = 2.5;
 
-/// Every bar (fuel, delta, throttle, brake, clutch, wheel, tread wear, progress) is a row of square blocks a hair
-/// apart, never one continuous rounded fill. Owner decision: the segmented bars of 2026-11-12 (ac5c6b5) were the right
-/// ones; the stage-2 rebuild of 2026-11-16 (37cc6fc) swapped them for solid rounded bars, restored 2026-11-19.
+/// Every bar (fuel, delta, throttle, brake, clutch, tread wear, progress) is a row of square blocks a hair apart, never
+/// one continuous rounded fill; the one exception is the wheel, a thin white line (`STEER_LINE_H`, owner 2026-11-19).
+/// Owner decision: the segmented bars of 2026-11-12 (ac5c6b5) were the right ones; the stage-2 rebuild of 2026-11-16
+/// (37cc6fc) swapped them for solid rounded bars, restored 2026-11-19.
 /// `Painter::blocks` draws them; `tests::bars_are_square_blocks` pins it.
 pub(super) const BAR_BLOCKS: usize = 20;
+/// The wheel's line: how thick (owner, 2026-11-19: "just a line, subtle, minimalist").
+pub(super) const STEER_LINE_H: f32 = 2.0;
 /// The hair between two blocks.
 pub(super) const BAR_BLOCK_GAP: f32 = 1.5;
 /// The narrowest block: a short bar has fewer blocks rather than slivers.

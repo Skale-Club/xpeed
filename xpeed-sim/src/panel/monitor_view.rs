@@ -91,11 +91,20 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
                 g.text(&initial, thumb, T_BODY, semi, Face::Num, MUTED_TEXT, DT_CENTER);
             }
         }
-        let state = state_text(view.lang, &row.state);
+        // The name with a line of context under it (the lap and track while recording), and the status word.
+        let state = text(view.lang, &Msg::MonitorWord(row.state.clone()));
         let pill_w = g.width_of(&state, T_CAPTION, semi, Face::Ui) + 22.0;
         let text_x = 20.0 + tw + 14.0;
-        let r = g.r(text_x, y, col - text_x - 40.0 - bar - pill_w, row_h);
+        let text_w = col - text_x - 40.0 - bar - pill_w;
+        let track = match row.state {
+            Game::Recording(_) => view.live.map(|live| live.track.clone()).filter(|track| !track.is_empty()),
+            _ => None,
+        };
+        let context = text(view.lang, &Msg::MonitorContext(row.state.clone(), track));
+        let r = g.r(text_x, y + row_h / 2.0 - 19.0, text_w, 20.0);
         g.text(&row.title, r, T_BODY, normal, Face::Ui, FOREGROUND, DT_LEFT);
+        let r = g.r(text_x, y + row_h / 2.0 + 1.0, text_w, 17.0);
+        g.text(&context, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
         pill(
             g,
             col - 20.0 - bar - pill_w,
@@ -232,7 +241,7 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
                 Some(Note::Expired) => text(view.lang, &Msg::ConnectNoteExpired),
                 Some(Note::Failed(why)) => why.clone(),
                 Some(Note::Reconnect) => text(view.lang, &Msg::ConnectNoteReconnect),
-                None => host.to_owned(),
+                None => format!("{} · {host}", text(view.lang, &Msg::ConnectWhy)),
             },
         ),
     };
@@ -289,7 +298,13 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
         );
     } else {
         // The count beside the title only when both fit on the line (in a small window they would run into each other).
-        let count = text(view.lang, &Msg::PanelLapsCount(view.snapshot.laps_saved));
+        // How many, and the newest lap's track and car when the game gave them.
+        let newest = view.recent_laps.last().filter(|l| !l.track.is_empty() && !l.car.is_empty());
+        let count = match newest {
+            Some(lap) => Msg::PanelLapsWhere(view.snapshot.laps_saved, lap.track.clone(), lap.car.clone()),
+            None => Msg::PanelLapsCount(view.snapshot.laps_saved),
+        };
+        let count = text(view.lang, &count);
         let title = text(view.lang, &Msg::PanelLaps).to_uppercase();
         let need = g.width_of(&count, T_CAPTION, normal, Face::Ui) + g.width_of(&title, T_CAPTION, semi, Face::Label) * 1.3 + S6;
         if need <= col - 40.0 {
@@ -298,6 +313,13 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
         }
         let lap_row = 34.0;
         let room = ((laps_h - 52.0) / lap_row).floor().max(0.0) as usize;
+        // One speed scale for the laps shown, so their mini graphs compare.
+        let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+        for lap in view.recent_laps.iter().rev().take(room) {
+            for &v in &lap.speed_kmh {
+                (lo, hi) = (lo.min(f32::from(v)), hi.max(f32::from(v)));
+            }
+        }
         for (i, saved) in view.recent_laps.iter().rev().take(room).enumerate() {
             let y = 44.0 + lap_row * i as f32;
             if i > 0 {
@@ -318,6 +340,12 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
             };
             let r = g.r(right + col / 2.0, y, col / 2.0 - 20.0, lap_row);
             g.text(&time, r, size, semi, Face::Num, color, DT_RIGHT);
+            // The lap's speed between its name and its time: yellow the newest, quiet the others.
+            let (spark_x, spark_w) = (right + 96.0, col / 2.0 - 96.0);
+            if spark_w >= 40.0 {
+                let ink = if i == 0 && !invalid { PRIMARY } else { MUTED_TEXT };
+                g.sparkline((spark_x, y + 9.0, spark_w, lap_row - 18.0), &saved.speed_kmh, (lo, hi), ink);
+            }
             if invalid {
                 // The digits are set a little wider than the plain measure: leave room.
                 let used = g.width_of(&time, size, semi, Face::Num) * 1.18 + S2;
@@ -344,14 +372,16 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
     }
     let line_h = S8;
     let room = ((area_h - log_y - 52.0) / line_h).floor().max(0.0) as usize;
-    for (i, (time, line)) in view.activity.iter().take(room).enumerate() {
+    for (i, (time, line, tone)) in view.activity.iter().take(room).enumerate() {
         let y = log_y + 42.0 + line_h * i as f32;
         if i > 0 {
             g.fill(g.r(right + 20.0, y, col - 40.0, 1.0), BORDER);
         }
         let r = g.r(right + 20.0, y, 52.0, line_h);
         g.text(time, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
-        let r = g.r(right + 76.0, y, col - 96.0, line_h);
+        // A square dot in the colour of what it was (owner-approved module 10, 2026-11-19).
+        g.fill(g.r(right + 72.0, y + (line_h - S2) / 2.0, S2, S2), tone.colour());
+        let r = g.r(right + 90.0, y, col - 110.0, line_h);
         g.text(line, r, T_BODY, normal, Face::Ui, FOREGROUND, DT_LEFT);
     }
 

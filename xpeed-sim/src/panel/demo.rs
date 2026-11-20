@@ -258,6 +258,7 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
                         game: "Demo".into(),
                         track: "Demo".into(),
                         car: "Demo".into(),
+                        speed_kmh: Vec::new(),
                     };
                     crate::applog::line(&format!("panel demo: lap {lap} done"));
                     shared.update(|s| {
