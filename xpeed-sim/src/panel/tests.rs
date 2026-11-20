@@ -5698,10 +5698,12 @@ fn edit_mode_paints_at_every_shape_with_its_toolbar_and_a_cross_on_every_card() 
             let plan = ui.plan();
             assert_eq!(plan.cards.len(), ui.session.current.panes().len());
             for (pane, card) in &plan.cards {
+                // The square's fill somewhere inside it (at a small scale one pixel may land on the x's stroke).
                 let (x, y, _, size) = edit_remove_rect(*card);
-                let (px, py) = (ox + (x * scale) as i32 + 3, oy + ((y + size / 2.0) * scale) as i32);
-                if px < w && py < h {
-                    assert_eq!(pixel(&pixels, w, px, py), SURFACE, "{what}: the x of {pane:?}");
+                let (x0, y0) = (ox + (x * scale) as i32, oy + (y * scale) as i32);
+                let (x1, y1) = (ox + ((x + size) * scale) as i32, oy + ((y + size) * scale) as i32);
+                if x1 < w && y1 < h {
+                    assert!(has_color(&region_of(&pixels, w, (x0, y0, x1, y1)), SURFACE) > 0, "{what}: the x of {pane:?}");
                 }
             }
             v.edit = None;
