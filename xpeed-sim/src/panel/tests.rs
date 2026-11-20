@@ -477,6 +477,7 @@ fn view<'a>(f: &'a Fixture, live: Option<&'a Live>, tab: Tab, scale: f32, lang: 
         download_percent: f.percent,
         focus: None,
         played: Default::default(),
+        preview: None,
     }
 }
 
@@ -6040,4 +6041,173 @@ fn a_dashboard_with_a_saved_view_shows_a_dot_after_its_name() {
     let mut other = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
     other.dashboard = Some(DashboardId::Practice);
     assert_ne!(pixel(&render(&other, w, h), w, dot.0, dot.1), PRIMARY);
+}
+
+/// The example's readings for `game` (`None`: every card) at one moment of its made-up race, as `feed` makes them.
+fn example_live(game: Option<&'static str>) -> Live {
+    let caps = game.and_then(crate::games::caps_of_game);
+    let mut tracker = crate::dash::Tracker::default();
+    let demo = super::demo::demo_caps();
+    tracker.set_caps(caps.map_or(demo, |caps| demo.minus(demo.minus(caps))));
+    let mut live = None;
+    for i in 0..60 {
+        let mut frame = demo_frame(3, 1500.0 + i as f64 * 8.0, 30.0 + i as f64 * 0.16, Some(50.4), 41.0, 1.0);
+        if let Some(caps) = caps {
+            frame.keep_only(caps);
+        }
+        live = Some(tracker.on_frame(
+            game.map_or(PREVIEW_ALL.1, |id| crate::covers::GAMES.iter().find(|(k, _)| *k == id).unwrap().1),
+            &frame,
+            1_000 + i * 16,
+        ));
+    }
+    let mut live = live.unwrap();
+    live.at_ms = 1_400;
+    live.references = Some(std::sync::Arc::new(super::demo::demo_references()));
+    live
+}
+
+/// A frame cut to a game's caps fills exactly what the demo fills and the game gives, for every game with a cover.
+#[test]
+fn the_example_shows_each_game_as_it_would_give_its_data() {
+    let full = demo_frame(3, 2000.0, 40.0, Some(50.0), 50.0, 1.0);
+    for (id, name) in crate::covers::GAMES {
+        let caps = crate::games::caps_of_game(id).unwrap();
+        let mut frame = full.clone();
+        frame.keep_only(caps);
+        assert_eq!(frame.filled(), full.filled().minus(full.filled().minus(caps)), "{name}");
+    }
+    // Forza Horizon gives no fuel and no sectors; Le Mans Ultimate has rivals but not where they are.
+    let mut forza = full.clone();
+    forza.keep_only(crate::games::caps_of_game("fh5").unwrap());
+    assert!(forza.fuel_l.is_nan() && forza.sectors_ms == [None; 2]);
+    let mut lmu = full.clone();
+    lmu.keep_only(crate::games::caps_of_game("lmu").unwrap());
+    let field = lmu.field.expect("the rivals are kept");
+    assert!(!field.cars.is_empty() && field.cars.iter().all(|c| c.world.is_none()));
+}
+
+/// The example drives a `Shared` of its own as the game picked, starts on the race dashboard, and stops when it closes.
+#[test]
+fn the_example_drives_its_own_readings_and_stops_when_closed() {
+    let wait_live = |shared: &Shared| {
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if let Some(live) = shared.live() {
+                return live;
+            }
+            assert!(std::time::Instant::now() < until, "the example drives within 5 s");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    };
+    let preview = Preview::open(Some(("fh5", "Forza Horizon 5")));
+    let live = wait_live(&preview.shared);
+    assert_eq!(live.game, "Forza Horizon 5", "named as the program names a game");
+    let caps = crate::games::caps_of_game("fh5").unwrap();
+    assert!(caps.has(live.caps), "only what Forza gives: {:?}", live.caps.minus(caps));
+    assert!(!live.caps.has(crate::game::Caps::FUEL));
+    assert_eq!(preview.choices.get("Forza Horizon 5"), Some(DashboardId::Race));
+    assert_eq!(preview.label(Lang::Pt), "Exemplo · Forza Horizon 5");
+    let shared = preview.shared.clone();
+    drop(preview);
+    assert!(shared.quitting(), "closing it stops the driving");
+    let all = Preview::open(None);
+    let live = wait_live(&all.shared);
+    assert_eq!(live.game, PREVIEW_ALL.1);
+    assert_eq!(live.caps, super::demo::demo_caps(), "every card");
+    assert_eq!(all.label(Lang::En), "Example · All cards");
+}
+
+/// The waiting screen: the cover in the middle opens its game's example, and "See the dashboards" every card's; inside the
+/// window and clear of the carousel's other buttons, with the covers' art or without it.
+#[test]
+fn the_waiting_screen_opens_the_example_from_the_middle_cover_and_its_button() {
+    let f = fixture();
+    let covers: Vec<CoverArt> = crate::covers::GAMES
+        .iter()
+        .take(7)
+        .map(|&(key, name)| CoverArt {
+            key,
+            name,
+            image: null_mut(),
+        })
+        .collect();
+    for (w, h) in [(1280, 800), (960, 600), (430, 900)] {
+        for with_covers in [true, false] {
+            let mut v = view(&f, None, Tab::Dash, 1.0, Lang::Pt);
+            if with_covers {
+                v.covers = &covers;
+                v.carousel = 2.0;
+            }
+            let pixels = render(&v, w, h);
+            if (w, h) == (1280, 800) && with_covers {
+                save(&pixels, w, h, "panel-waiting-example.png");
+            }
+            let buttons: Vec<(Action, RECT)> = v.buttons.borrow().iter().map(|(a, r)| (*a, *r)).collect();
+            let all = buttons
+                .iter()
+                .find(|(a, _)| *a == Action::PreviewAll)
+                .unwrap_or_else(|| panic!("{w}x{h} covers {with_covers}: the button is drawn"))
+                .1;
+            assert!(all.left >= 0 && all.right <= w && all.bottom <= h, "{w}x{h}: inside the window");
+            for (action, r) in &buttons {
+                if let Action::Cover(_) = action {
+                    let apart = r.right <= all.left || r.left >= all.right || r.bottom <= all.top || r.top >= all.bottom;
+                    assert!(apart, "{w}x{h}: {action:?} does not touch the button");
+                }
+            }
+            let previews: Vec<&Action> = buttons.iter().map(|(a, _)| a).filter(|a| matches!(a, Action::Preview(_))).collect();
+            if with_covers {
+                assert_eq!(previews, [&Action::Preview(2)], "{w}x{h}: only the middle cover");
+                // It is the first button, so it wins over the side covers drawn under its edges.
+                assert_eq!(buttons[0].0, Action::Preview(2));
+            } else {
+                assert!(previews.is_empty());
+            }
+        }
+    }
+}
+
+/// In the example the header says so in a yellow-edged pill that closes it, clear of the dashboard's name and the edit button;
+/// without the example there is no such pill. Each game shows only its own cards.
+#[test]
+fn the_example_says_so_in_the_header_and_each_game_shows_its_own_cards() {
+    let f = fixture();
+    for (game, name) in [
+        (Some("ac"), "Assetto Corsa"),
+        (Some("fh5"), "Forza Horizon 5"),
+        (Some("lmu"), "Le Mans Ultimate"),
+        (None, "Todos os cards"),
+    ] {
+        let live = example_live(game);
+        for (lang, (w, h)) in [(Lang::En, (1280, 800)), (Lang::Pt, (1600, 900)), (Lang::Es, (960, 600))] {
+            let mut v = view(&f, Some(&live), Tab::Dash, 1.0, lang);
+            v.dashboard = Some(DashboardId::Race);
+            v.preview = Some(format!("{} · {name}", text(lang, &Msg::PanelPreviewTag)));
+            let pixels = render(&v, w, h);
+            if lang == Lang::Pt {
+                save(&pixels, w, h, &format!("panel-example-{}.png", game.unwrap_or("all")));
+            }
+            let buttons: Vec<(Action, RECT)> = v.buttons.borrow().iter().map(|(a, r)| (*a, *r)).collect();
+            let pill = buttons
+                .iter()
+                .find(|(a, _)| *a == Action::ExitPreview)
+                .unwrap_or_else(|| panic!("{name} {w}x{h}: the pill is drawn"))
+                .1;
+            assert!(pill.bottom <= HEADER_H as i32, "{name} {w}x{h}: in the header");
+            let apart = |r: RECT| r.right <= pill.left || r.left >= pill.right || r.bottom <= pill.top || r.top >= pill.bottom;
+            if let Some(r) = dashboard_hit(w, 1.0) {
+                assert!(apart(r), "{name} {w}x{h}: clear of the dashboard's name");
+            }
+            if let Some(r) = edit_button(w, &v) {
+                assert!(apart(r), "{name} {w}x{h}: clear of the edit button");
+            }
+        }
+        let plain = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+        render(&plain, 1280, 800);
+        assert!(!plain.buttons.borrow().iter().any(|(a, _)| *a == Action::ExitPreview));
+    }
+    // Forza gives no fuel: its example has no fuel card, the full one has.
+    assert!(!example_live(Some("fh5")).caps.has(crate::game::Caps::FUEL));
+    assert!(example_live(None).caps.has(crate::game::Caps::FUEL));
 }

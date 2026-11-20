@@ -38,6 +38,7 @@ Atalhos do painel:
 - **Tela cheia:** `F11`, o botão no topo ou um duplo clique na janela. `Esc` sai.
 - **Sempre por cima:** `T`.
 - **Dashboard:** `D` troca entre Corrida, Classificação, Treino, Contra o relógio e Automático (escolhido pela sessão do jogo). A escolha fica guardada por jogo em `dashboards.json`, na pasta do Companion; o nome aparece ao lado das abas ("Race · Auto" quando automático).
+- **Exemplo sem jogo (a partir da 0.15.0):** na tela "Esperando um jogo", clicar na capa do meio (ou Enter) abre o painel daquele jogo com dados inventados, mostrando só os cards que o jogo preenche (`games::caps_of_game` e `Frame::keep_only`); "Ver os painéis" abre com todos os cards. Dá para trocar de painel (`D`, o menu da pílula) e editar o layout como com o jogo aberto, e o que for salvo vai para o mesmo `dashboards.json`. Os dados vão para um `Shared` só da janela: nenhuma volta é gravada, nada vai para o site nem para o celular, e o sinal de vida continua dizendo que não há jogo. A pílula amarela "Exemplo · jogo ×" no topo (ou Esc) fecha o exemplo; um jogo que comece a rodar fecha sozinho (`src/panel/preview.rs`).
 
 O painel monta cada dashboard a partir de um catálogo de widgets com id estável (`src/panel/catalog.rs`) e de dashboards como dados (`src/panel/dashboards.rs`: linhas de widgets por formato de janela); por enquanto os quatro usam as mesmas linhas. Os modelos do painel são serializáveis (serde, camelCase): são o contrato que a visão do celular vai ler.
 

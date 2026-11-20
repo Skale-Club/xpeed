@@ -460,7 +460,7 @@ impl Main {
 
 /// What a frame can fill. The lap data only in a lap-based mode. Not given: the lap verdict, the pits, fuel, tyres, the
 /// pit limiter, headlights, oil temperature, brake bias, engine map, the session kind, weather and temperatures.
-const CAPS: Caps = Caps::LAP_TIME
+pub(crate) const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::LAST_LAP)
     .or(Caps::DIST)
     .or(Caps::TRACK_LENGTH)

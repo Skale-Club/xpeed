@@ -733,7 +733,7 @@ fn field_from(values: &Values, session: &Session, clock_s: f64, track_length_m: 
 /// What a frame can fill. The position is the SDK's `Lat`/`Lon` when the build publishes them, else the path worked out
 /// from the velocity (`Path`). Not given: tyres, temperatures, the car's state lights, the session kind, the sectors
 /// and the g forces (none is read), and the tank's size.
-const CAPS: Caps = Caps::LAP_TIME
+pub(crate) const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::LAST_LAP)
     .or(Caps::DIST)
     .or(Caps::IN_PITS)

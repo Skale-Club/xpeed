@@ -509,6 +509,11 @@ impl Source for ForzaSource {
 /// given by any: fuel (a fraction of an unknown tank), the pit lane, a lap verdict, the tyres' pressure, brake
 /// temperature or compound, the weather, the session, the sectors, the lights other than the handbrake, damage. Only
 /// Forza Motorsport (2023) gives the tread left (and the track).
+/// What the game with this id can fill (`"fm"`, `"fh5"`, ...), without the game running.
+pub(crate) fn caps_of_id(id: &str) -> Option<Caps> {
+    Game::ALL.into_iter().find(|g| g.id() == id).map(caps_of)
+}
+
 fn caps_of(game: Game) -> Caps {
     let caps = Caps::LAP_TIME
         .or(Caps::LAST_LAP)

@@ -1134,7 +1134,7 @@ impl Source for F1Source {
 /// session kind or weather are read), the lap data, the car's state from Car Status and Car Damage, the world position,
 /// the track length and the team as car and class. The fuel is a mass with no stated density (`fuel_l` stays `NaN`),
 /// the one `engineTemperature` is neither water nor oil, and the spec has no sector times in a form this reader uses.
-const CAPS: Caps = Caps::LAP_TIME
+pub(crate) const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::LAST_LAP)
     .or(Caps::LAP_VALID)
     .or(Caps::DIST)

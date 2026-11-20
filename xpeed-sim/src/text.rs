@@ -173,6 +173,12 @@ pub enum Msg {
     PanelExitFullScreen,
     PanelWaitingTitle,
     PanelWaiting,
+    /// The example of the dashboards, opened without a game: the waiting screen's button, the header pill's word and
+    /// its "every card" name, and the pill's tooltip.
+    PanelPreviewSee,
+    PanelPreviewTag,
+    PanelPreviewAll,
+    PanelPreviewClose,
     /// The line under the cover in the middle of the waiting screen: when the game was last driven (an `Ago*` text),
     /// how many laps were saved, and the best valid lap with its track (the track last driven), when there is one.
     PanelLastPlayed {
@@ -790,6 +796,14 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
         PanelFullScreen => t(s("Full screen"), s("Tela cheia"), s("Pantalla completa")),
         PanelExitFullScreen => t(s("Exit full screen"), s("Sair da tela cheia"), s("Salir de pantalla completa")),
         PanelWaitingTitle => t(s("Waiting for a game"), s("Esperando um jogo"), s("Esperando un juego")),
+        PanelPreviewSee => t(s("See the dashboards"), s("Ver os painéis"), s("Ver los paneles")),
+        PanelPreviewTag => t(s("Example"), s("Exemplo"), s("Ejemplo")),
+        PanelPreviewAll => t(s("All cards"), s("Todos os cards"), s("Todas las tarjetas")),
+        PanelPreviewClose => t(
+            s("Close the example (Esc)"),
+            s("Fechar o exemplo (Esc)"),
+            s("Cerrar el ejemplo (Esc)"),
+        ),
         PanelLastPlayed { ago, laps, best } => {
             let unit = |one: &'static str, many: &'static str| if *laps == 1 { one } else { many };
             let tail = |word: &str| match best {
@@ -1341,6 +1355,10 @@ mod tests {
             Msg::PanelExitFullScreen,
             Msg::PanelWaitingTitle,
             Msg::PanelWaiting,
+            Msg::PanelPreviewSee,
+            Msg::PanelPreviewTag,
+            Msg::PanelPreviewAll,
+            Msg::PanelPreviewClose,
             Msg::PanelLastPlayed {
                 ago: "2 d ago".into(),
                 laps: 14,

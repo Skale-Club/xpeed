@@ -15,6 +15,12 @@ pub enum Action {
     Coach,
     /// Brings this cover of the waiting screen's carousel to the middle.
     Cover(usize),
+    /// Opens the example of this cover's game (the one in the middle of the carousel): its dashboard on made-up driving.
+    Preview(usize),
+    /// Opens the example with every card ("See the dashboards").
+    PreviewAll,
+    /// Closes the example (the header's "Example" pill).
+    ExitPreview,
     /// Picks this language (its place in `Lang::ALL`) from the language list.
     Lang(usize),
     /// Puts the support text (versions, games, connection, last log lines) on the clipboard.
@@ -110,6 +116,8 @@ pub struct View<'a> {
     pub played: crate::played::History,
     /// The games list's scroll bar as drawn in this frame, when the list is longer than its card.
     pub scroll: std::cell::Cell<Option<ScrollBar>>,
+    /// The example is on the dashboard tab (made-up driving, no game): the words of the header's pill that closes it.
+    pub preview: Option<String>,
 }
 
 impl View<'_> {

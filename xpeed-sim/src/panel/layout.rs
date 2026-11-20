@@ -84,6 +84,16 @@ pub(super) fn phone_hit(width: i32, scale: f32) -> Option<RECT> {
     (header_limit(width, scale) - left >= p(84.0)).then(|| rect(left, name.top, left + p(84.0), name.bottom))
 }
 
+/// Where the example's pill sits in the header (pixels): after the dashboard's name (in the phone mark's place, which the
+/// example never shows), `want` design units wide or as much of it as the header leaves, and never narrower than 110.
+pub(super) fn preview_hit(width: i32, scale: f32, want: f32) -> Option<RECT> {
+    let p = |v: f32| (v * scale).round() as i32;
+    let [_, mon, _, _, _] = header_hits(width, scale);
+    let left = dashboard_hit(width, scale).map_or(mon.right + p(24.0), |name| name.right + p(8.0));
+    let w = p(want).min(header_limit(width, scale) - left);
+    (w >= p(110.0)).then(|| rect(left, p(17.0), left + w, p(47.0)))
+}
+
 /// Fits a canvas of `width` x `height` design units in `body`, centred: its scale and where it starts (pixels).
 pub(super) fn canvas_fit_wh(body: RECT, width: f32, height: f32) -> (f32, i32, i32) {
     let (bw, bh) = ((body.right - body.left) as f32, (body.bottom - body.top) as f32);

@@ -220,61 +220,76 @@ pub(super) fn demo_references() -> crate::reference::References {
     }
 }
 
+/// What the demo's car fills on a frame (the cards of the sectors and the flag are there from the first frame).
+pub(super) fn demo_caps() -> crate::game::Caps {
+    demo_frame(1, 2000.0, 30.0, Some(50.0), 60.0, 1.0).filled()
+}
+
+/// Drives the demo's made-up car into `shared` until it quits: about 60 frames a second, as `game` (its id and name). With
+/// `caps`, every frame is cut to what that game gives (`Frame::keep_only`), so the dashboard shows only the cards the game
+/// can fill. `log` writes each lap in the log and tells the tray (the stand-alone demo); the panel's example keeps quiet.
+pub(super) fn feed(shared: &Shared, game: (&'static str, &'static str), caps: Option<crate::game::Caps>, log: bool) {
+    use std::time::{Duration, Instant};
+    let mut tracker = crate::dash::Tracker::default();
+    shared.set_references(Some(Arc::new(demo_references())));
+    let shown = caps.map_or(demo_caps(), |caps| demo_caps().minus(demo_caps().minus(caps)));
+    tracker.set_caps(shown);
+    let (mut lap, mut dist, mut lap_time, mut last, mut fuel) = (1, 0.0, 0.0, None, 60.0f32);
+    let start = Instant::now();
+    let mut previous = Duration::ZERO;
+    while !shared.quitting() {
+        std::thread::sleep(Duration::from_millis(16));
+        let now = start.elapsed();
+        let dt = (now - previous).as_secs_f64();
+        previous = now;
+        // Each lap a little faster or slower than the one before, so the delta moves.
+        let pace = 1.0 + 0.012 * (f64::from(lap) * 1.7).sin();
+        let speed = f64::from(demo_frame(lap, dist, 0.0, None, fuel, pace).speed_ms);
+        dist += speed * dt;
+        lap_time += dt;
+        fuel = (fuel - (dt * 0.004) as f32).max(0.0);
+        if dist >= DEMO_TRACK_M {
+            last = Some(lap_time);
+            let saved = crate::status::SavedLap {
+                number: lap as u32,
+                time_ms: (lap_time * 1000.0).round() as u32,
+                valid: true,
+                sectors_ms: Vec::new(),
+                game: "Demo".into(),
+                track: "Demo".into(),
+                car: "Demo".into(),
+                speed_kmh: Vec::new(),
+            };
+            shared.update(|s| {
+                s.laps_saved += 1;
+                s.last_lap = Some(saved.clone());
+            });
+            if log {
+                crate::applog::line(&format!("panel demo: lap {lap} done"));
+                shared.notify(crate::status::Notice::LapSaved(saved));
+            }
+            lap += 1;
+            dist -= DEMO_TRACK_M;
+            lap_time = 0.0;
+        }
+        shared.set_game(game.0, game.1, Game::Recording(lap as u32));
+        let mut frame = demo_frame(lap, dist, lap_time, last, fuel, pace);
+        if let Some(caps) = caps {
+            frame.keep_only(caps);
+        }
+        shared.offer_live(tracker.on_frame(game.1, &frame, now_ms()));
+    }
+}
+
 /// Opens the panel alone, fed with made-up driving, so it can be seen without a game. Nothing is recorded or sent.
 pub fn demo(lang: Lang) -> std::process::ExitCode {
-    use std::time::{Duration, Instant};
     crate::applog::line("panel demo: made-up data, nothing is recorded or sent");
     let shared = Shared::new(true);
     shared.set_game("lmu", "Le Mans Ultimate", Game::Waiting);
     shared.set_game("ac", "Assetto Corsa", Game::Connected);
     let feeder = {
         let shared = shared.clone();
-        std::thread::spawn(move || {
-            let mut tracker = crate::dash::Tracker::default();
-            shared.set_references(Some(Arc::new(demo_references())));
-            // What the demo's car gives, from the start: the cards of the sectors and the flag are there from the first frame.
-            tracker.set_caps(demo_frame(1, 2000.0, 30.0, Some(50.0), 60.0, 1.0).filled());
-            let (mut lap, mut dist, mut lap_time, mut last, mut fuel) = (1, 0.0, 0.0, None, 60.0f32);
-            let start = Instant::now();
-            let mut previous = Duration::ZERO;
-            while !shared.quitting() {
-                std::thread::sleep(Duration::from_millis(16));
-                let now = start.elapsed();
-                let dt = (now - previous).as_secs_f64();
-                previous = now;
-                // Each lap a little faster or slower than the one before, so the delta moves.
-                let pace = 1.0 + 0.012 * (f64::from(lap) * 1.7).sin();
-                let speed = f64::from(demo_frame(lap, dist, 0.0, None, fuel, pace).speed_ms);
-                dist += speed * dt;
-                lap_time += dt;
-                fuel = (fuel - (dt * 0.004) as f32).max(0.0);
-                if dist >= DEMO_TRACK_M {
-                    last = Some(lap_time);
-                    let saved = crate::status::SavedLap {
-                        number: lap as u32,
-                        time_ms: (lap_time * 1000.0).round() as u32,
-                        valid: true,
-                        sectors_ms: Vec::new(),
-                        game: "Demo".into(),
-                        track: "Demo".into(),
-                        car: "Demo".into(),
-                        speed_kmh: Vec::new(),
-                    };
-                    crate::applog::line(&format!("panel demo: lap {lap} done"));
-                    shared.update(|s| {
-                        s.laps_saved += 1;
-                        s.last_lap = Some(saved.clone());
-                    });
-                    shared.notify(crate::status::Notice::LapSaved(saved));
-                    lap += 1;
-                    dist -= DEMO_TRACK_M;
-                    lap_time = 0.0;
-                }
-                shared.set_game("ac", "Assetto Corsa", Game::Recording(lap as u32));
-                let frame = demo_frame(lap, dist, lap_time, last, fuel, pace);
-                shared.offer_live(tracker.on_frame("Demo", &frame, now_ms()));
-            }
-        })
+        std::thread::spawn(move || feed(&shared, ("ac", "Assetto Corsa"), None, true))
     };
     let [icon_big, icon_small] = crate::tray::program_icons();
     let hwnd = show(null_mut(), || Context {

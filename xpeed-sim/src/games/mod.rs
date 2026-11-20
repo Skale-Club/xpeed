@@ -184,9 +184,44 @@ pub(crate) fn open_for_replay(family: &str, game: &str) -> Option<Replayable> {
     })
 }
 
+/// What the game with this id (a `Source::game_id`, as `covers::GAMES` lists them) can fill on a frame, without the game
+/// running: the same set its reader reports through `Source::caps`. The panel's example shows a game's dashboard with it.
+/// `None` for an id no reader has.
+pub fn caps_of_game(id: &str) -> Option<crate::game::Caps> {
+    kunos::caps_of_id(id)
+        .or_else(|| ams2::caps_of_id(id))
+        .or_else(|| forza::caps_of_id(id))
+        .or(match id {
+            "lmu" => Some(crate::lmu::snapshot::LMU_CAPS),
+            "acevo" => Some(acevo::CAPS),
+            "f1" | "f124" | "f123" => Some(f1::CAPS),
+            "rfactor1" | "ams1" | "rf1" => Some(rfactor1::CAPS),
+            "iracing" => Some(iracing::CAPS),
+            "r3e" => Some(r3e::CAPS),
+            "wreckfest2" => Some(wreckfest2::CAPS),
+            _ => None,
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every game the panel shows a cover for has its caps, and they are what its reader's own lookup says (the families
+    /// whose caps depend on the game: Kunos, Automobilista 2 and Project CARS, Forza).
+    #[test]
+    fn every_game_with_a_cover_has_its_caps() {
+        for (id, name) in crate::covers::GAMES {
+            let caps = caps_of_game(id).unwrap_or_else(|| panic!("{name} ({id}) has no caps"));
+            assert!(caps.has(crate::game::Caps::LAP_TIME), "{name}: {caps:?}");
+        }
+        assert!(caps_of_game("nope").is_none());
+        // The families that differ by game really differ.
+        assert_ne!(caps_of_game("ac"), caps_of_game("acc"));
+        assert_ne!(caps_of_game("ams2"), caps_of_game("pcars2"));
+        assert_eq!(caps_of_game("pcars2"), caps_of_game("pcars3"));
+        assert_ne!(caps_of_game("fm"), caps_of_game("fh5"));
+    }
 
     #[test]
     fn every_program_a_reader_waits_for_names_one_of_its_games() {

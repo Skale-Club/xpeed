@@ -89,6 +89,7 @@ mod model;
 mod monitor_view;
 mod paint;
 mod perspective_paint;
+mod preview;
 mod relay;
 #[cfg(test)]
 mod tests;
@@ -114,6 +115,7 @@ use layout::*;
 use model::*;
 use monitor_view::*;
 use paint::*;
+use preview::*;
 #[cfg(test)]
 use relay::*;
 use tokens::*;

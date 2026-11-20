@@ -246,6 +246,14 @@ enum Family {
     Acr,
 }
 
+/// What the game with this id can fill (`"ac"`, `"acc"`, `"acr"`), without the game running.
+pub(crate) fn caps_of_id(id: &str) -> Option<Caps> {
+    [Family::Ac, Family::Acc, Family::Acr]
+        .into_iter()
+        .find(|f| f.id() == id)
+        .map(Family::caps)
+}
+
 impl Family {
     fn id(self) -> &'static str {
         match self {

@@ -357,6 +357,7 @@ pub(super) fn waiting(g: &mut Painter, body: RECT, view: &View) {
             x += w + 10.0;
         }
     }
+    preview_button(g, view, cw / 2.0, 262.0 + rows.len() as f32 * 40.0 + S4);
 }
 
 /// Where cover `i` of `count` sits from the middle of a carousel at `at`: a signed distance in covers, wrapped so the
@@ -450,6 +451,10 @@ pub(super) fn cover_carousel(g: &mut Painter, view: &View, cw: f32) {
         let r = g.r(20.0, top + big_h + 42.0, cw - 40.0, 22.0);
         g.text(&line, r, T_BODY, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_CENTER);
     }
+    // The cover in the middle opens its game's example (the dashboard on made-up driving); it is on top of the side covers.
+    buttons
+        .borrow_mut()
+        .insert(0, (Action::Preview(middle), g.r(mid_x - big_w / 2.0, top, big_w, big_h)));
     let (dot, gap) = (7.0, 6.0);
     let total = count as f32 * dot + (count as f32 - 1.0) * gap;
     for i in 0..count {
@@ -459,4 +464,17 @@ pub(super) fn cover_carousel(g: &mut Painter, view: &View, cw: f32) {
         let hit = g.r(x - gap / 2.0, top + big_h + 68.0, dot + gap, dot + S4);
         buttons.borrow_mut().push((Action::Cover(i), hit));
     }
+    preview_button(g, view, mid_x, top + big_h + 92.0);
+}
+
+/// "See the dashboards", centred on `mid_x` from `y`: opens the example with every card. Its edge turns yellow under the mouse.
+fn preview_button(g: &mut Painter, view: &View, mid_x: f32, y: f32) {
+    let label = text(view.lang, &Msg::PanelPreviewSee);
+    let semi = FW_SEMIBOLD as i32;
+    let w = g.width_of(&label, T_BODY, semi, Face::Ui) + 2.0 * S6;
+    let r = g.r(mid_x - w / 2.0, y, w, S8);
+    let hot = view.mouse.is_some_and(|(mx, my)| inside(&r, mx, my));
+    g.round(r, CARD, Some(if hot { PRIMARY } else { BORDER }));
+    g.text(&label, r, T_BODY, semi, Face::Ui, FOREGROUND, DT_CENTER);
+    view.buttons.borrow_mut().push((Action::PreviewAll, r));
 }

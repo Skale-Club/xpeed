@@ -134,8 +134,16 @@ pub(super) fn tooltip(g: &mut Painter, width: i32, view: &View) {
     let [_, _, lang, full, top] = header_hits(width, view.scale);
     let version = version_hit(width, view.scale).filter(|v| inside(v, mx, my));
     let edit = edit_button(width, view).filter(|e| inside(e, mx, my));
+    let exit = view
+        .buttons
+        .borrow()
+        .iter()
+        .find(|(action, r)| *action == Action::ExitPreview && inside(r, mx, my))
+        .map(|(_, r)| *r);
     let (r, label) = if let Some(v) = version {
         (v, format!("Build {}", env!("XPEED_BUILD")))
+    } else if let Some(e) = exit {
+        (e, text(view.lang, &Msg::PanelPreviewClose))
     } else if let Some(e) = edit {
         (e, text(view.lang, &Msg::PanelEditLayout))
     } else if inside(&lang, mx, my) {
@@ -235,8 +243,20 @@ pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
                 g.caps(&label, pill, T_CAPTION, FOREGROUND_2, DT_CENTER);
             }
         }
-        // A phone is watching through the server: a small pill after the name.
-        if let Some(r) = phone_hit(width, view.scale).filter(|_| view.phone_viewers > 0) {
+        // The example: a yellow-edged pill after the name that says so and closes it (×). The phone mark is not shown then.
+        if let Some(label) = &view.preview {
+            let want = g.caps_width(label, T_CAPTION) + 2.0 * S4 + S6;
+            if let Some(r) = preview_hit(width, view.scale, want) {
+                let hot = view.mouse.is_some_and(|(mx, my)| inside(&r, mx, my));
+                g.round(r, if hot { ROW_HOVER } else { SURFACE }, Some(PRIMARY));
+                let close = rect(r.right - g.px(S6), r.top, r.right - g.px(S1), r.bottom);
+                g.text("×", close, T_BODY, semi, Face::Ui, PRIMARY, DT_CENTER);
+                let words = rect(r.left + g.px(S3), r.top, close.left, r.bottom);
+                g.caps(label, words, T_CAPTION, PRIMARY, DT_LEFT);
+                view.buttons.borrow_mut().push((Action::ExitPreview, r));
+            }
+        } else if let Some(r) = phone_hit(width, view.scale).filter(|_| view.phone_viewers > 0) {
+            // A phone is watching through the server: a small pill after the name.
             g.round(r, SURFACE, None);
             g.caps(&text(view.lang, &Msg::PanelPhone), r, T_CAPTION, PRIMARY, DT_CENTER);
         }

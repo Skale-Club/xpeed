@@ -575,7 +575,7 @@ fn drivers_field(player_slot: i32, drivers: &[u8], frame: &Frame) -> Option<Arc<
 /// What a frame can fill. Not given: the handbrake and the engine warning (not in the header), the tread left (no
 /// stated direction), the tank's size, the weather, the session kind, the sectors, the g forces, the air and track
 /// temperatures (none is read).
-const CAPS: Caps = Caps::LAP_TIME
+pub(crate) const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::LAST_LAP)
     .or(Caps::LAP_VALID)
     .or(Caps::DIST)

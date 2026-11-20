@@ -568,6 +568,11 @@ fn field_of(bytes: &[u8], frame: &Frame) -> Option<Arc<Field>> {
 /// beyond the invalidated flag. Project CARS gives none of what version 2 of the lap file asks of Automobilista 2
 /// (the session kind, sectors, g forces, weather, temperatures, compound), and no DRS or TC / ABS levels (they lie
 /// past Project CARS 2's struct).
+/// What the game with this id can fill (`"ams2"`, `"pcars2"`, `"pcars3"`), without the game running.
+pub(crate) fn caps_of_id(id: &str) -> Option<Caps> {
+    [AMS2, PCARS2, PCARS3].into_iter().find(|k| k.id == id).map(caps_of)
+}
+
 fn caps_of(kind: Kind) -> Caps {
     let shared = Caps::LAP_TIME
         .or(Caps::LAST_LAP)

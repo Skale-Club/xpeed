@@ -495,7 +495,7 @@ fn field_from(bytes: &[u8], frame: &Frame) -> Option<Arc<Field>> {
 
 /// What a frame can fill. The plugin exports no lights, flags, aids, brake bias, tyres, or engine and gearbox damage
 /// (the car's dents are the body damage), no tank size, no class place and no weather data.
-const CAPS: Caps = Caps::LAP_TIME
+pub(crate) const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::LAST_LAP)
     .or(Caps::DIST)
     .or(Caps::IN_PITS)

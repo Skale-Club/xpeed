@@ -477,6 +477,152 @@ impl Frame {
         c
     }
 
+    /// Clears every value outside `caps`, field by field as `filled` reads them: afterwards `filled()` is inside `caps`.
+    /// The panel's example uses it to show a made-up frame as one game would give it.
+    pub fn keep_only(&mut self, caps: Caps) {
+        let off = |cap: Caps| !caps.has(cap);
+        let nan = |v: &mut f32, cap: Caps| {
+            if off(cap) {
+                *v = f32::NAN;
+            }
+        };
+        if off(Caps::LAP_TIME) {
+            self.lap_time_s = None;
+        }
+        if off(Caps::LAST_LAP) {
+            self.last_lap_s = None;
+        }
+        if off(Caps::LAP_VALID) {
+            self.lap_valid = None;
+        }
+        if off(Caps::DIST) {
+            self.dist_m = None;
+        }
+        if off(Caps::IN_PITS) {
+            self.in_pits = false;
+        }
+        nan(&mut self.speed_ms, Caps::SPEED);
+        nan(&mut self.rpm, Caps::RPM);
+        nan(&mut self.gear, Caps::GEAR);
+        if off(Caps::GEARS) {
+            self.gears = None;
+        }
+        nan(&mut self.throttle, Caps::THROTTLE);
+        nan(&mut self.brake, Caps::BRAKE);
+        nan(&mut self.clutch, Caps::CLUTCH);
+        nan(&mut self.steer, Caps::STEER);
+        if off(Caps::POSITION) {
+            (self.x, self.y, self.z) = (f32::NAN, f32::NAN, f32::NAN);
+        }
+        nan(&mut self.fuel_l, Caps::FUEL);
+        if off(Caps::FUEL_CAPACITY) {
+            self.fuel_capacity_l = None;
+        }
+        if let Some(tyres) = &mut self.tyres {
+            for t in tyres.iter_mut() {
+                nan(&mut t.temp_c, Caps::TYRE_TEMP);
+                nan(&mut t.pressure_kpa, Caps::TYRE_PRESSURE);
+                nan(&mut t.left, Caps::TYRE_WEAR);
+                nan(&mut t.brake_c, Caps::BRAKE_TEMP);
+                if off(Caps::TYRE_TREAD) {
+                    t.tread_c = None;
+                }
+            }
+            let any = Caps::TYRE_TEMP
+                .or(Caps::TYRE_PRESSURE)
+                .or(Caps::TYRE_WEAR)
+                .or(Caps::BRAKE_TEMP)
+                .or(Caps::TYRE_TREAD);
+            if !Caps::ALL.iter().any(|(c, _)| any.has(*c) && caps.has(*c)) {
+                self.tyres = None;
+            }
+        }
+        if off(Caps::CAR_CLASS) {
+            self.car_class = None;
+        }
+        if off(Caps::TRACK_VARIANT) {
+            self.track_variant = None;
+        }
+        if off(Caps::TRACK_LENGTH) {
+            self.track_length_m = None;
+        }
+        if off(Caps::SECTORS) {
+            self.sectors_ms = [None; 2];
+        }
+        if off(Caps::SESSION_KIND) {
+            self.session_kind = None;
+        }
+        if off(Caps::WEATHER) {
+            self.weather = None;
+        }
+        if off(Caps::AIR_TEMP) {
+            self.air_temp_c = None;
+        }
+        if off(Caps::TRACK_TEMP) {
+            self.track_temp_c = None;
+        }
+        if off(Caps::TYRE_COMPOUND) {
+            self.tyre_compound = None;
+        }
+        if off(Caps::G_LAT) {
+            self.g_lat = None;
+        }
+        if off(Caps::G_LONG) {
+            self.g_long = None;
+        }
+        if off(Caps::RACE_POSITION) {
+            self.race_position = None;
+        }
+        if off(Caps::CLASS_POSITION) {
+            self.class_position = None;
+        }
+        if off(Caps::CARS) {
+            self.cars = None;
+        }
+        if off(Caps::SESSION_TIME_LEFT) {
+            self.session_time_left_s = None;
+        }
+        if off(Caps::SESSION_LAPS) {
+            self.session_laps = None;
+        }
+        if off(Caps::RIVALS) {
+            self.field = None;
+        } else if off(Caps::RIVALS_WORLD) {
+            if let Some(field) = &self.field {
+                let mut cars = field.cars.clone();
+                cars.iter_mut().for_each(|c| c.world = None);
+                self.field = Some(std::sync::Arc::new(crate::field::Field { cars, at_s: field.at_s }));
+            }
+        }
+        if off(Caps::SPOTTER) {
+            self.spotter = None;
+        }
+        let s = &mut self.state;
+        let clear = |on: bool, f: &mut dyn FnMut()| {
+            if !on {
+                f();
+            }
+        };
+        clear(caps.has(Caps::PIT_LIMITER), &mut || s.pit_limiter = None);
+        clear(caps.has(Caps::ABS_ACTIVE), &mut || s.abs_active = None);
+        clear(caps.has(Caps::TC_ACTIVE), &mut || s.tc_active = None);
+        clear(caps.has(Caps::DRS), &mut || s.drs = None);
+        clear(caps.has(Caps::HEADLIGHTS), &mut || s.headlights = None);
+        clear(caps.has(Caps::HANDBRAKE), &mut || s.handbrake = None);
+        clear(caps.has(Caps::ENGINE_WARNING), &mut || s.engine_warning = None);
+        clear(caps.has(Caps::FLAG), &mut || s.flag = None);
+        clear(caps.has(Caps::WATER_TEMP), &mut || s.water_c = None);
+        clear(caps.has(Caps::OIL_TEMP), &mut || s.oil_c = None);
+        clear(caps.has(Caps::TC_LEVEL), &mut || s.tc_level = None);
+        clear(caps.has(Caps::ABS_LEVEL), &mut || s.abs_level = None);
+        clear(caps.has(Caps::ENGINE_MAP), &mut || s.engine_map = None);
+        clear(caps.has(Caps::BRAKE_BIAS), &mut || s.brake_bias = None);
+        clear(caps.has(Caps::DAMAGE_BODY), &mut || s.damage_body = None);
+        clear(caps.has(Caps::DAMAGE_ENGINE), &mut || s.damage_engine = None);
+        clear(caps.has(Caps::DAMAGE_GEARBOX), &mut || s.damage_gearbox = None);
+        clear(caps.has(Caps::DAMAGE_SUSPENSION), &mut || s.damage_suspension = None);
+    }
+
     /// A frame that says nothing yet: every optional value missing. Sources fill in what their game has.
     pub fn empty() -> Frame {
         Frame {

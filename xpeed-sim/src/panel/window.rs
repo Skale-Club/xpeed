@@ -79,6 +79,8 @@ pub(super) struct State {
     pub(super) on_top: bool,
     /// Full screen: where the window was and its style, to put it back.
     pub(super) full: Option<(WINDOWPLACEMENT, isize)>,
+    /// The example of the dashboards (made-up driving, no game), while it is open.
+    pub(super) preview: Option<Preview>,
 }
 
 pub(super) fn scale_of(hwnd: HWND) -> f32 {
@@ -106,6 +108,10 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
     }
     let memory = state.buffer.as_ref().map_or(null_mut(), |b| b.dc);
 
+    // A game that starts driving takes the dashboard back from the example (an edit going on stays, on the real readings).
+    if state.preview.is_some() && dashboard_shown(state.ctx.shared.live().as_ref(), &state.ctx.shared.snapshot().game, now_ms()) {
+        state.preview = None;
+    }
     // Edit mode is for the dashboard tab with a game on it: leaving either drops the edit (nothing was saved).
     if state.edit.is_some() && (state.tab != Tab::Dash || waiting_now(state)) {
         state.edit = None;
@@ -115,8 +121,11 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         close_workspace(state);
     }
     let ctx = &state.ctx;
-    let snapshot = ctx.shared.snapshot();
-    let live = ctx.shared.live();
+    // The dashboard tab reads the example while it is open; the Monitor tab and the account always read the real program.
+    let real = ctx.shared.snapshot();
+    let feed = dash_feed(state);
+    let snapshot = if state.tab == Tab::Dash { feed.snapshot() } else { real.clone() };
+    let live = if state.tab == Tab::Dash { feed.live() } else { ctx.shared.live() };
     let games = game_rows(ctx, state.installed.as_ref());
     let account = lock(&ctx.account).clone();
     SHOWN_LANG.store(
@@ -165,7 +174,7 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         coach_available: !ctx.quit_on_close,
         server: &account.server,
         card: crate::connect::card(
-            matches!(snapshot.cloud, Cloud::Idle | Cloud::Waiting(_)),
+            matches!(real.cloud, Cloud::Idle | Cloud::Waiting(_)),
             &crate::connect::Flow::global().phase(),
             account.label.as_deref(),
         ),
@@ -179,7 +188,7 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         games_scroll: state.games_scroll,
         scroll: Default::default(),
         carousel_step: Default::default(),
-        dashboard: live.as_ref().and_then(|l| state.choices.get(l.game)),
+        dashboard: live.as_ref().and_then(|l| dash_choices(state).get(l.game)),
         views: &state.views,
         edit: state.edit.as_ref(),
         edit_xf: Default::default(),
@@ -195,6 +204,11 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         download_percent: ctx.shared.download_percent(),
         focus: focus_of(&ctx.shared.games()),
         played: ctx.shared.played(),
+        preview: state
+            .preview
+            .as_ref()
+            .filter(|_| state.tab == Tab::Dash)
+            .map(|p| p.label(account.lang)),
     };
     paint(memory, w, h, &view);
     state.layout = view.layout.get();
@@ -289,12 +303,27 @@ pub(super) unsafe fn copy_diagnostics(hwnd: HWND, state: &mut State) -> bool {
 /// elsewhere, left of the middle goes back one and right of it goes on one.
 pub(super) unsafe fn carousel_click(hwnd: HWND, state: &mut State, x: i32, y: i32) {
     let now = now_ms();
-    if let Some(&(Action::Cover(i), _)) = state.buttons.iter().find(|(_, r)| inside(r, x, y)) {
-        let steps = carousel_steps(state.carousel.target, i, state.covers.len());
-        if steps != 0 {
-            state.carousel.step(steps, now);
+    match state.buttons.iter().find(|(_, r)| inside(r, x, y)).map(|(action, _)| *action) {
+        Some(Action::Cover(i)) => {
+            let steps = carousel_steps(state.carousel.target, i, state.covers.len());
+            if steps != 0 {
+                state.carousel.step(steps, now);
+            }
+            return;
         }
-        return;
+        // The cover in the middle opens its game's example; the button under the carousel, every card's.
+        Some(Action::Preview(i)) => {
+            let game = state.covers.get(i).map(|c| (c.key, c.name));
+            if game.is_some() {
+                open_preview(state, game);
+            }
+            return;
+        }
+        Some(Action::PreviewAll) => {
+            open_preview(state, None);
+            return;
+        }
+        _ => {}
     }
     let mut client = rect(0, 0, 0, 0);
     GetClientRect(hwnd, &mut client);
@@ -311,7 +340,53 @@ pub(super) fn choose_lang(state: &mut State, lang: Lang) {
 /// The dashboard tab shows the waiting screen: no reading, or the game is gone (a game still connected keeps the
 /// dashboard up, dimmed, through a silence).
 pub(super) fn waiting_now(state: &State) -> bool {
-    state.tab == Tab::Dash && !dashboard_shown(state.ctx.shared.live().as_ref(), &state.ctx.shared.snapshot().game, now_ms())
+    let feed = dash_feed(state);
+    state.tab == Tab::Dash && !dashboard_shown(feed.live().as_ref(), &feed.snapshot().game, now_ms())
+}
+
+/// Where the dashboard tab's readings come from: the example while it is open, else the games.
+pub(super) fn dash_feed(state: &State) -> &Arc<Shared> {
+    state.preview.as_ref().map_or(&state.ctx.shared, |p| &p.shared)
+}
+
+/// The dashboards chosen by hand that the dashboard tab follows: the example's own while it is open (never saved), else the
+/// driver's (`dashboards.json`).
+pub(super) fn dash_choices(state: &State) -> &Choices {
+    state.preview.as_ref().map_or(&state.choices, |p| &p.choices)
+}
+
+/// The choices a change of dashboard goes to: the example's while it is open, else the driver's.
+fn dash_choices_mut(state: &mut State) -> &mut Choices {
+    match state.preview.as_mut() {
+        Some(preview) => &mut preview.choices,
+        None => &mut state.choices,
+    }
+}
+
+/// Keeps the driver's choices after one changed; the example's are only for while it is open.
+fn save_choices(state: &State) {
+    if state.preview.is_none() {
+        if let Some(home) = crate::config::home_dir() {
+            // Not being able to keep the choice only means it is forgotten at the next start.
+            let _ = state.choices.save(&home);
+        }
+    }
+}
+
+/// Opens the example: `game` is a cover's game (its dashboard, with only the cards it fills), `None` every card.
+pub(super) fn open_preview(state: &mut State, game: Option<(&'static str, &'static str)>) {
+    state.preview = Some(Preview::open(game));
+    state.tab = Tab::Dash;
+    state.edit = None;
+    close_workspace(state);
+}
+
+/// Closes the example, and an edit of it that was not saved (the waiting screen comes back).
+pub(super) fn close_preview(state: &mut State) {
+    if state.preview.take().is_some() {
+        state.edit = None;
+        close_workspace(state);
+    }
 }
 
 pub(super) unsafe fn toggle_full(hwnd: HWND, state: &mut State) {
@@ -613,6 +688,14 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
                             state.carousel.step(steps, now_ms());
                         }
                     }
+                    Action::Preview(i) => {
+                        let game = state.covers.get(i).map(|c| (c.key, c.name));
+                        if game.is_some() {
+                            open_preview(state, game);
+                        }
+                    }
+                    Action::PreviewAll => open_preview(state, None),
+                    Action::ExitPreview => close_preview(state),
                 }
             }
             InvalidateRect(hwnd, null(), 0);
@@ -765,7 +848,15 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
                 // D: race, qualifying, practice, time trial, automatic; kept for the game that is open.
                 0x44 => switch_dashboard(state),
                 VK_ESCAPE if state.lang_open => state.lang_open = false,
+                // Esc closes the example before it leaves full screen (the example is what was opened last).
+                VK_ESCAPE if state.preview.is_some() && state.tab == Tab::Dash => close_preview(state),
                 VK_ESCAPE if state.full.is_some() => toggle_full(hwnd, state),
+                // Enter on the waiting screen opens the example of the game in the middle of the carousel.
+                0x0d if waiting_now(state) && !state.covers.is_empty() => {
+                    let middle = (state.carousel.target).rem_euclid(state.covers.len() as i64) as usize;
+                    let game = state.covers.get(middle).map(|c| (c.key, c.name));
+                    open_preview(state, game);
+                }
                 // Left and right arrows move the covers' carousel.
                 0x25 => state.carousel.step(-1, now_ms()),
                 0x27 => state.carousel.step(1, now_ms()),
@@ -923,6 +1014,7 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             workspace_open: false,
             workspace_reset_until: 0,
             copied_at: 0,
+            preview: None,
         }));
         refresh_installed(&mut *state);
         // Only this window follows the screen's DPI; the thread goes back to how it was afterwards.
@@ -989,15 +1081,13 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
 
 /// `D`: the next dashboard for the game that is open, remembered in `dashboards.json`. Nothing without a game.
 fn switch_dashboard(state: &mut State) {
-    let Some(game) = state.ctx.shared.live().map(|l| l.game) else {
+    let Some(game) = dash_feed(state).live().map(|l| l.game) else {
         return;
     };
-    let next = next_manual(state.choices.get(game));
-    state.choices.set(game, next);
-    if let Some(home) = crate::config::home_dir() {
-        // Not being able to keep the choice only means it is forgotten at the next start.
-        let _ = state.choices.save(&home);
-    }
+    let choices = dash_choices_mut(state);
+    let next = next_manual(choices.get(game));
+    choices.set(game, next);
+    save_choices(state);
 }
 
 /// `E` or the header's pencil: edits the layout of the dashboard in use, in the window shape it is drawn in.
@@ -1005,10 +1095,10 @@ fn begin_edit(state: &mut State) {
     if state.tab != Tab::Dash || state.edit.is_some() || waiting_now(state) {
         return;
     }
-    let (Some(layout), Some(live)) = (state.layout, state.ctx.shared.live()) else {
+    let (Some(layout), Some(live)) = (state.layout, dash_feed(state).live()) else {
         return;
     };
-    let dashboard = pick(live.session_kind, state.choices.get(live.game));
+    let dashboard = pick(live.session_kind, dash_choices(state).get(live.game));
     state.edit = Some(EditUi::new(dashboard, layout, state.views.rows_for(dashboard, layout)));
     close_workspace(state);
 }
@@ -1023,8 +1113,8 @@ fn workspace_pill_hit(hwnd: HWND, state: &State, width: i32, x: i32, y: i32) -> 
 
 /// The workspace menu as it is now: the choice made by hand for the game that is open, the workspace on screen and the places.
 fn workspace_menu_now(hwnd: HWND, state: &State, width: i32) -> Option<WorkspaceMenu> {
-    let live = state.ctx.shared.live()?;
-    let manual = state.choices.get(live.game);
+    let live = dash_feed(state).live()?;
+    let manual = dash_choices(state).get(live.game);
     workspace_menu(width, scale_of(hwnd), manual, pick(live.session_kind, manual), &state.views)
 }
 
@@ -1049,17 +1139,14 @@ unsafe fn workspace_press(hwnd: HWND, state: &mut State, x: i32, y: i32) {
     };
     let (act, until) = workspace_click(&menu, x, y, now_ms(), state.workspace_reset_until);
     state.workspace_reset_until = until;
-    let live = state.ctx.shared.live();
+    let live = dash_feed(state).live();
     match act {
         WorkspaceAct::Keep => {}
         WorkspaceAct::Close => close_workspace(state),
         WorkspaceAct::Choose(_) => {
             if let Some(live) = live {
-                if workspace_apply(act, &mut state.choices, live.game) {
-                    if let Some(home) = crate::config::home_dir() {
-                        // Not being able to keep the choice only means it is forgotten at the next start.
-                        let _ = state.choices.save(&home);
-                    }
+                if workspace_apply(act, dash_choices_mut(state), live.game) {
+                    save_choices(state);
                 }
             }
             close_workspace(state);
@@ -1071,7 +1158,7 @@ unsafe fn workspace_press(hwnd: HWND, state: &mut State, x: i32, y: i32) {
         WorkspaceAct::Reset => {
             close_workspace(state);
             if let Some(live) = live {
-                let in_use = pick(live.session_kind, state.choices.get(live.game));
+                let in_use = pick(live.session_kind, dash_choices(state).get(live.game));
                 match reset_edit(&state.views, in_use, crate::config::home_dir().as_deref()) {
                     Ok(views) => state.views = views,
                     Err(why) => {

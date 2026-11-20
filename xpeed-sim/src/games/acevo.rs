@@ -515,7 +515,7 @@ fn field_from(g: &Page, car_ids: Option<&[u8]>, frame: &Frame) -> Option<Arc<Fie
 
 /// What `frame_from` reads. Not given: the tread left, the damage, the engine warning, the weather and temperatures of
 /// the air and track, the session kind, the sectors, the g forces, the car class.
-const CAPS: Caps = {
+pub(crate) const CAPS: Caps = {
     Caps::LAP_TIME
         .or(Caps::LAST_LAP)
         .or(Caps::LAP_VALID)
