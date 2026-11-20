@@ -1722,7 +1722,9 @@
       "90d": "Últimos 3 meses",
       "all": "Todo o período",
       "none": "Nenhuma viagem neste período."
-    }
+    },
+    "yourCar": "Seu carro ao longo do tempo",
+    "yourCarHint": "As leituras principais da última viagem e como mudaram de viagem em viagem."
   },
   "history": {
     "title": "Viagens",
@@ -1800,6 +1802,41 @@
     "fuelEconomy": "Média de consumo da viagem",
     "fuelUnavailable": "O carro não informou o consumo nesta viagem.",
     "fuelCostHint": "Informe o preço do combustível para ver quanto esta viagem custou."
+  },
+  "tripDash": {
+    "seconds": "{{count}} s",
+    "topSpeed": "Velocidade máxima",
+    "fuelUsed": "Combustível usado",
+    "partOfTrip": "Parte da viagem",
+    "speedTitle": "Velocidade",
+    "speedChart": "Velocidade ao longo da viagem",
+    "avg": "média",
+    "movingAvg": "Média em movimento",
+    "mixTitle": "Onde o tempo foi",
+    "mix": {
+      "stopped": "Parado",
+      "town": "Cidade · até {{v}} {{unit}}",
+      "road": "Estrada · {{a}}–{{b}} {{unit}}",
+      "motorway": "Rodovia · acima de {{v}} {{unit}}"
+    },
+    "stops": "Paradas",
+    "hardBrakes": "Freadas bruscas",
+    "hardAccels": "Arrancadas fortes",
+    "engineTitle": "Motor",
+    "startedWarm": "O motor já estava quente ({{temp}}).",
+    "warmAfter": "Esquentou depois de {{time}}.",
+    "neverWarm": "Não chegou a esquentar (máxima {{temp}}). Viagens curtas assim desgastam mais o motor.",
+    "coolantChart": "Temperatura do motor",
+    "warm": "quente",
+    "maxCoolant": "Temperatura máxima",
+    "maxRpm": "RPM máxima",
+    "idle": "Motor em marcha lenta",
+    "hybridTitle": "Sistema híbrido",
+    "electricShare": "do tempo em movimento foi só no elétrico, com o motor desligado",
+    "socChart": "Carga da bateria híbrida",
+    "socStartEnd": "Carga no início → fim",
+    "socRange": "Mínima – máxima",
+    "noSpeed": "Seu carro não informou a velocidade nesta viagem, então não há painel de velocidade."
   },
   "sharing": {
     "confirmTitle": "Criar um link público?",

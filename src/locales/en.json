@@ -1722,7 +1722,9 @@
       "90d": "Last 3 months",
       "all": "All time",
       "none": "No trips in this period."
-    }
+    },
+    "yourCar": "Your car over time",
+    "yourCarHint": "Key readings from your latest trip and how they changed trip after trip."
   },
   "history": {
     "title": "Trips",
@@ -1800,6 +1802,41 @@
     "fuelEconomy": "Trip fuel economy",
     "fuelUnavailable": "Your car didn't report fuel use on this trip.",
     "fuelCostHint": "Add a fuel price to see what this trip cost."
+  },
+  "tripDash": {
+    "seconds": "{{count}} s",
+    "topSpeed": "Top speed",
+    "fuelUsed": "Fuel used",
+    "partOfTrip": "Part of the trip",
+    "speedTitle": "Speed",
+    "speedChart": "Speed over the trip",
+    "avg": "average",
+    "movingAvg": "Average while moving",
+    "mixTitle": "Where the time went",
+    "mix": {
+      "stopped": "Standing",
+      "town": "Town · under {{v}} {{unit}}",
+      "road": "Road · {{a}}–{{b}} {{unit}}",
+      "motorway": "Motorway · over {{v}} {{unit}}"
+    },
+    "stops": "Stops",
+    "hardBrakes": "Sudden braking",
+    "hardAccels": "Hard acceleration",
+    "engineTitle": "Engine",
+    "startedWarm": "The engine was already warm ({{temp}}).",
+    "warmAfter": "Warmed up after {{time}}.",
+    "neverWarm": "Didn't fully warm up (highest {{temp}}). Short trips like this wear the engine more.",
+    "coolantChart": "Engine temperature",
+    "warm": "warm",
+    "maxCoolant": "Highest temperature",
+    "maxRpm": "Highest RPM",
+    "idle": "Engine idling",
+    "hybridTitle": "Hybrid system",
+    "electricShare": "of the time moving was electric only, with the engine off",
+    "socChart": "Hybrid battery charge",
+    "socStartEnd": "Charge at start → end",
+    "socRange": "Lowest – highest",
+    "noSpeed": "Your car didn't report its speed on this trip, so there is no speed dashboard."
   },
   "sharing": {
     "confirmTitle": "Make a public link?",

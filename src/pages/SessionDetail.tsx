@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  ArrowLeft, RefreshCw, Download, Loader2, CheckCircle2, ChevronDown, ChevronUp, Clock, Route, Gauge,
+  ArrowLeft, RefreshCw, Download, Loader2, CheckCircle2, ChevronDown, ChevronUp, Clock, Route, Gauge, Fuel, Sparkles,
 } from 'lucide-react';
 import { completeTripInspection } from '@/lib/trip-inspection';
 import AppLayout from '@/components/AppLayout';
@@ -36,6 +36,9 @@ import type { Session, SessionFlag, SessionRow, SessionSummary } from '@/types/s
 import { TripFuelCost } from '@/components/FuelSummary';
 import { readFuelMetrics } from '@/lib/fuel-ledger';
 import { tripFuel } from '@/lib/trip-fuel';
+import { analyseTrip } from '@/lib/trip-analysis';
+import { TripDashboards, TripStats, type TripStat } from '@/components/trip/TripDashboards';
+import type { EngineType } from '@/lib/db';
 
 type SessionWithStoredCsv = Session & { source_csv?: string | null; active_dtcs?: string[] | null };
 
@@ -56,6 +59,7 @@ export default function SessionDetail() {
   const [flags, setFlags] = useState<SessionFlag[]>([]);
   const [rows, setRows] = useState<SessionRow[]>([]);
   const [rules, setRules] = useState<DefaultRule[]>([]);
+  const [engineType, setEngineType] = useState<EngineType | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [downloadingCsv, setDownloadingCsv] = useState(false);
@@ -76,6 +80,7 @@ export default function SessionDetail() {
       // Same car-specific rules as when the trip was saved (not always the Prius ones).
       const car = trip?.car_profile_id ? await getCarById(trip.car_profile_id) : null;
       setRules(resolveRulesetForCar(car).rules);
+      setEngineType((car as { engine_type?: EngineType | null } | null)?.engine_type ?? null);
     } catch (err) {
       // A network error is not "trip not found": say so and let the owner retry.
       console.error('Could not load the trip:', err);
@@ -86,6 +91,11 @@ export default function SessionDetail() {
   }, [id]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const analysis = useMemo(() => {
+    const mapping = (session?.summary as { headerMapping?: Record<string, { canonical_key: string } | null> } | null)?.headerMapping ?? {};
+    return analyseTrip(rows, mapping, { hybrid: engineType === 'hybrid' });
+  }, [rows, session?.summary, engineType]);
 
   const handleRecompute = useCallback(async () => {
     if (!id || !session || recomputing) return;
@@ -171,15 +181,17 @@ export default function SessionDetail() {
   const fuelEfficiency = enoughFuel && (!metrics || metrics.distanceCoverage >= .9) && fuel && fuel.litres > 0 && distance != null && distance > 0
     ? `${fuelEconomy(distance / fuel.litres, consumptionUnit)!.toFixed(1)} ${economyLabel(consumptionUnit)}`
     : null;
-  const facts = [
+  const speedText = (kmh: number | null) => kmh == null ? null : `${Math.round(distanceUnit === 'mi' ? kmh * 0.621371 : kmh)} ${distanceUnit === 'mi' ? 'mph' : 'km/h'}`;
+  const fuelText = fuelAmount == null ? null : `${fuelAmount.toLocaleString(i18n.resolvedLanguage, { maximumFractionDigits: 2 })} ${fuelUnit}`;
+  const stats = ([
     { icon: Clock, label: t('tripDetail.duration', 'Duration'), value: formatDuration(session.duration_seconds) },
-    { icon: Route, label: t('tripDetail.distance', 'Distance'), value: formatDistance(tripDistanceKm(session), distanceUnit) },
-    {
-      icon: Gauge,
-      label: t('tripDetail.avgSpeed', 'Average speed'),
-      value: avgSpeed == null ? null : `${Math.round(distanceUnit === 'mi' ? avgSpeed * 0.621371 : avgSpeed)} ${distanceUnit === 'mi' ? 'mph' : 'km/h'}`,
-    },
-  ].filter((f) => f.value);
+    { icon: Route, label: t('tripDetail.distance', 'Distance'), value: formatDistance(distance, distanceUnit) },
+    { icon: Gauge, label: t('tripDetail.avgSpeed', 'Average speed'), value: speedText(avgSpeed) },
+    { icon: Gauge, label: t('tripDash.topSpeed', 'Top speed'), value: speedText(analysis.topSpeed) },
+    fuelEfficiency
+      ? { icon: Fuel, label: t('tripDetail.fuelEconomy', 'Trip fuel economy'), value: fuelEfficiency, hint: fuelText }
+      : { icon: Fuel, label: t('tripDash.fuelUsed', 'Fuel used'), value: fuelText, hint: fuel && !enoughFuel ? t('tripDash.partOfTrip', 'Part of the trip') : null },
+  ] as (Omit<TripStat, 'value'> & { value: string | null })[]).filter((f): f is TripStat => !!f.value);
 
   return (
     <AppLayout refreshDisabled={attachmentDraft}>
@@ -194,36 +206,39 @@ export default function SessionDetail() {
           </div>
         </div>
 
-        {/* 1. Summary */}
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            {facts.length > 0 && (
-              <div className="grid grid-cols-3 gap-2">
-                {facts.map(({ icon: Icon, label, value }) => (
-                  <div key={label} className="text-center">
-                    <Icon className="w-4 h-4 mx-auto text-muted-foreground" />
-                    <p className="font-semibold tabular-nums">{value}</p>
-                    <p className="text-2xs text-muted-foreground">{label}</p>
-                  </div>
-                ))}
+        {/* 1. The trip at a glance */}
+        <TripStats stats={stats} />
+        {(aiSummary || analysisOutdated) && (
+          <Card>
+            <CardContent className="flex gap-3 p-4">
+              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+              <div className="space-y-1">
+                {aiSummary && <p className="text-sm leading-relaxed">{aiSummary}</p>}
+                {analysisOutdated && <p className="text-sm text-muted-foreground">{t('tripDetail.analysisOutdated', 'The summary below is from before the new check.')}</p>}
               </div>
-            )}
-            {aiSummary && <p className="text-sm leading-relaxed">{aiSummary}</p>}
-            {analysisOutdated && <p className="text-sm text-muted-foreground">{t('tripDetail.analysisOutdated', 'The summary below is from before the new check.')}</p>}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
-        {/* 2. Problems in this trip */}
-        <Card><CardContent className="space-y-2 p-4">
-          <h3 className="font-semibold">{t('tripDetail.fuelTitle', 'Fuel consumption')}</h3>
-          {fuel ? <>
-            <p className="text-xl font-semibold tabular-nums">{fuelAmount!.toLocaleString(i18n.resolvedLanguage, { maximumFractionDigits: 2 })} {fuelUnit}</p>
-            <p className="text-xs text-muted-foreground">{t('tripDetail.fuelMeasured', 'Worked out from the fuel your car reported ({{coverage}} of the trip).', { coverage: fuel.coverage == null ? '—' : `${Math.round(fuel.coverage * 100)}%` })}</p>
-            {!enoughFuel && <p className="text-xs text-warn">{t('tripDetail.fuelPartial', 'Only part of this trip was recorded, so this is the fuel for that part.')}</p>}
-            {fuelEfficiency && <p className="font-medium">{t('tripDetail.fuelEconomy', 'Trip fuel economy')}: {fuelEfficiency}</p>}
-          </> : <p className="text-sm text-muted-foreground">{t('tripDetail.fuelUnavailable', 'Your car didn\'t report fuel use on this trip.')}</p>}
-          <TripFuelCost key={session.id} session={session} />
-        </CardContent></Card>
+        {/* 2. Dashboards: speed and driving, engine, hybrid system, fuel */}
+        <TripDashboards
+          analysis={analysis}
+          avgSpeed={avgSpeed}
+          extraCards={[
+            <Card key="fuel" className="h-full"><CardContent className="space-y-2 p-4">
+              <h3 className="flex items-center gap-2 font-semibold"><Fuel className="h-4 w-4 text-muted-foreground" aria-hidden="true" />{t('tripDetail.fuelTitle', 'Fuel consumption')}</h3>
+              {fuel ? <>
+                <p className="text-xl font-semibold tabular-nums">{fuelText}</p>
+                <p className="text-xs text-muted-foreground">{t('tripDetail.fuelMeasured', 'Worked out from the fuel your car reported ({{coverage}} of the trip).', { coverage: fuel.coverage == null ? '—' : `${Math.round(fuel.coverage * 100)}%` })}</p>
+                {!enoughFuel && <p className="text-xs text-warn">{t('tripDetail.fuelPartial', 'Only part of this trip was recorded, so this is the fuel for that part.')}</p>}
+                {fuelEfficiency && <p className="font-medium">{t('tripDetail.fuelEconomy', 'Trip fuel economy')}: {fuelEfficiency}</p>}
+              </> : <p className="text-sm text-muted-foreground">{t('tripDetail.fuelUnavailable', "Your car didn't report fuel use on this trip.")}</p>}
+              <TripFuelCost key={session.id} session={session} />
+            </CardContent></Card>,
+          ]}
+        />
+
+        {/* 3. Problems in this trip */}
         <div className="space-y-2">
           <h3 className="font-semibold">{t('tripDetail.problemsTitle', 'Problems in this trip')}</h3>
           {problems.length === 0 ? (

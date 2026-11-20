@@ -1722,7 +1722,9 @@
       "90d": "Últimos 3 meses",
       "all": "Todo el tiempo",
       "none": "Ningún viaje en este periodo."
-    }
+    },
+    "yourCar": "Tu coche a lo largo del tiempo",
+    "yourCarHint": "Las lecturas clave de tu último viaje y cómo cambiaron de un viaje a otro."
   },
   "history": {
     "title": "Viajes",
@@ -1800,6 +1802,41 @@
     "fuelEconomy": "Consumo medio del viaje",
     "fuelUnavailable": "El coche no informó el consumo en este viaje.",
     "fuelCostHint": "Indica el precio del combustible para ver cuánto costó este viaje."
+  },
+  "tripDash": {
+    "seconds": "{{count}} s",
+    "topSpeed": "Velocidad máxima",
+    "fuelUsed": "Combustible usado",
+    "partOfTrip": "Parte del viaje",
+    "speedTitle": "Velocidad",
+    "speedChart": "Velocidad a lo largo del viaje",
+    "avg": "media",
+    "movingAvg": "Media en movimiento",
+    "mixTitle": "En qué se fue el tiempo",
+    "mix": {
+      "stopped": "Parado",
+      "town": "Ciudad · hasta {{v}} {{unit}}",
+      "road": "Carretera · {{a}}–{{b}} {{unit}}",
+      "motorway": "Autovía · más de {{v}} {{unit}}"
+    },
+    "stops": "Paradas",
+    "hardBrakes": "Frenazos",
+    "hardAccels": "Acelerones",
+    "engineTitle": "Motor",
+    "startedWarm": "El motor ya estaba caliente ({{temp}}).",
+    "warmAfter": "Se calentó tras {{time}}.",
+    "neverWarm": "No llegó a calentarse del todo (máxima {{temp}}). Los viajes cortos así desgastan más el motor.",
+    "coolantChart": "Temperatura del motor",
+    "warm": "caliente",
+    "maxCoolant": "Temperatura máxima",
+    "maxRpm": "RPM máximas",
+    "idle": "Motor al ralentí",
+    "hybridTitle": "Sistema híbrido",
+    "electricShare": "del tiempo en movimiento fue solo eléctrico, con el motor apagado",
+    "socChart": "Carga de la batería híbrida",
+    "socStartEnd": "Carga al inicio → final",
+    "socRange": "Mínima – máxima",
+    "noSpeed": "Tu coche no informó de la velocidad en este viaje, así que no hay panel de velocidad."
   },
   "sharing": {
     "confirmTitle": "¿Crear un enlace público?",
