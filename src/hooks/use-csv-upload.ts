@@ -132,7 +132,7 @@ export async function ingestSessionCsv(
     }
 
     updateProgress(55, 'Saving session...');
-    const summary = { faultCodes: faultCodes ?? null, fuel: calculateFuelMetrics(parsed), summaries, headerMapping: parsed.headerMapping, timeColumn: parsed.timeColumn, rulesetId: ruleset.id, rulesetMatchedVia: ruleset.matched_via };
+    const summary = { faultCodes: faultCodes ?? null, fuel: calculateFuelMetrics(parsed, car?.engine_type), summaries, headerMapping: parsed.headerMapping, timeColumn: parsed.timeColumn, rulesetId: ruleset.id, rulesetMatchedVia: ruleset.matched_via };
     const session = recording ? { id: recording.sessionId } : await createSession(
       carProfileId,
       customName || file.name,
@@ -140,7 +140,7 @@ export async function ingestSessionCsv(
       parsed.headers,
       {
         faultCodes: faultCodes ?? null,
-        fuel: calculateFuelMetrics(parsed),
+        fuel: calculateFuelMetrics(parsed, car?.engine_type),
         summaries,
         headerMapping: parsed.headerMapping,
         timeColumn: parsed.timeColumn,

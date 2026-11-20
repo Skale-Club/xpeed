@@ -13,3 +13,5 @@ export async function listFuelEntries(carId: string): Promise<FuelEntry[]> { ret
 export async function saveFuelEntry(carId: string, entry: Omit<FuelEntry, 'id'>, intent?: string): Promise<FuelEntry> { return fuelRequest(carId, 'POST', entry, undefined, intent); }
 export async function deleteFuelEntry(carId: string, id: string) { return fuelRequest(carId, 'DELETE', undefined, id); }
 export async function calculateSavedFuel(carId: string, sessionId: string): Promise<FuelMetrics> { return (await fuelRequest(carId, 'POST', { action: 'reprocess', sessionId })).fuel; }
+/** Works out only the trip's fuel again from its original readings; the rest of the trip is left as it is. */
+export async function recalculateTripFuel(carId: string, sessionId: string): Promise<FuelMetrics> { return (await fuelRequest(carId, 'POST', { action: 'calculate', sessionId })).fuel; }

@@ -61,7 +61,7 @@ export default async function handler(req: Request): Promise<Response> {
           if (processed.error) throw processed.error;
           return reply({ fuel: payload.summary.fuel });
         }
-        const fuel = calculateFuelMetrics(parseCSV(csv));
+        const fuel = calculateFuelMetrics(parseCSV(csv), car.data.engine_type);
         // Compare-and-swap preserves analysis or other summary fields changed during calculation.
         for (let attempt = 0; attempt < 3; attempt++) {
           const current = await db.from('sessions').select('summary').eq('id', input.sessionId).eq('user_id', userId).maybeSingle();

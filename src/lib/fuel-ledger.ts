@@ -72,6 +72,16 @@ export function aggregateFuel(sessions: Session[], entries: FuelEntry[], group: 
 export function fuelPriceAt(entries: FuelEntry[], at: string) {
   return entries.filter((item) => Date.parse(item.at) <= Date.parse(at)).sort((a, b) => b.at.localeCompare(a.at))[0] ?? null;
 }
+/**
+ * The price a trip is costed at: the one known at the time, or, for trips from before the owner saved any
+ * price, the first price they saved (`later`), so setting a price once prices the trips already recorded.
+ */
+export function tripPrice(entries: FuelEntry[], at: string): { price: FuelEntry | null; later: boolean } {
+  const known = fuelPriceAt(entries, at);
+  if (known) return { price: known, later: false };
+  const first = entries.slice().sort((a, b) => a.at.localeCompare(b.at))[0] ?? null;
+  return { price: first, later: !!first };
+}
 export interface TankInterval { at: string; km: number; litres: number; kmPerLitre: number }
 export function tankIntervals(entries: FuelEntry[]): TankInterval[] {
   const fills = entries.filter((item) => item.kind === 'fill').slice().sort((a, b) => a.at.localeCompare(b.at));
@@ -108,15 +118,22 @@ export function coveredTripDistance(session: Pick<Session,'summary'|'duration_se
     || typeof speed.duration_seconds !== 'number' || speed.duration_seconds < session.duration_seconds * .9) return null;
   return speed.avg * session.duration_seconds / 3600;
 }
-export function tripFuelEstimate(session: Session, entries: FuelEntry[]) {
+/**
+ * Fuel and cost of one trip. `measured` is fuel worked out from the trip's stored readings on the trip page
+ * (trips saved before the air-flow estimate existed have none in their summary).
+ */
+export function tripFuelEstimate(session: Session, entries: FuelEntry[], measured?: { litres: number; coverage: number | null; method?: 'fuel_rate' | 'air_flow' } | null) {
   const at = session.session_start ?? session.uploaded_at;
   const metrics = readFuelMetrics(session);
   const distance = coveredTripDistance(session);
   const baseline = tankIntervals(entries).filter((item) => item.at <= at).at(-1);
-  const calculated = metrics?.litres != null && metrics.coverage >= 0.9;
-  const litres = calculated ? metrics.litres : baseline && distance != null && distance >= 0 ? distance / baseline.kmPerLitre : null;
-  const price = fuelPriceAt(entries, at);
-  return { litres, distance, source: calculated ? 'calculated' as const : litres != null ? 'estimated' as const : 'unavailable' as const, price, cost: litres != null && price ? litres * price.pricePerLitre : null, coverage: metrics?.coverage ?? 0, baseline };
+  const stored = metrics?.litres != null && metrics.coverage >= 0.9;
+  const fresh = !stored && measured != null && measured.coverage != null && measured.coverage >= 0.9;
+  const calculated = stored || fresh;
+  const litres = stored ? metrics!.litres : fresh ? measured!.litres : baseline && distance != null && distance >= 0 ? distance / baseline.kmPerLitre : null;
+  const method = stored ? metrics!.method ?? 'fuel_rate' : fresh ? measured!.method ?? 'fuel_rate' : null;
+  const { price, later: priceLater } = tripPrice(entries, at);
+  return { litres, distance, method, source: calculated ? 'calculated' as const : litres != null ? 'estimated' as const : 'unavailable' as const, price, priceLater, cost: litres != null && price ? litres * price.pricePerLitre : null, coverage: metrics?.coverage ?? 0, baseline };
 }
 
 export interface FuelComparison { deltaPct: number; currentCount: number; previousCount: number; period: string; bucket: string }

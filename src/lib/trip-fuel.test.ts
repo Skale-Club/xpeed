@@ -17,3 +17,12 @@ it('uses civil days in the selected timezone, including midnight crossings', () 
   expect(tripDayKey(new Date('2026-11-01T01:00:00Z'), 'America/New_York')).toBe('2026-10-31');
   expect(tripDayKey(new Date('2026-11-01T01:00:00Z'), 'UTC')).toBe('2026-11-01');
 });
+it('falls back to the air flow on petrol and hybrid cars only', () => {
+  const air = (t: number, gs: number) => ({ t_seconds: t, data: { 'Mass air flow (g/s)': gs } });
+  const rows = [air(0, 10), air(10, 10), air(20, 10)];
+  expect(tripFuel(rows, [], 20, 'hybrid')).toMatchObject({ method: 'air_flow', coverage: 1 });
+  expect(tripFuel(rows, [], 20, 'hybrid')!.litres).toBeCloseTo(10 / (14.7 * 745) * 20);
+  expect(tripFuel(rows, [], 20, 'diesel')).toBeNull();
+  expect(tripFuel(rows, [], 20)).toBeNull();
+  expect(tripFuel([row(0, 6), row(30, 6)], [], 30, 'hybrid')?.method).toBe('fuel_rate');
+});

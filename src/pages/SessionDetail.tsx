@@ -173,7 +173,10 @@ export default function SessionDetail() {
   const aiSummary = !analysisOutdated && typeof session.gemini_analysis?.summary === 'string' ? session.gemini_analysis.summary : null;
   const avgSpeed = tripAverageSpeed(session);
   const metrics = readFuelMetrics(session);
-  const fuel = metrics?.litres != null ? { litres: metrics.litres, coverage: metrics.coverage } : tripFuel(rows, summaries, session.duration_seconds);
+  // Stored fuel first; trips saved before the air-flow estimate are worked out here from their readings.
+  const fuel = metrics?.litres != null
+    ? { litres: metrics.litres, coverage: metrics.coverage, method: metrics.method ?? 'fuel_rate' as const }
+    : tripFuel(rows, summaries, session.duration_seconds, engineType);
   const distance = tripDistanceKm(session);
   const enoughFuel = fuel?.coverage != null && fuel.coverage >= 0.9;
   const fuelUnit = volumeUnit;
@@ -229,11 +232,13 @@ export default function SessionDetail() {
               <h3 className="flex items-center gap-2 font-semibold"><Fuel className="h-4 w-4 text-muted-foreground" aria-hidden="true" />{t('tripDetail.fuelTitle', 'Fuel consumption')}</h3>
               {fuel ? <>
                 <p className="text-xl font-semibold tabular-nums">{fuelText}</p>
-                <p className="text-xs text-muted-foreground">{t('tripDetail.fuelMeasured', 'Worked out from the fuel your car reported ({{coverage}} of the trip).', { coverage: fuel.coverage == null ? '—' : `${Math.round(fuel.coverage * 100)}%` })}</p>
+                <p className="text-xs text-muted-foreground">{fuel.method === 'air_flow'
+                  ? t('tripDetail.fuelAirFlow', "Your car doesn't report fuel use, so this is worked out from the engine's air flow ({{coverage}} of the trip).", { coverage: fuel.coverage == null ? '—' : `${Math.round(fuel.coverage * 100)}%` })
+                  : t('tripDetail.fuelMeasured', 'Worked out from the fuel your car reported ({{coverage}} of the trip).', { coverage: fuel.coverage == null ? '—' : `${Math.round(fuel.coverage * 100)}%` })}</p>
                 {!enoughFuel && <p className="text-xs text-warn">{t('tripDetail.fuelPartial', 'Only part of this trip was recorded, so this is the fuel for that part.')}</p>}
                 {fuelEfficiency && <p className="font-medium">{t('tripDetail.fuelEconomy', 'Trip fuel economy')}: {fuelEfficiency}</p>}
               </> : <p className="text-sm text-muted-foreground">{t('tripDetail.fuelUnavailable', "Your car didn't report fuel use on this trip.")}</p>}
-              <TripFuelCost key={session.id} session={session} />
+              <TripFuelCost key={session.id} session={session} measured={fuel} />
             </CardContent></Card>,
           ]}
         />
