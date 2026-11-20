@@ -421,9 +421,9 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             s("Tardó demasiado. Haz clic en Conectar otra vez."),
         ),
         ConnectWhy => t(
-            s("Your laps stay on this PC until you connect."),
-            s("Suas voltas ficam neste PC até você conectar."),
-            s("Tus vueltas se quedan en este PC hasta que conectes."),
+            s("Your laps stay on this PC until you connect"),
+            s("Suas voltas ficam neste PC até você conectar"),
+            s("Tus vueltas se quedan en este PC hasta que conectes"),
         ),
         MonitorWord(game) => match game {
             Game::Recording(_) => t(s("RECORDING"), s("GRAVANDO"), s("GRABANDO")),
