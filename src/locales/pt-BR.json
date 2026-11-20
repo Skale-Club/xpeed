@@ -2954,6 +2954,26 @@
     "validOf": "{{valid}} de {{laps}}",
     "yourBest": "Seu melhor"
   },
+  "phoneLive": {
+    "title": "Ao vivo no seu celular",
+    "back": "Voltar ao Xpeed Companion",
+    "stateLive": "Ao vivo",
+    "stateWaiting": "Esperando o Companion",
+    "stateReconnecting": "Reconectando",
+    "stateConnecting": "Conectando",
+    "waitingTitle": "Esperando o Companion",
+    "waitingBody": "Abra um jogo com “Mostrar o painel no meu celular” ligado no menu da bandeja do Companion.",
+    "reconnectingBanner": "A conexão caiu. Tentando de novo…",
+    "dashboards": {
+      "race": "Corrida",
+      "qualifying": "Classificação",
+      "practice": "Treino",
+      "time_trial": "Contra o relógio"
+    },
+    "cardTitle": "Abra no seu celular",
+    "cardBody": "Veja o painel do Companion ao vivo no celular enquanto você dirige. No menu da bandeja do Companion, ligue “Mostrar o painel no meu celular” e abra esta página no celular.",
+    "cardOpen": "Abrir a visão do celular"
+  },
   "communityDash": {
     "companion": {
       "online": "Online",

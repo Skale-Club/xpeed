@@ -38,6 +38,7 @@ const IssuesPage = lazy(() => import("./pages/IssuesPage"));
 const SimPage = lazy(() => import("./pages/SimPage"));
 const SimComparePage = lazy(() => import("./pages/SimComparePage"));
 const SimAppPage = lazy(() => import("./pages/SimAppPage"));
+const SimLivePage = lazy(() => import("./pages/SimLivePage"));
 const SimConnectPage = lazy(() => import("./pages/SimConnectPage"));
 const SimSessionsPage = lazy(() => import("./pages/SimSessionsPage"));
 const SimSessionPage = lazy(() => import("./pages/SimSessionPage"));
@@ -187,6 +188,8 @@ const router = createBrowserRouter(createRoutesFromElements(
         {/* Profile and Privacy are reached from Settings, not from the menu: they need routes of their own. */}
         {/* The Companion page: reached from Settings (and from the links that invite to connect), not from the menu. */}
         <Route path="/virtual/companion" element={<SimAppPage />} />
+        {/* The phone view: the Companion's dashboard, live, full screen (opened from the Companion page). */}
+        <Route path="/virtual/live" element={<SimLivePage />} />
         <Route path="/virtual/profile" element={<SocialProfilePage />} />
         <Route path="/virtual/privacy" element={<SocialPrivacyPage />} />
       </Route>
