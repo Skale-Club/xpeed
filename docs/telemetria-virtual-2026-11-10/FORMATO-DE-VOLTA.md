@@ -25,9 +25,11 @@ O tamanho total tem de ser exatamente `12 + N + canais × sampleCount × 4`. Sob
 |---|---|---|
 | `game` | texto | Id do jogo em minúsculas (`lmu`, `acc`, `ac`…), `^[a-z][a-z0-9_]{0,31}$` |
 | `track.name` | texto | 1 a 120 caracteres |
+| `track.title` | texto, opcional (versão 2) | 1 a 120. O nome que as pessoas conhecem, quando `track.name` é o nome da pasta do jogo (Assetto Corsa: `ks_laguna_seca` → "Laguna Seca"). `name` continua sendo a identidade (mapa da pista, catálogo); o servidor usa o título só para exibir |
 | `track.variant` | texto, opcional | 1 a 120 |
 | `track.lengthM` | número, opcional | Maior que 0 e até 100000 |
 | `car.name` | texto | 1 a 120 caracteres |
+| `car.title` | texto, opcional (versão 2) | 1 a 120. Idem para o carro (`ks_porsche_macan` → "Porsche Macan Turbo") |
 | `car.class` | texto, opcional | 1 a 60 |
 | `lap.number` | inteiro | 0 a 100000 |
 | `lap.timeMs` | inteiro | Milissegundos, 0 a 86400000 |
