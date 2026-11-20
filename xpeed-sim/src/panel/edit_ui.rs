@@ -427,6 +427,7 @@ pub(super) fn edit_remove_rect((x, y, w, _): Area) -> Area {
 }
 
 /// The line of a card where its caption (and a figure or a word at its right) is drawn: the first line of the card's inside.
+#[cfg(test)]
 pub(super) fn card_title_line(area: Area) -> Area {
     let (x, y, w, _) = inner(area);
     (x, y, w, CAPTION_H)
