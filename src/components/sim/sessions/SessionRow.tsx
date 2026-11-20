@@ -14,6 +14,7 @@ import type { V1Pb, V1Session } from '@/lib/sim/v1-client';
 import { CHART_PALETTE } from '@/lib/chart-palette';
 import { GameBadge, KindBadge } from '../session-bits';
 import { SimCarIdentity } from '../SimCarIdentity';
+import { TrackLayoutThumb } from '../TrackLayoutThumb';
 import { useDashFormat } from '../overview/use-format';
 import { useConditions } from '../use-session-text';
 import { useInView } from './use-in-view';
@@ -79,9 +80,12 @@ function SessionRowView({ session, pb, pbsReady }: { session: V1Session; pb: V1P
             <div className="min-w-0 flex-1 space-y-2.5">
               {/* On a phone the game and the kind get their own line above the track, so the track name is never squeezed to a few letters. */}
               <div className="flex flex-col-reverse gap-1.5 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
-                <div className="min-w-0">
-                  <h3 className="truncate text-sm font-semibold sm:text-base">{session.track.name}</h3>
-                  <SimCarIdentity name={session.car.name} className="text-sm text-muted-foreground" />
+                <div className="flex min-w-0 items-center gap-3">
+                  <TrackLayoutThumb trackId={session.track.id} name={session.track.name} className="h-11 w-11" />
+                  <div className="min-w-0">
+                    <h3 className="truncate text-sm font-semibold sm:text-base">{session.track.name}</h3>
+                    <SimCarIdentity name={session.car.name} className="text-sm text-muted-foreground" />
+                  </div>
                 </div>
                 <div className="flex min-w-0 shrink-0 items-center gap-1.5">
                   <GameBadge game={session.game} cover={false} />

@@ -10,6 +10,7 @@ import { useSessions, type SessionFilters } from '@/lib/sim/v1-client';
 import { Panel, Quiet } from './overview/parts';
 import { KindBadge } from './session-bits';
 import { SimCarIdentity } from './SimCarIdentity';
+import { TrackLayoutThumb } from './TrackLayoutThumb';
 import { useWhen } from './use-when';
 
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -54,15 +55,18 @@ export function LatestSessions({ filters, listTo, hide }: { filters: SessionFilt
           {shown.map((session) => (
             <li key={session.id} data-testid="latest-session">
               <Link to={sessionPath(session.id)} className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2 hover:bg-muted/40 ${FOCUS}`}>
-                <div className="min-w-0 space-y-1">
-                  <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                    {hide === 'track' ? <SimCarIdentity name={session.car.name} /> : <span className="truncate">{session.track.name}</span>}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <KindBadge kind={session.kind} />
-                    <span className="text-xs text-muted-foreground">
-                      {when(Date.parse(session.startedAt))} · {t('modes.sessions.lapCount', 'Laps: {{count}}', { count: session.lapCount })}
-                    </span>
+                <div className="flex min-w-0 items-center gap-3">
+                  {hide !== 'track' && <TrackLayoutThumb trackId={session.track.id} name={session.track.name} className="h-10 w-10" />}
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                      {hide === 'track' ? <SimCarIdentity name={session.car.name} /> : <span className="truncate">{session.track.name}</span>}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <KindBadge kind={session.kind} />
+                      <span className="text-xs text-muted-foreground">
+                        {when(Date.parse(session.startedAt))} · {t('modes.sessions.lapCount', 'Laps: {{count}}', { count: session.lapCount })}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 <span className="flex items-center gap-1">

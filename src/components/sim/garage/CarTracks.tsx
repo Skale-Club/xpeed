@@ -9,6 +9,7 @@ import { compareUrl } from '@/lib/sim/compare-url';
 import { signedSeconds, type TrackConsistency, type TrackRow } from '@/lib/sim/garage';
 import { trackPath } from '@/lib/sim/routes';
 import { Panel, Quiet } from '../overview/parts';
+import { TrackLayoutThumb } from '../TrackLayoutThumb';
 import { useWhen } from '../use-when';
 
 /**
@@ -39,9 +40,14 @@ export function CarTracks({ rows, pbsReady }: { rows: readonly TrackRow[]; pbsRe
             <tbody className="divide-y divide-border">
               {rows.map((entry) => (
                 <tr key={entry.track.id} className="hover:bg-muted/40" data-testid="best-track-row">
-                  <td className="max-w-[9rem] py-2 pr-2 align-middle sm:max-w-[18rem] sm:pr-3">
-                    <Link to={trackPath(entry.track.id)} className="line-clamp-2 break-words rounded-sm font-medium sm:block sm:line-clamp-none sm:truncate hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="best-track-link">{entry.track.name}</Link>
-                    {entry.bestMs === null && <p className="mt-0.5 text-xs text-muted-foreground">{t('garageDash.noValidYet', 'No valid lap yet')}</p>}
+                  <td className="max-w-[11rem] py-2 pr-2 align-middle sm:max-w-[22rem] sm:pr-3">
+                    <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                      <TrackLayoutThumb trackId={entry.track.id} name={entry.track.name} className="h-8 w-8 sm:h-10 sm:w-10" />
+                      <div className="min-w-0">
+                        <Link to={trackPath(entry.track.id)} className="line-clamp-2 break-words rounded-sm font-medium sm:block sm:line-clamp-none sm:truncate hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="best-track-link">{entry.track.name}</Link>
+                        {entry.bestMs === null && <p className="mt-0.5 text-xs text-muted-foreground">{t('garageDash.noValidYet', 'No valid lap yet')}</p>}
+                      </div>
+                    </div>
                   </td>
                   <td className="whitespace-nowrap py-2 pr-3 text-right align-middle font-mono tabular-nums" data-testid="best-track-time">{entry.bestMs !== null ? formatLapTime(entry.bestMs) : '–'}</td>
                   <td className="whitespace-nowrap py-2 pr-3 text-right align-middle font-mono text-xs tabular-nums" data-testid="best-track-gap">
@@ -99,17 +105,20 @@ export function CarConsistency({ rows, loading, capped, count }: { rows: readonl
       ) : (
         <ul className="space-y-3">
           {shown.map((row) => (
-            <li key={row.track.id} className="space-y-1" data-testid="car-consistency-row">
-              <div className="flex items-baseline justify-between gap-2 text-sm">
-                <Link to={trackPath(row.track.id)} className="min-w-0 truncate rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{row.track.name}</Link>
-                <span className="shrink-0 font-mono text-xs tabular-nums" data-testid="car-consistency-spread">
-                  {row.spreadMs !== null ? t('garageDash.spreadValue', '±{{seconds}} s', { seconds: (row.spreadMs / 1000).toFixed(2) }) : t('garageDash.spreadNeeds', 'needs 3 laps')}
-                </span>
+            <li key={row.track.id} className="flex items-center gap-3" data-testid="car-consistency-row">
+              <TrackLayoutThumb trackId={row.track.id} name={row.track.name} className="h-10 w-10" />
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex items-baseline justify-between gap-2 text-sm">
+                  <Link to={trackPath(row.track.id)} className="min-w-0 truncate rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{row.track.name}</Link>
+                  <span className="shrink-0 font-mono text-xs tabular-nums" data-testid="car-consistency-spread">
+                    {row.spreadMs !== null ? t('garageDash.spreadValue', '±{{seconds}} s', { seconds: (row.spreadMs / 1000).toFixed(2) }) : t('garageDash.spreadNeeds', 'needs 3 laps')}
+                  </span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+                  <div className="h-full rounded-full bg-primary" style={{ width: row.spreadMs !== null ? `${Math.max(4, (row.spreadMs / widest) * 100)}%` : '0%' }} />
+                </div>
+                <p className="text-xs text-muted-foreground">{t('garageDash.cleanLaps', '{{count}} clean laps', { count: row.laps })}</p>
               </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden="true">
-                <div className="h-full rounded-full bg-primary" style={{ width: row.spreadMs !== null ? `${Math.max(4, (row.spreadMs / widest) * 100)}%` : '0%' }} />
-              </div>
-              <p className="text-xs text-muted-foreground">{t('garageDash.cleanLaps', '{{count}} clean laps', { count: row.laps })}</p>
             </li>
           ))}
         </ul>

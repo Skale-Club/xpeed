@@ -26,17 +26,16 @@ afterEach(() => {
 });
 
 describe('the compact filter toolbar of the Sessions page', () => {
-  it('is one row: game, track, car, type and period as small drop-downs, then the switch, with no captions', () => {
+  it('is one row: game, track, car, type and period as small drop-downs, then the "Valid laps only" chip, with no captions', () => {
     renderBar();
     const toolbar = screen.getByTestId('filter-toolbar');
     expect(toolbar).toHaveClass('flex-wrap');
-    // The five drop-downs and the switch are all children of the one row.
+    // The five drop-downs and the chip are all children of the one row.
     const children = [...toolbar.children];
     expect(within(toolbar).getAllByRole('combobox').map((box) => box.getAttribute('data-testid'))).toEqual(['filter-game', 'filter-track', 'filter-car', 'filter-kind', 'filter-period']);
-    expect(children.map((child) => child.getAttribute('data-testid') ?? child.tagName)).toEqual(['filter-game', 'filter-track', 'filter-car', 'filter-kind', 'filter-period', 'LABEL']);
-    // The switch is the last one, pushed to the right.
-    expect(children.at(-1)).toHaveClass('sm:ml-auto');
-    expect(within(toolbar).getByRole('switch', { name: 'Valid laps only' })).toBeInTheDocument();
+    expect(children.map((child) => child.getAttribute('data-testid') ?? child.tagName)).toEqual(['filter-game', 'filter-track', 'filter-car', 'filter-kind', 'filter-period', 'SPAN']);
+    // The chip comes right after the drop-downs, a toggle button of their height (as the tracks list's "Has a layout").
+    expect(within(toolbar).getByRole('button', { name: 'Valid laps only' })).toHaveAttribute('aria-pressed', 'false');
     // No caption blocks above the controls: the names are on the controls.
     expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument();
   });
@@ -71,11 +70,11 @@ describe('the compact filter toolbar of the Sessions page', () => {
     expect(onChange).toHaveBeenLastCalledWith('period', '30d');
   });
 
-  it('reports a game picked in the drop-down, and the switch', () => {
+  it('reports a game picked in the drop-down, and the "Valid laps only" chip', () => {
     const { onChange } = renderBar();
     chooseOption(screen.getByTestId('filter-game'), 'Assetto Corsa');
     expect(onChange).toHaveBeenLastCalledWith('game', 'ac');
-    fireEvent.click(screen.getByRole('switch', { name: 'Valid laps only' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Valid laps only' }));
     expect(onChange).toHaveBeenLastCalledWith('validOnly', true);
   });
 

@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { QueryGate } from '@/components/sim/SimStates';
 import { SimCarIdentity } from '@/components/sim/SimCarIdentity';
+import { TrackLayoutThumb } from '@/components/sim/TrackLayoutThumb';
 import { GameBadge } from '@/components/sim/session-bits';
 import { useWhen } from '@/components/sim/use-when';
 import { formatLapTime } from '@/lib/sim/analysis';
@@ -227,12 +228,15 @@ export function DriverPage() {
                     {driver.bestLaps.map((lap) => (
                       <li key={lap.lapId} data-testid="driver-best-lap">
                         <Card className="flex h-full flex-col gap-3 bg-card p-4">
-                          <div className="min-w-0 space-y-1">
-                            <Link to={trackPagePath(lap.track.id)} className="block truncate text-base font-semibold hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="driver-track-link">{lap.track.name}</Link>
-                            <SimCarIdentity name={lap.car.name} className="text-sm text-muted-foreground" />
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                              <GameBadge game={lap.game} />
-                              <span>{when(Date.parse(lap.achievedAt))}</span>
+                          <div className="flex min-w-0 items-start gap-3">
+                            <TrackLayoutThumb trackId={lap.track.id} name={lap.track.name} className="h-12 w-12" />
+                            <div className="min-w-0 space-y-1">
+                              <Link to={trackPagePath(lap.track.id)} className="block truncate text-base font-semibold hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="driver-track-link">{lap.track.name}</Link>
+                              <SimCarIdentity name={lap.car.name} className="text-sm text-muted-foreground" />
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                                <GameBadge game={lap.game} />
+                                <span>{when(Date.parse(lap.achievedAt))}</span>
+                              </div>
                             </div>
                           </div>
                           <p className="font-mono text-2xl font-semibold tabular-nums" data-testid="driver-lap-time">{formatLapTime(lap.timeMs)}</p>

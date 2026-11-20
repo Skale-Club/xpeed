@@ -7,6 +7,7 @@ import { GameCover } from '../GameCover';
 import { carPath, trackPath } from '@/lib/sim/routes';
 import type { V1Stats } from '@/lib/sim/v1-client';
 import { SimCarIdentity } from '../SimCarIdentity';
+import { TrackLayoutThumb } from '../TrackLayoutThumb';
 import { Panel, Quiet } from './parts';
 import { useDashFormat } from './use-format';
 
@@ -80,7 +81,21 @@ export function WherePanel({ stats }: { stats: V1Stats }) {
         <section className="min-w-0 space-y-2" aria-labelledby="where-tracks" data-testid="where-tracks">
           <h4 id="where-tracks" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('modes.overview.dash.topTracks', 'Top tracks')}</h4>
           {tracks.length === 0 ? <Quiet>{t('modes.overview.dash.whereEmpty', 'Nothing in this period.')}</Quiet> : (
-            <Bars testId="where-tracks-list" rows={tracks.map((track) => ({ key: track.id, name: track.name, laps: track.laps, to: trackPath(track.id), label: nameWithGame(track, tracks, games.name) }))} />
+            <Bars
+              testId="where-tracks-list"
+              rows={tracks.map((track) => ({
+                key: track.id,
+                name: track.name,
+                laps: track.laps,
+                to: trackPath(track.id),
+                label: (
+                  <span className="flex min-w-0 items-center gap-2">
+                    <TrackLayoutThumb trackId={track.id} name={track.name} className="h-7 w-7" />
+                    <span className="truncate">{nameWithGame(track, tracks, games.name)}</span>
+                  </span>
+                ),
+              }))}
+            />
           )}
         </section>
         <section className="min-w-0 space-y-2" aria-labelledby="where-cars" data-testid="where-cars">

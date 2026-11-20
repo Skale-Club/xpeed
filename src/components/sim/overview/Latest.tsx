@@ -9,6 +9,7 @@ import { sessionPath } from '@/lib/sim/routes';
 import type { V1Overview, V1Session } from '@/lib/sim/v1-client';
 import { SimCarIdentity } from '../SimCarIdentity';
 import { GameBadge, KindBadge } from '../session-bits';
+import { TrackLayoutThumb } from '../TrackLayoutThumb';
 import { useWhen } from '../use-when';
 import { Panel, Quiet } from './parts';
 
@@ -35,10 +36,13 @@ export function SessionsPanel({ sessions, bests = [] }: { sessions: V1Overview['
           {sessions.slice(0, 3).map((session) => (
             <li key={session.id} data-testid="overview-session">
               <Link to={sessionPath(session.id)} className={`flex min-h-10 items-center justify-between gap-3 rounded-md border border-border p-3 active:bg-muted/60 ${FOCUS}`} data-testid="overview-session-link">
-                <span className="min-w-0 space-y-0.5">
-                  <span className="block truncate text-sm font-medium">{session.track.name}</span>
-                  <SimCarIdentity name={session.car.name} className="block truncate text-xs text-muted-foreground" />
-                  <span className="block text-xs text-muted-foreground">{when(Date.parse(session.startedAt))}</span>
+                <span className="flex min-w-0 items-center gap-3">
+                  <TrackLayoutThumb trackId={session.track.id} name={session.track.name} className="h-12 w-12" />
+                  <span className="min-w-0 space-y-0.5">
+                    <span className="block truncate text-sm font-medium">{session.track.name}</span>
+                    <SimCarIdentity name={session.car.name} className="block truncate text-xs text-muted-foreground" />
+                    <span className="block text-xs text-muted-foreground">{when(Date.parse(session.startedAt))}</span>
+                  </span>
                 </span>
                 <span className="flex shrink-0 flex-col items-end gap-1">
                   <span className="font-mono text-xl font-semibold tabular-nums" data-testid="overview-session-best">{session.bestLapMs !== null ? formatLapTime(session.bestLapMs) : '–'}</span>
@@ -70,11 +74,16 @@ export function SessionsPanel({ sessions, bests = [] }: { sessions: V1Overview['
                     <p className="text-xs text-muted-foreground"><span className="sm:hidden">{day(Date.parse(session.startedAt))}</span><span className="hidden sm:inline">{when(Date.parse(session.startedAt))}</span></p>
                     <div className="mt-1"><KindBadge kind={session.kind} /></div>
                   </td>
-                  <td className="max-w-[8.5rem] py-2 pr-3 align-top sm:max-w-[18rem]">
-                    <Link to={sessionPath(session.id)} className={`block truncate font-medium ${FOCUS}`} data-testid="overview-session-link">{session.track.name}</Link>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <SimCarIdentity name={session.car.name} className="text-xs text-muted-foreground" />
-                      <GameBadge game={session.game} />
+                  <td className="max-w-[12rem] py-2 pr-3 align-top sm:max-w-[22rem]">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <TrackLayoutThumb trackId={session.track.id} name={session.track.name} className="h-11 w-11" />
+                      <div className="min-w-0">
+                        <Link to={sessionPath(session.id)} className={`block truncate font-medium ${FOCUS}`} data-testid="overview-session-link">{session.track.name}</Link>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <SimCarIdentity name={session.car.name} className="text-xs text-muted-foreground" />
+                          <GameBadge game={session.game} />
+                        </div>
+                      </div>
                     </div>
                   </td>
                   <td className="hidden py-2 pr-3 text-right align-top tabular-nums sm:table-cell" data-testid="overview-session-laps">{session.lapCount}</td>
@@ -106,9 +115,12 @@ export function BestsPanel({ bests }: { bests: V1Overview['latestPersonalBests']
           {bests.slice(0, 5).map((pb) => (
             <li key={pb.lapId} data-testid="overview-best-lap">
               <Link to={compareUrl(pb.lapId)} title={t('modes.overview.analyze', 'Analyze this lap')} className={`flex items-center justify-between gap-3 py-2 hover:bg-muted/40 ${FOCUS}`}>
-                <div className="min-w-0 space-y-0.5">
-                  <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium"><Award className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" /><span className="truncate">{pb.track.name}</span></p>
-                  <p className="truncate text-xs text-muted-foreground">{pb.car.name} · {games.name(pb.game)} · {day(Date.parse(pb.achievedAt))}</p>
+                <div className="flex min-w-0 items-center gap-3">
+                  <TrackLayoutThumb trackId={pb.track.id} name={pb.track.name} className="h-11 w-11" />
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium"><Award className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" /><span className="truncate">{pb.track.name}</span></p>
+                    <p className="truncate text-xs text-muted-foreground">{pb.car.name} · {games.name(pb.game)} · {day(Date.parse(pb.achievedAt))}</p>
+                  </div>
                 </div>
                 <span className="flex shrink-0 items-center gap-1">
                   <span className="flex flex-col items-end">

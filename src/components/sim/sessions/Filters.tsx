@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { X } from 'lucide-react';
+import { CheckCircle2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FilterBar } from '@/components/ui/filter-bar';
 import { OptionSelect } from '@/components/ui/option-select';
@@ -9,6 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { useGames } from '@/lib/sim/games';
 import { SESSION_KINDS, SESSION_PERIODS, activeFilterCount, type FilterKey, type KindFilter, type SessionFilters, type SessionPeriod } from '@/lib/sim/sessions-view';
 import { FilterSelect } from '../FilterSelect';
+import { ToggleChip } from '../garage/bits';
 
 interface Option { value: string; label: string }
 
@@ -103,7 +104,7 @@ export function SessionFilterBar({ filters, onChange, onClear, gameOptions, trac
           </label>
         </FilterSheet>
       ) : (
-      /* One row of five small drop-downs (the label inside each) and the switch on the right; it wraps only on a narrow screen. */
+      /* One row of five small drop-downs (the label inside each) and the "valid laps only" chip right after them; it wraps only on a narrow screen. */
       <FilterBar data-testid="filter-toolbar">
         <FilterSelect label={t('modes.sessions.filterGame', 'Game')} allLabel={all} value={filters.game} onChange={(value) => onChange('game', value)} options={gameOptions} testId="filter-game" />
         <FilterSelect label={t('modes.sessions.filterTrack', 'Track')} allLabel={all} value={filters.track} onChange={(value) => onChange('track', value)} options={trackOptions} testId="filter-track" />
@@ -125,10 +126,12 @@ export function SessionFilterBar({ filters, onChange, onClear, gameOptions, trac
           testId="filter-period"
           className="sm:w-40"
         />
-        <label className="flex h-8 cursor-pointer items-center gap-2 text-xs sm:ml-auto" title={t('sessionsDash.filters.validOnlyHint', 'Hides sessions where the game counted no lap as valid.')}>
-          <Switch checked={filters.validOnly} onCheckedChange={(checked) => onChange('validOnly', checked)} data-testid="filter-valid" aria-label={t('sessionsDash.filters.validOnly', 'Valid laps only')} />
-          {t('sessionsDash.filters.validOnly', 'Valid laps only')}
-        </label>
+        {/* In the row with the drop-downs, as the tracks list's "Has a layout": an on/off chip of their height, never a line of its own. */}
+        <span className="inline-flex" title={t('sessionsDash.filters.validOnlyHint', 'Hides sessions where the game counted no lap as valid.')}>
+          <ToggleChip pressed={filters.validOnly} onChange={(on) => onChange('validOnly', on)} testId="filter-valid">
+            <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />{validLabel}</span>
+          </ToggleChip>
+        </span>
       </FilterBar>
       )}
 
