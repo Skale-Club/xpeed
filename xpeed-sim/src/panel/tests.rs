@@ -3117,8 +3117,8 @@ fn practice_with_its_extra_row_takes_the_shape_that_fills_the_window_and_stays_r
         let (cw, ch) = layout.size(&s);
         assert!((bw / cw).min(bh / ch) >= layout.min_scale(), "{w}x{h} {layout:?}");
     }
-    // A game that gives none of the extra cards has the canvas it always had.
-    let few = slots(crate::game::Caps::LAP_TIME.or(crate::game::Caps::SPEED).or(crate::game::Caps::GEAR));
+    // A game that gives none of the extra cards has the canvas it always had (no distance or speed: no reference either).
+    let few = slots(crate::game::Caps::LAP_TIME.or(crate::game::Caps::GEAR));
     for layout in [Layout::Wide, Layout::Ultrawide] {
         let base = base_views();
         let (kept, always) = (layout.size(&few), layout.size_with(&base, DashboardId::Practice, &few));
