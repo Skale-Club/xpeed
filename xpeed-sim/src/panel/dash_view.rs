@@ -652,30 +652,27 @@ pub(super) fn tyre_tile_view(g: &mut Painter, t: &TyreTile, brake_label: &str, a
         at += tread_h;
     }
     if t.pressure.is_some() || t.brake.is_some() {
-        let r = g.r(ix, at, iw, row_h);
-        // The pressure on the left and the brake on the right; the brake's word goes when they would meet.
-        let mut left_w = 0.0;
-        if let Some((num, unit)) = &t.pressure {
-            let nw = g.tabular_width(num, T_BODY, semi);
-            g.text(num, g.r(ix, at, nw + 2.0, row_h), T_BODY, semi, Face::Num, FOREGROUND, DT_LEFT);
-            g.text(
-                unit,
-                g.r(ix + nw + S1, at, iw, row_h),
-                T_CAPTION,
-                normal,
-                Face::Ui,
-                MUTED_TEXT,
-                DT_LEFT,
-            );
-            left_w = nw + S1 + g.width_of(unit, T_CAPTION, normal, Face::Ui);
+        // The pressure on the left and the brake on the right, never one over the other: when they would meet the brake's
+        // word goes first, then both figures step down to the caption size, and last the brake's figure goes. The pressure
+        // and its unit always stay.
+        let pressure = t.pressure.as_ref();
+        let mut size = T_BODY;
+        let row = loop {
+            let row = small_row_layout(g, pressure, t.brake.as_deref(), brake_label, size, iw);
+            if row.brake || t.brake.is_none() || size <= T_CAPTION {
+                break row;
+            }
+            size = T_CAPTION;
+        };
+        if let Some((num, unit)) = pressure {
+            g.text(num, g.r(ix, at, row.num_w + 2.0, row_h), size, semi, Face::Num, FOREGROUND, DT_LEFT);
+            let r = g.r(ix + row.num_w + S1, at, (iw - row.num_w - S1).max(1.0), row_h);
+            g.text(unit, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
         }
-        if let Some(brake) = &t.brake {
-            let bw = g.tabular_width(brake, T_BODY, semi);
-            let lw = g.width_of(brake_label, T_CAPTION, normal, Face::Ui);
-            let with_word = left_w + S2 + lw + S1 + bw <= iw;
-            g.text(brake, r, T_BODY, semi, Face::Num, FOREGROUND_2, DT_RIGHT);
-            if with_word {
-                let r = g.r(ix, at, iw - bw - S1, row_h);
+        if let Some(brake) = t.brake.as_ref().filter(|_| row.brake) {
+            g.text(brake, g.r(ix, at, iw, row_h), size, semi, Face::Num, FOREGROUND_2, DT_RIGHT);
+            if row.brake_word {
+                let r = g.r(ix, at, iw - row.brake_w - S1, row_h);
                 g.text(brake_label, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_RIGHT);
             }
         }
@@ -683,6 +680,40 @@ pub(super) fn tyre_tile_view(g: &mut Painter, t: &TyreTile, brake_label: &str, a
     }
     if let Some(wear) = wear {
         g.solid_bar((ix, at + WEAR_BAR_TOP, iw, WEAR_BAR_H), wear, FOREGROUND_2);
+    }
+}
+
+/// How a tyre tile's small row fits at a figure size: the pressure's figure width, and whether the brake's figure and its
+/// word still fit beside the pressure and its unit with a gap between.
+struct SmallRow {
+    num_w: f32,
+    brake_w: f32,
+    brake: bool,
+    brake_word: bool,
+}
+
+fn small_row_layout(
+    g: &mut Painter,
+    pressure: Option<&(String, &'static str)>,
+    brake: Option<&str>,
+    brake_label: &str,
+    size: f32,
+    iw: f32,
+) -> SmallRow {
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let (num_w, left_w) = pressure.map_or((0.0, 0.0), |(num, unit)| {
+        let nw = g.tabular_width(num, size, semi);
+        (nw, nw + S1 + g.width_of(unit, T_CAPTION, normal, Face::Ui))
+    });
+    let brake_w = brake.map_or(0.0, |b| g.tabular_width(b, size, semi));
+    let gap = if pressure.is_some() { S2 } else { 0.0 };
+    let fits = brake.is_some() && left_w + gap + brake_w <= iw;
+    let word_w = g.width_of(brake_label, T_CAPTION, normal, Face::Ui);
+    SmallRow {
+        num_w,
+        brake_w,
+        brake: fits,
+        brake_word: fits && left_w + gap + word_w + S1 + brake_w <= iw,
     }
 }
 
