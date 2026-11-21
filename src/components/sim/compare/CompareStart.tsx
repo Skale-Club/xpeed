@@ -75,7 +75,7 @@ export function CompareStart({ saved, onPin, onForget, onPick }: {
             </section>
 
             <div className="space-y-2 border-t border-border pt-3">
-              <Button variant="outline" size="sm" onClick={() => setFinding(!finding)} aria-expanded={finding} data-testid="compare-find">
+              <Button variant="outline" size="sm" className="h-auto min-h-9 max-w-full whitespace-normal py-1.5" onClick={() => setFinding(!finding)} aria-expanded={finding} data-testid="compare-find">
                 <Search className="mr-2 h-4 w-4" aria-hidden="true" />
                 {t('modes.compare.findLap', 'Find a lap by track and car')}
               </Button>

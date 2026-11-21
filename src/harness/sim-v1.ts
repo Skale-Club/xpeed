@@ -29,9 +29,9 @@ const id = (prefix: string, n: number) => `${prefix}-0000-4000-8000-${String(n).
 const track = (n: number, name: string): V1Ref => ({ id: id('00000001', n), name });
 const car = (n: number, name: string): V1Ref => ({ id: id('00000002', n), name });
 
-const TRACKS = { monza: track(1, 'Monza'), spa: track(2, 'Spa-Francorchamps'), bahrain: track(3, 'Bahrain International Circuit'), imola: track(4, 'Imola'), monzaAc: track(5, 'Monza'), interlagos: track(6, 'Interlagos') };
-const CARS = { ferrari: car(1, 'Ferrari 499P'), toyota: car(2, 'Toyota GR010'), porsche: car(3, 'Porsche 911 GT3 R'), ferrari488: car(4, 'Ferrari 488 GT3'), ginetta: car(5, 'Ginetta G40') };
-const LENGTH_M: Record<string, number> = { Monza: 5793, 'Spa-Francorchamps': 7004, 'Bahrain International Circuit': 5412, Imola: 4909, Interlagos: 4309 };
+const TRACKS = { monza: track(1, 'Monza'), spa: track(2, 'Spa-Francorchamps'), bahrain: track(3, 'Bahrain International Circuit'), imola: track(4, 'Imola'), monzaAc: track(5, 'Monza'), interlagos: track(6, 'Interlagos'), laguna: track(7, 'WeatherTech Raceway Laguna Seca') };
+const CARS = { ferrari: car(1, 'Ferrari 499P'), toyota: car(2, 'Toyota GR010'), porsche: car(3, 'Porsche 911 GT3 R'), ferrari488: car(4, 'Ferrari 488 GT3'), ginetta: car(5, 'Ginetta G40'), audi: car(6, 'Audi R8 V10 performance quattro') };
+const LENGTH_M: Record<string, number> = { Monza: 5793, 'Spa-Francorchamps': 7004, 'Bahrain International Circuit': 5412, Imola: 4909, Interlagos: 4309, 'WeatherTech Raceway Laguna Seca': 3602 };
 
 // Days are counted back from the real clock (UTC midnight), so "the last 30 days" is always full.
 const DAY_MS = 86_400_000;
@@ -43,6 +43,8 @@ interface Plan {
   origin: V1Session['origin'];
 }
 const RECENT: Plan[] = [
+  // Long names on purpose (a real car of Assetto Corsa EVO): a phone must cut them short, never grow wider than its screen.
+  { game: 'acevo', track: TRACKS.laguna, car: CARS.audi, kind: 'practice', startedAt: ago(0, 11, 20), laps: 3, base: 102_600, weather: null, air: null, trackTemp: null, origin: 'companion' },
   { game: 'lmu', track: TRACKS.monza, car: CARS.ferrari, kind: 'race', startedAt: ago(1, 18), laps: 14, base: 99_800, weather: 'dry', air: 24, trackTemp: 31, origin: 'companion' },
   { game: 'lmu', track: TRACKS.monza, car: CARS.ferrari, kind: 'practice', startedAt: ago(2, 20), laps: 12, base: 100_900, weather: 'rain', air: 17, trackTemp: 19, origin: 'companion' },
   { game: 'lmu', track: TRACKS.spa, car: CARS.toyota, kind: 'qualifying', startedAt: ago(3, 15), laps: 8, base: 134_500, weather: 'dry', air: 21, trackTemp: 27, origin: 'companion' },

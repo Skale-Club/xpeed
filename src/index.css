@@ -9,6 +9,27 @@
     overscroll-behavior-y: none;
   }
   /*
+   * A screen never slides sideways (owner rule, 2026-11-21; pinned by src/test/no-sideways.test.ts).
+   * On a phone, one thing wider than the screen made the whole page pan and zoom out (a long car name on Sessions).
+   * 1. Nothing can make the page wider than the screen: what sticks out is cut at the edge of the app.
+   *    `clip` (not `hidden`) on body and #root, so they do not become scroll boxes and sticky headers keep working.
+   * 2. A grid with no column rule is one column that shrinks with the screen (by default its column grows to the
+   *    longest line inside). `grid-cols-*` and inline styles still win.
+   * Something meant to be wider than the screen (a table, a chart) scrolls inside its own `overflow-x-auto` box.
+   * Check: `npm run check:phone` (every screen, phone widths, three languages).
+   */
+  html {
+    overflow-x: hidden;
+  }
+  @supports (overflow: clip) {
+    html, body, #root {
+      overflow-x: clip;
+    }
+  }
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /*
    * Design tokens — single source of truth for theming.
    *   Brand accent: #F5E663 (soft yellow) — HSL 54 88% 67%, for actions only
    *   Dark surface base: #111214 (graphite) — HSL 225 8% 7%

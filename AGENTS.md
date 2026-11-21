@@ -58,3 +58,18 @@ near-square corner (2.5 px, the "square pill", 2026-11-12 `fec259a`) was replace
 token pass (2026-11-16 `539eb8a`) with no test failing; it is now `R_CORNER` in `xpeed-sim/src/panel/tokens.rs`,
 pinned by `one_near_square_corner`.
 
+
+## A screen never slides sideways (owner, 2026-11-21)
+
+No page, at any width, in any language, may be wider than the screen or move sideways on a phone. One long name was enough
+(a car name on Sessions made the whole app pan and zoom out). The rule has two halves:
+
+- **It cannot happen:** `src/index.css` cuts whatever sticks out at the edge of the app (`overflow-x: clip` on html, body and
+  #root) and makes a grid with no column rule one shrinking column. `src/test/no-sideways.test.ts` pins both. Never remove them.
+- **Nothing gets cut by accident:** text that can be long (names of cars, tracks, drivers, games; any translated label) must
+  shrink, wrap or `truncate`. `truncate` only works when every parent may shrink: `min-w-0` on flex and grid children, and
+  `max-w-full` on anything `inline-flex`. A table or chart wider than a phone scrolls inside its own `overflow-x-auto` box.
+
+Before finishing any change to a screen, run `npm run check:phone` (needs the test app's sample data and Playwright; see the
+head of `scripts/check-phone-width.mjs`). It opens every screen at 320, 360, 412, 768 and 1280 px in English, Portuguese and
+Spanish and fails on anything past the screen's edge. A new screen goes into its route list; sample data with long names stays.

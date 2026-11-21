@@ -165,7 +165,8 @@ function DeleteSection({ onDeleted }: { onDeleted: (summary: DeletedSummary) => 
         <p className="text-sm text-muted-foreground">
           {t('social.privacy.deleteBody', 'Erases everything you have in Xpeed Virtual: laps, sessions, personal bests, track maps, share links, friends, your handle and profile, and your connected computers. Your Xpeed account and Real car data stay. This cannot be undone.')}
         </p>
-        <Button variant="destructive" onClick={() => setOpen(true)} data-testid="delete-open">
+        {/* A long label (Portuguese, Spanish) takes a second line on a narrow phone instead of sticking out of the screen. */}
+        <Button variant="destructive" className="h-auto min-h-10 max-w-full whitespace-normal" onClick={() => setOpen(true)} data-testid="delete-open">
           <Trash2 className="mr-2 h-4 w-4" /> {t('social.privacy.deleteButton', 'Delete my racing data…')}
         </Button>
       </div>

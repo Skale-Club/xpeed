@@ -7,7 +7,7 @@ import { resolveVirtualCarBrand } from '@/lib/sim/car-brand';
 export function SimCarIdentity({ name, className = '', logoClassName = 'h-6 w-6', nameClassName = 'truncate' }: { name: string; className?: string; logoClassName?: string; nameClassName?: string }) {
   const { data: brands = [] } = useQuery({ queryKey: ['car-brands'], queryFn: fetchCarBrands, staleTime: 60 * 60 * 1000 });
   const brand = resolveVirtualCarBrand(name, brands);
-  return <span className={`inline-flex min-w-0 items-center gap-2 ${className}`} data-testid="sim-car-identity">
+  return <span className={`inline-flex min-w-0 max-w-full items-center gap-2 ${className}`} data-testid="sim-car-identity">
     <CarBrandLogo make={brand?.name} className={logoClassName} />
     <span className={nameClassName}>{name}</span>
   </span>;

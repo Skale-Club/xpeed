@@ -89,7 +89,8 @@ export function SegmentedControl<T extends string>({
             className={cn(
               "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               look.item,
-              fullWidth && "flex-1",
+              // Sharing a narrow phone (under 360 px): less padding, so five options still fit side by side.
+              fullWidth && "flex-1 max-[359px]:px-1.5",
               selected ? "bg-background text-foreground shadow-card" : "text-muted-foreground hover:text-foreground",
             )}
           >
