@@ -1500,6 +1500,64 @@ fn the_header_can_be_clicked_where_it_is_drawn() {
     assert!(dashboard_hit(960, 1.0).is_some_and(|r| r.left > content_left(1.0)));
 }
 
+/// A page of the site, as the pictures of the panel know it (no web view runs in them): the sidebar marks its place and only that
+/// one, the header names it in the site's words, and the content area is the plain ground with a quiet "Loading…".
+#[test]
+fn a_site_page_marks_its_place_and_names_itself_in_the_header() {
+    let f = fixture();
+    let (w, h) = (960, 600);
+    let places: Vec<super::site::WebPlace> = super::site::WEB_PLACES.to_vec();
+    let (sessions, cars) = (places[1], *places.last().unwrap());
+    assert_ne!(sessions.to, cars.to);
+    let on_sessions = render(&view(&f, None, Tab::Web(sessions), 1.0, Lang::En), w, h);
+    let on_cars = render(&view(&f, None, Tab::Web(cars), 1.0, Lang::En), w, h);
+    let on_monitor = render(&view(&f, None, Tab::Monitor, 1.0, Lang::En), w, h);
+    let layout = sidebar_layout(1.0);
+    // The sidebar's active fill is inside the marked place's button, and in no other button of the sites's places.
+    let fill_of = |pixels: &[u8], item: SideItem| {
+        let r = layout.buttons.iter().find(|(i, _)| *i == item).unwrap().1;
+        pixel(pixels, w, r.left + 3, (r.top + r.bottom) / 2)
+    };
+    assert_eq!(fill_of(&on_sessions, SideItem::Web(sessions)), SIDEBAR_ACCENT);
+    assert_eq!(fill_of(&on_sessions, SideItem::Web(cars)), SIDEBAR_BG);
+    assert_eq!(fill_of(&on_sessions, SideItem::Screen(Tab::Dash)), SIDEBAR_BG);
+    assert_eq!(fill_of(&on_cars, SideItem::Web(cars)), SIDEBAR_ACCENT);
+    assert_eq!(fill_of(&on_cars, SideItem::Web(sessions)), SIDEBAR_BG);
+    assert_eq!(
+        fill_of(&on_monitor, SideItem::Web(sessions)),
+        SIDEBAR_BG,
+        "a screen of the panel marks no page"
+    );
+    // The header's title area changes with the page (it holds the page's name) and is empty on a screen without one.
+    let title = header_title_hit(w, 1.0);
+    let ink_in = |pixels: &[u8]| {
+        (title.top..title.bottom)
+            .flat_map(|y| (title.left..title.right).map(move |x| (x, y)))
+            .filter(|&(x, y)| pixel(pixels, w, x, y) == FOREGROUND)
+            .count()
+    };
+    assert!(ink_in(&on_sessions) > 20, "the name is drawn");
+    assert!(ink_in(&on_cars) > 20);
+    let title_pixels = |pixels: &[u8]| {
+        let mut all = Vec::new();
+        for y in title.top..title.bottom {
+            for x in title.left..title.right {
+                all.push(pixel(pixels, w, x, y));
+            }
+        }
+        all
+    };
+    assert_ne!(title_pixels(&on_sessions), title_pixels(&on_cars), "each page has its own name");
+    assert_eq!(ink_in(&on_monitor), 0, "no site name on a screen of the panel");
+    // The content area holds the quiet "Loading…" (muted, never the foreground) and nothing else: no card, no button.
+    let body = rect(content_left(1.0) + 16, 66, w - 16, h - 16);
+    let muted = (body.top..body.bottom)
+        .flat_map(|y| (body.left..body.right).map(move |x| (x, y)))
+        .filter(|&(x, y)| pixel(&on_sessions, w, x, y) == MUTED_TEXT)
+        .count();
+    assert!(muted > 10, "a few muted pixels of the word");
+}
+
 #[test]
 fn writes_times_gears_and_deltas_like_a_dashboard() {
     assert_eq!(lap_clock(Some(107.918)).as_deref(), Some("1:47.918"));

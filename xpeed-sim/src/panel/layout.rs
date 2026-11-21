@@ -75,6 +75,13 @@ pub(super) fn dashboard_hit(width: i32, scale: f32) -> Option<RECT> {
     (header_limit(width, scale) - left >= p(150.0)).then(|| rect(left, p(17.0), left + p(150.0), p(47.0)))
 }
 
+/// Where the name of a site page sits in the header (pixels): at its left, after the sidebar, up to the header's buttons.
+pub(super) fn header_title_hit(width: i32, scale: f32) -> RECT {
+    let p = |v: f32| (v * scale).round() as i32;
+    let left = content_left(scale) + p(S4);
+    rect(left, p(13.0), header_limit(width, scale).max(left + 1), p(51.0))
+}
+
 /// How far right the header's pills may reach (pixels): a little before the header's buttons.
 fn header_limit(width: i32, scale: f32) -> i32 {
     header_edge(width, scale) - (14.0 * scale).round() as i32

@@ -138,10 +138,12 @@ impl Prefs {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Tab {
+pub(super) enum Tab {
     Dash,
     Monitor,
     Settings,
+    /// A page of the website, shown inside the panel (`webview`): the place of the site's menu it is on.
+    Web(super::site::WebPlace),
 }
 
 /// One line of the monitor's game list.
