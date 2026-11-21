@@ -25,3 +25,15 @@ it('offers phone login when the installed APK supports Google authentication', (
   expect(screen.getByLabelText('Phone login')).toBeInTheDocument();
   expect(screen.queryByRole('link')).not.toBeInTheDocument();
 });
+
+it('shows only the sign-in card inside the Companion, with no public page around it', () => {
+  window.sessionStorage.setItem('xpeed.shell', 'companion');
+  try {
+    render(<MemoryRouter><LoginPage /></MemoryRouter>);
+    expect(screen.getByTestId('shell-sign-in')).toBeInTheDocument();
+    expect(screen.getByLabelText('Phone login')).toBeInTheDocument();
+    expect(screen.queryByRole('banner')).not.toBeInTheDocument();
+  } finally {
+    window.sessionStorage.removeItem('xpeed.shell');
+  }
+});

@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { PhoneSignIn } from '@/components/auth/PhoneSignIn';
 import { BrandLockup } from '@/components/BrandLockup';
 import { isNativeApp } from '@/lib/obd/native-ble';
+import { isCompanionShell } from '@/lib/companion-shell';
 
 // The public page: what Xpeed does, in plain words, and sign-in in a popup
 // (phone code or Google), like Xpot. A new phone number simply gets an
@@ -95,7 +96,9 @@ export default function LoginPage() {
   const native = isNativeApp();
   // S02: only allow in-app paths; reject protocol-relative (`//evil.com`) and absolute URLs.
   const rawNext = searchParams.get('next');
-  const nextPath = rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/';
+  // Inside the Companion only the sign-in card shows, and the default place after it is the Virtual overview.
+  const shell = isCompanionShell();
+  const nextPath = rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : shell ? '/virtual' : '/';
   // Opens by itself when someone was sent here from a page that needs sign-in.
   const [loginOpen, setLoginOpen] = useState(() => searchParams.has('next') || searchParams.has('entrar'));
   const openLogin = () => setLoginOpen(true);
@@ -105,6 +108,17 @@ export default function LoginPage() {
     if (user) navigate(nextPath, { replace: true });
   }, [user, nextPath, navigate]);
 
+
+  if (shell) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background p-4">
+        <div className="w-full max-w-md space-y-5 rounded-lg border border-border bg-card p-6" data-testid="shell-sign-in">
+          <SignInHeader />
+          <SignInPanel nextPath={nextPath} />
+        </div>
+      </div>
+    );
+  }
 
   if (native) {
     return (
