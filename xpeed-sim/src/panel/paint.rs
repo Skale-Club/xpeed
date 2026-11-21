@@ -1315,36 +1315,43 @@ thread_local! {
 /// The flag of a language as a GDI+ image (made on first use, kept for the program's life); null without GDI+.
 pub(super) fn flag_image(lang: Lang) -> *mut GpImage {
     let index = Lang::ALL.iter().position(|l| *l == lang).unwrap_or(0);
-    FLAGS.with(|flags| {
-        flags.get_or_init(|| {
-            FLAG_PIXELS.map(|pixels| {
-                if !gdiplus_ready() || pixels.len() != (FLAG_W * FLAG_H * 4) as usize {
-                    return 0;
-                }
-                unsafe {
-                    // A bitmap over the embedded pixels, copied at once into one GDI+ owns (the pixels are only read).
-                    let mut over = null_mut();
-                    let made = GdipCreateBitmapFromScan0(
-                        FLAG_W,
-                        FLAG_H,
-                        FLAG_W * 4,
-                        PIXEL_FORMAT_32BPP_PARGB,
-                        pixels.as_ptr().cast_mut(),
-                        &mut over,
-                    ) == 0;
-                    if !made || over.is_null() {
-                        return 0;
-                    }
-                    let mut own = null_mut();
-                    let copied = GdipCloneBitmapAreaI(0, 0, FLAG_W, FLAG_H, PIXEL_FORMAT_32BPP_PARGB, over, &mut own) == 0;
-                    GdipDisposeImage(over.cast());
-                    if copied {
-                        own as usize
-                    } else {
-                        0
-                    }
-                }
-            })
-        })[index] as *mut GpImage
-    })
+    FLAGS.with(|flags| flags.get_or_init(|| FLAG_PIXELS.map(|pixels| embedded_image(pixels, FLAG_W, FLAG_H)))[index] as *mut GpImage)
+}
+
+/// Google's "G" (`assets/brands/google-g.svg`, the four-colour mark from Google's sign-in guidelines), drawn once into
+/// premultiplied 32-bit pixels at 96 x 96 (`google-g.bgra`; `google-g.png` is the same picture to look at).
+pub(super) const GOOGLE_SIDE: i32 = 96;
+
+static GOOGLE_PIXELS: &[u8] = include_bytes!("../../assets/brands/google-g.bgra");
+
+thread_local! {
+    static GOOGLE: std::cell::OnceCell<usize> = const { std::cell::OnceCell::new() };
+}
+
+/// Google's "G" as a GDI+ image (made on first use, kept for the program's life); null without GDI+.
+pub(super) fn google_image() -> *mut GpImage {
+    GOOGLE.with(|g| *g.get_or_init(|| embedded_image(GOOGLE_PIXELS, GOOGLE_SIDE, GOOGLE_SIDE)) as *mut GpImage)
+}
+
+/// A GDI+ image of embedded premultiplied pixels `w` x `h`, as a number (0 without GDI+ or when the bytes are not that size).
+fn embedded_image(pixels: &[u8], w: i32, h: i32) -> usize {
+    if !gdiplus_ready() || pixels.len() != (w * h * 4) as usize {
+        return 0;
+    }
+    unsafe {
+        // A bitmap over the embedded pixels, copied at once into one GDI+ owns (the pixels are only read).
+        let mut over = null_mut();
+        let made = GdipCreateBitmapFromScan0(w, h, w * 4, PIXEL_FORMAT_32BPP_PARGB, pixels.as_ptr().cast_mut(), &mut over) == 0;
+        if !made || over.is_null() {
+            return 0;
+        }
+        let mut own = null_mut();
+        let copied = GdipCloneBitmapAreaI(0, 0, w, h, PIXEL_FORMAT_32BPP_PARGB, over, &mut own) == 0;
+        GdipDisposeImage(over.cast());
+        if copied {
+            own as usize
+        } else {
+            0
+        }
+    }
 }

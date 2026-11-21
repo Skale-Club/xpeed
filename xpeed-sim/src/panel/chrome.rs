@@ -13,9 +13,7 @@ pub fn paint(hdc: HDC, width: i32, height: i32, view: &View) {
         Tab::Monitor => monitor(&mut g, body, view),
         Tab::Settings => settings(&mut g, body, view),
     }
-    if view.lang_open {
-        lang_list(&mut g, width, view);
-    } else if view.workspace_open {
+    if view.workspace_open {
         workspace_list(&mut g, width, view);
     } else {
         tooltip(&mut g, width, view);
@@ -78,62 +76,10 @@ pub(super) fn check_icon(g: &mut Painter, r: RECT, color: COLORREF) {
     }
 }
 
-/// The language list, open under the language button: each language's flag and its name in its own words, the one
-/// in use marked in yellow, the row under the mouse lit.
-pub(super) fn lang_list(g: &mut Painter, width: i32, view: &View) {
-    let [_, _, button, _, _] = header_hits(width, view.scale);
-    g.place(view.scale, 0, 0);
-    let (row_h, pad, list_w) = (g.px(40.0), g.px(6.0), g.px(200.0));
-    let rows = Lang::ALL.len() as i32;
-    let list = rect(
-        button.right - list_w,
-        button.bottom + g.px(6.0),
-        button.right,
-        button.bottom + g.px(6.0) + pad * 2 + row_h * rows,
-    );
-    g.round(list, POPOVER, Some(BORDER));
-    for (i, lang) in Lang::ALL.into_iter().enumerate() {
-        let top = list.top + pad + row_h * i as i32;
-        let row = rect(list.left + pad, top, list.right - pad, top + row_h);
-        let current = lang == view.lang;
-        if view.mouse.is_some_and(|(mx, my)| inside(&row, mx, my)) {
-            g.fill(row, ROW_HOVER);
-        }
-        if current {
-            g.fill(
-                rect(row.left, row.top + g.px(S2), row.left + g.px(3.0), row.bottom - g.px(S2)),
-                PRIMARY,
-            );
-        }
-        let (fw, fh) = (g.px(25.0), g.px(20.0));
-        let flag = rect(
-            row.left + g.px(14.0),
-            top + (row_h - fh) / 2,
-            row.left + g.px(14.0) + fw,
-            top + (row_h - fh) / 2 + fh,
-        );
-        let image = flag_image(lang);
-        if !image.is_null() {
-            g.image(flag, image);
-        }
-        let label = rect(flag.right + g.px(S3), top, row.right - g.px(S2), top + row_h);
-        g.text(
-            lang.name(),
-            label,
-            T_BODY,
-            FW_SEMIBOLD as i32,
-            Face::Ui,
-            if current { PRIMARY } else { FOREGROUND },
-            DT_LEFT,
-        );
-        view.buttons.borrow_mut().push((Action::Lang(i), row));
-    }
-}
-
 /// The name of the icon button under the mouse, in a small label below it (beside it, for the sidebar's).
 pub(super) fn tooltip(g: &mut Painter, width: i32, view: &View) {
     let Some((mx, my)) = view.mouse else { return };
-    let [dash, mon, lang, full, top] = header_hits(width, view.scale);
+    let [dash, mon, full, top] = header_hits(width, view.scale);
     let gear = settings_hit(width, view.scale);
     for (r, label) in [
         (dash, Msg::PanelTabDash),
@@ -152,7 +98,6 @@ pub(super) fn tooltip(g: &mut Painter, width: i32, view: &View) {
             return;
         }
     }
-    let version = version_hit(width, view.scale).filter(|v| inside(v, mx, my));
     let edit = edit_button(width, view).filter(|e| inside(e, mx, my));
     let exit = view
         .buttons
@@ -160,14 +105,10 @@ pub(super) fn tooltip(g: &mut Painter, width: i32, view: &View) {
         .iter()
         .find(|(action, r)| *action == Action::ExitPreview && inside(r, mx, my))
         .map(|(_, r)| *r);
-    let (r, label) = if let Some(v) = version {
-        (v, format!("Build {}", env!("XPEED_BUILD")))
-    } else if let Some(e) = exit {
+    let (r, label) = if let Some(e) = exit {
         (e, text(view.lang, &Msg::PanelPreviewClose))
     } else if let Some(e) = edit {
         (e, text(view.lang, &Msg::PanelEditLayout))
-    } else if inside(&lang, mx, my) {
-        (lang, text(view.lang, &Msg::MenuLanguage))
     } else if inside(&full, mx, my) {
         (
             full,
@@ -196,28 +137,10 @@ pub(super) fn tooltip(g: &mut Painter, width: i32, view: &View) {
 
 pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
     g.place(view.scale, 0, 0);
-    let [_, _, lang, full, top] = header_hits(width, view.scale);
+    let [_, _, full, top] = header_hits(width, view.scale);
     let semi = FW_SEMIBOLD as i32;
     // Full screen and always on top: square icon buttons; one that is on is filled yellow. Full screen uses
     // Windows' own icon; the pin is drawn here, upright and square like the rest.
-    // The language: a square button with its flag (yellow edge while its list is open); a click opens the list.
-    g.round(lang, CARD, Some(if view.lang_open { PRIMARY } else { BORDER }));
-    let (fw, fh) = (g.px(22.5), g.px(18.0));
-    let (cx, cy) = ((lang.left + lang.right) / 2, (lang.top + lang.bottom) / 2);
-    let image = flag_image(view.lang);
-    if image.is_null() {
-        g.text(
-            &view.lang.code().to_uppercase(),
-            lang,
-            T_CAPTION,
-            semi,
-            Face::Ui,
-            FOREGROUND,
-            DT_CENTER,
-        );
-    } else {
-        g.image(rect(cx - fw / 2, cy - fh / 2, cx - fw / 2 + fw, cy - fh / 2 + fh), image);
-    }
     for (r, active) in [(full, view.full), (top, view.on_top)] {
         let (fill, edge) = if active { (PRIMARY, None) } else { (CARD, Some(BORDER)) };
         g.round(r, fill, edge);
@@ -273,11 +196,6 @@ pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
     if let Some(r) = edit_button(width, view) {
         g.round(r, CARD, Some(BORDER));
         pencil_icon(g, r, FOREGROUND);
-    }
-    // The version, small, left of the icon buttons, where every tab shows it.
-    let version = concat!("v", env!("CARGO_PKG_VERSION"));
-    if let Some(r) = version_hit(width, view.scale) {
-        g.text(version, r, T_CAPTION, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_RIGHT);
     }
 }
 

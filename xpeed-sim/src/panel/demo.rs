@@ -38,6 +38,40 @@ pub(super) fn demo_pose(dist: f64) -> DemoPose {
     (((radius * cos) as f32, (radius * sin) as f32), (-sin as f32, cos as f32))
 }
 
+/// The demo's track as a game's layout would give it: its circle as the centre line, with a road 12 m wide (6 m each side), so
+/// the track card draws asphalt and edges like it does for a real game, not a bare line.
+pub(super) fn demo_layout() -> crate::maps::Layout {
+    const POINTS: usize = 600;
+    const SIDE_M: f32 = 6.0;
+    let mut centerline = crate::tracks::Centerline::default();
+    for i in 0..POINTS {
+        let dist = i as f64 * DEMO_TRACK_M / POINTS as f64;
+        let ((x, z), _) = demo_pose(dist);
+        centerline.x.push(x);
+        centerline.y.push(0.0);
+        centerline.z.push(z);
+        centerline.dist.push(dist as f32);
+        centerline.left.push(SIDE_M);
+        centerline.right.push(SIDE_M);
+    }
+    let track = crate::tracks::Track {
+        game: "demo".into(),
+        name: "Demo Ring".into(),
+        variant: None,
+        title: None,
+        length_m: Some(DEMO_TRACK_M),
+        source: "demo".into(),
+        frame: "demo".into(),
+        closed: true,
+        center_kind: "game_line".into(),
+        centerline,
+        fast: None,
+        pitlane: None,
+        boundaries: None,
+    };
+    crate::maps::Layout::from_track(&track).expect("the demo ring is a drawable closed road")
+}
+
 /// The world position of a car `ahead` metres ahead of and `right` metres to the right of a car at `pose` (the demo's ground
 /// is not mirrored: see `widgets::radar_offset`, which this undoes).
 fn demo_world(((x, z), (tx, tz)): DemoPose, ahead: f32, right: f32) -> [f32; 3] {
@@ -231,11 +265,7 @@ pub(super) fn demo_caps() -> crate::game::Caps {
 pub(super) fn feed(shared: &Shared, game: (&'static str, &'static str), caps: Option<crate::game::Caps>, log: bool) {
     use std::time::{Duration, Instant};
     let mut tracker = crate::dash::Tracker::default();
-    let points: Vec<_> = (0..600).map(|i| demo_pose(f64::from(i) * DEMO_TRACK_M / 600.0).0).collect();
-    let layout = crate::maps::LayoutView::Ready(crate::maps::Layout {
-        path: Arc::new(crate::perspective::PreparedPath::native(&points, true)),
-        road: None,
-    });
+    let layout = crate::maps::LayoutView::Ready(demo_layout());
     shared.set_references(Some(Arc::new(demo_references())));
     let shown = caps.map_or(demo_caps(), |caps| demo_caps().minus(demo_caps().minus(caps)));
     tracker.set_caps(shown);

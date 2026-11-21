@@ -474,7 +474,7 @@ fn view<'a>(f: &'a Fixture, live: Option<&'a Live>, tab: Tab, scale: f32, lang: 
         edit: None,
         edit_xf: Default::default(),
         layout: Default::default(),
-        lang_open: false,
+        draft: None,
         workspace_open: false,
         workspace_reset_until: 0,
         copied: false,
@@ -1001,7 +1001,7 @@ fn writes_the_design_preview_page() {
     figures.push_str("<figure><figcaption>Laps with sectors: purple the fastest, green faster than the best lap, yellow slower (1920 × 1080)</figcaption><img data-src=\"preview-laps-sectors.png\" width=\"1920\" height=\"1080\"></figure>\n");
     let covers = CoverArt::load(None);
     let mut hover = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
-    let [_, _, _, full_button, _] = header_hits(960, 1.0);
+    let [_, _, full_button, _] = header_hits(960, 1.0);
     hover.mouse = Some((full_button.left + 5, full_button.top + 5));
     let pixels = render(&hover, 960, 600);
     save(&pixels, 960, 600, "preview-tooltip.png");
@@ -1070,14 +1070,16 @@ fn writes_the_design_preview_page() {
     let pixels = render(&expired_card, 1280, 800);
     save(&pixels, 1280, 800, "preview-monitor-expired.png");
     figures.push_str("<figure><figcaption>Monitor tab after the request expired</figcaption><img data-src=\"preview-monitor-expired.png\" width=\"1280\" height=\"800\"></figure>\n");
-    let mut open = view(&f, None, Tab::Dash, 1.0, Lang::Pt);
+    let mut open = view(&f, None, Tab::Settings, 1.0, Lang::En);
     open.covers = &covers;
-    open.lang_open = true;
-    let [_, _, lang_button, _, _] = header_hits(960, 1.0);
-    open.mouse = Some((lang_button.right - 100, lang_button.bottom + 6 + 6 + 40 * 2 + 20));
-    let pixels = render(&open, 960, 600);
-    save(&pixels, 960, 600, "preview-languages.png");
-    figures.push_str("<figure><figcaption>The language list, open (Portuguese in use, the mouse on Español)</figcaption><img data-src=\"preview-languages.png\" width=\"960\" height=\"600\"></figure>\n");
+    open.draft = Some(Draft {
+        lang: Lang::Pt,
+        units: open.units,
+        prefs: open.prefs,
+    });
+    let pixels = render(&open, 1280, 800);
+    save(&pixels, 1280, 800, "preview-languages.png");
+    figures.push_str("<figure><figcaption>Settings: the languages with their flags, Português picked and waiting for Save changes</figcaption><img data-src=\"preview-languages.png\" width=\"1280\" height=\"800\"></figure>\n");
     // The dashboard on the common screen shapes, and a phone held upright.
     let mut tall_window = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
     tall_window.recent_laps = &f.laps;
@@ -1482,20 +1484,16 @@ look(); setInterval(look, 1500);
 
 #[test]
 fn the_header_can_be_clicked_where_it_is_drawn() {
-    let [dash, mon, lang, full, top] = header_hits(960, 1.0);
+    let [dash, mon, full, top] = header_hits(960, 1.0);
     // The screens: square buttons down the sidebar, one under the other, inside its width.
     assert!(inside(&dash, 20, 20) && !inside(&dash, 20, 60) && !inside(&dash, 150, 20));
     assert!(inside(&mon, 20, 70) && !inside(&mon, 20, 20));
     assert!(mon.top > dash.bottom && dash.right < content_left(1.0) && mon.right < content_left(1.0));
     assert_eq!((dash.right - dash.left, dash.bottom - dash.top), (32, 32), "small squares");
-    assert!(inside(&lang, 834, 20) && !inside(&lang, 853, 20));
     assert!(inside(&full, 880, 20) && !inside(&full, 899, 20));
     assert!(inside(&top, 920, 20) && !inside(&top, 920, 52));
-    assert!(
-        lang.right < full.left && full.right < top.left && content_left(1.0) < lang.left,
-        "nothing overlaps"
-    );
-    let [dash2, _, _, _, top2] = header_hits(1440, 1.5);
+    assert!(full.right < top.left && content_left(1.0) < full.left, "nothing overlaps");
+    let [dash2, _, _, top2] = header_hits(1440, 1.5);
     assert_eq!((dash2.left, dash2.right), (12, 60));
     assert_eq!(top2.right, 1440 - 24);
     // The header's pills start right of the sidebar.
@@ -5947,9 +5945,9 @@ fn the_phone_mark_sits_after_the_dashboard_name_when_there_is_room_and_only_then
     let mark = phone_hit(1536, 1.0).expect("room in a normal window");
     assert!(mark.left > name.right && mark.right - mark.left > 40);
     assert_eq!((mark.top, mark.bottom), (name.top, name.bottom));
-    let version = version_hit(1536, 1.0).unwrap();
-    assert!(mark.right < version.right, "it does not run into the version");
-    assert!(phone_hit(480, 1.0).is_none(), "a narrow window has no room for it");
+    let edit = edit_button_hit(1536, 1.0).unwrap();
+    assert!(mark.right < edit.left, "it does not run into the header's buttons");
+    assert!(phone_hit(400, 1.0).is_none(), "a narrow window has no room for it");
     let tight = (360..1536).find(|w| dashboard_hit(*w, 1.0).is_some()).unwrap();
     assert!(phone_hit(tight, 1.0).is_none(), "room for the name only");
 }
@@ -6079,15 +6077,13 @@ fn leaving_edit_mode_draws_the_dashboard_exactly_as_before() {
 }
 
 #[test]
-fn the_edit_button_sits_before_the_version_and_the_pills_keep_clear_of_it() {
+fn the_edit_button_sits_before_full_screen_and_the_pills_keep_clear_of_it() {
     let edit = edit_button_hit(1536, 1.0).expect("room in a normal window");
-    let [_, _, lang, _, _] = header_hits(1536, 1.0);
+    let [_, _, full, _] = header_hits(1536, 1.0);
     assert!(
-        edit.right < lang.left && edit.right - edit.left == lang.right - lang.left,
-        "a square button before the language"
+        edit.right < full.left && edit.right - edit.left == full.right - full.left,
+        "a square button before full screen"
     );
-    let version = version_hit(1536, 1.0).unwrap();
-    assert!(version.right <= edit.left, "the version does not run into it");
     let name = dashboard_hit(1536, 1.0).unwrap();
     assert!(name.right < edit.left, "nor does the dashboard's name");
     assert!(edit_button_hit(540, 1.0).is_none(), "a narrow window has the E key and no button");
@@ -6532,4 +6528,112 @@ fn writes_the_phone_pictures() {
             }
         }
     }
+}
+
+#[test]
+fn the_header_has_no_language_or_version_and_settings_has_both() {
+    let f = fixture();
+    let dash = view(&f, None, Tab::Dash, 1.0, Lang::En);
+    render(&dash, 1536, 864);
+    assert!(
+        !dash.buttons.borrow().iter().any(|(a, _)| matches!(a, Action::Lang(_))),
+        "no language button in the header"
+    );
+    let settings = view(&f, None, Tab::Settings, 1.0, Lang::En);
+    render(&settings, 1536, 864);
+    let langs = settings
+        .buttons
+        .borrow()
+        .iter()
+        .filter(|(a, _)| matches!(a, Action::Lang(_)))
+        .count();
+    assert_eq!(langs, Lang::ALL.len(), "every language is a choice on the Settings screen");
+    assert!(
+        !settings
+            .buttons
+            .borrow()
+            .iter()
+            .any(|(a, _)| matches!(a, Action::Save | Action::Discard)),
+        "nothing waits, so no Save"
+    );
+}
+
+#[test]
+fn a_change_on_the_settings_screen_waits_for_save_and_shows_what_was_picked() {
+    let f = fixture();
+    let mut v = view(&f, None, Tab::Settings, 1.0, Lang::En);
+    let kept = v.units;
+    v.draft = Some(Draft {
+        lang: Lang::Es,
+        units: UnitKind::Speed.pick(kept, if kept.speed == crate::config::SpeedUnit::ALL[0] { 1 } else { 0 }),
+        prefs: v.prefs.toggled(Pref::PhoneView),
+    });
+    render(&v, 1536, 864);
+    let buttons = v.buttons.borrow();
+    let save = buttons
+        .iter()
+        .find(|(a, _)| *a == Action::Save)
+        .map(|(_, r)| *r)
+        .expect("Save shows while a change waits");
+    let discard = buttons
+        .iter()
+        .find(|(a, _)| *a == Action::Discard)
+        .map(|(_, r)| *r)
+        .expect("and Discard beside it");
+    assert!(
+        discard.right < save.left && discard.top == save.top,
+        "Discard sits left of Save changes"
+    );
+    // The switches stay clickable above the save line.
+    let phone = buttons
+        .iter()
+        .find(|(a, _)| *a == Action::Toggle(Pref::PhoneView))
+        .map(|(_, r)| *r)
+        .unwrap();
+    assert!(phone.bottom <= save.top, "the last switch is above the save line");
+    // The narrow window (stacked cards) also keeps Save in reach.
+    drop(buttons);
+    let mut narrow = view(&f, None, Tab::Settings, 1.0, Lang::En);
+    narrow.draft = v.draft;
+    render(&narrow, 600, 1000);
+    assert!(narrow.buttons.borrow().iter().any(|(a, _)| *a == Action::Save));
+}
+
+#[test]
+fn only_an_account_named_by_its_email_shows_the_google_mark() {
+    use crate::connect::Card;
+    assert!(google_account(&Card::Connected {
+        who: Some("ana@gmail.com".into())
+    }));
+    assert!(
+        !google_account(&Card::Connected {
+            who: Some("+55 11 99999-0000".into())
+        }),
+        "a phone sign-in has no email"
+    );
+    assert!(!google_account(&Card::Connected { who: Some("Ana".into()) }));
+    assert!(!google_account(&Card::Connected { who: None }));
+    assert!(!google_account(&Card::NotConnected { note: None }));
+    assert!(
+        !google_image().is_null() || !gdiplus_ready(),
+        "the mark's pixels are the size they say"
+    );
+}
+
+#[test]
+fn the_example_track_has_a_road_with_edges_not_a_bare_line() {
+    let layout = super::demo::demo_layout();
+    assert!(layout.road.is_some(), "the example's track card draws asphalt and edges");
+    assert!(!layout.path.is_empty());
+    // The example's dashboard 206 m into its lap, as the owner saw it: the card draws the road, not a lone arrow.
+    let f = fixture();
+    let mut live = live_reading();
+    let (pos, heading) = super::demo::demo_pose(206.0);
+    live.pos = Some(pos);
+    live.heading = Some(heading);
+    live.trail = Arc::new((190..=206).map(|d| super::demo::demo_pose(f64::from(d)).0).collect());
+    live.layout = crate::maps::LayoutView::Ready(layout);
+    let v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+    let pixels = render(&v, 1536, 864);
+    save(&pixels, 1536, 864, "preview-example-track.png");
 }

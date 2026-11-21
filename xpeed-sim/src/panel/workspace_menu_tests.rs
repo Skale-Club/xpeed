@@ -114,8 +114,8 @@ fn the_menu_stays_inside_the_window_wherever_it_can_open_and_is_not_there_withou
             assert!(menu.list.right <= width, "{width} at {scale}");
         }
     }
-    // A phone's width leaves no room for the pill, so there is nothing to open it from.
-    assert!(workspace_menu(360, 1.0, None, DashboardId::Race, &views).is_none());
+    // A window narrower than a phone leaves no room for the pill, so there is nothing to open it from.
+    assert!(workspace_menu(300, 1.0, None, DashboardId::Race, &views).is_none());
 }
 
 #[test]

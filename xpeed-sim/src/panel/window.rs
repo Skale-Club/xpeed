@@ -57,8 +57,8 @@ pub(super) struct State {
     pub(super) press: Option<(i32, i32, f32, bool)>,
     /// The carousel's step from one cover to the next (pixels), from the last frame that drew it.
     pub(super) carousel_step: f32,
-    /// The language list is open.
-    pub(super) lang_open: bool,
+    /// The Settings screen's changes that wait for Save.
+    pub(super) draft: Option<Draft>,
     /// The workspace menu is open, and until when (ms) its reset waits for the second click.
     pub(super) workspace_open: bool,
     pub(super) workspace_reset_until: i64,
@@ -195,7 +195,7 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         edit_xf: Default::default(),
         layout: std::cell::Cell::new(state.layout),
         phone_viewers: ctx.shared.phone_viewers(),
-        lang_open: state.lang_open,
+        draft: state.draft,
         workspace_open: state.workspace_open,
         workspace_reset_until: state.workspace_reset_until,
         copied: state.copied_at > 0 && now - state.copied_at < COPIED_FOR_MS,
@@ -337,6 +337,50 @@ pub(super) unsafe fn carousel_click(hwnd: HWND, state: &mut State, x: i32, y: i3
 pub(super) fn choose_lang(state: &mut State, lang: Lang) {
     lock(&state.ctx.account).lang = lang;
     crate::tray::set_lang_of_running(lang);
+}
+
+/// What the Settings screen's preferences are kept as now (the tray keeps them and says back each change).
+pub(super) fn kept(state: &State) -> Draft {
+    let account = lock(&state.ctx.account);
+    Draft {
+        lang: account.lang,
+        units: account.units,
+        prefs: account.prefs,
+    }
+}
+
+/// Changes one of the Settings screen's preferences in the draft only. A draft that comes back to what is kept is no draft.
+pub(super) fn edit_draft(state: &mut State, change: impl FnOnce(&mut Draft)) {
+    let kept = kept(state);
+    let mut draft = state.draft.unwrap_or(kept);
+    change(&mut draft);
+    state.draft = (draft != kept).then_some(draft);
+}
+
+/// Save: each preference the draft changed is kept here and told to the tray, which keeps it in the settings and its menu.
+pub(super) fn save_draft(state: &mut State) {
+    let Some(draft) = state.draft.take() else { return };
+    let kept = kept(state);
+    if draft.lang != kept.lang {
+        choose_lang(state, draft.lang);
+    }
+    for kind in UnitKind::ALL {
+        let (_, want) = kind.choices(draft.units);
+        if want != kind.choices(kept.units).1 {
+            let mut account = lock(&state.ctx.account);
+            account.units = kind.pick(account.units, want);
+            drop(account);
+            crate::tray::unit_of_running(kind, want);
+        }
+    }
+    for pref in [Pref::Autostart, Pref::AutoUpdate, Pref::PhoneView] {
+        if draft.prefs.get(pref) != kept.prefs.get(pref) {
+            let mut account = lock(&state.ctx.account);
+            account.prefs = account.prefs.toggled(pref);
+            drop(account);
+            crate::tray::pref_of_running(pref);
+        }
+    }
 }
 
 /// The dashboard tab shows the waiting screen: no reading, or the game is gone (a game still connected keeps the
@@ -538,8 +582,7 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
             0
         }
         WM_LBUTTONDOWN
-            if !state.lang_open
-                && state.tab == Tab::Monitor
+            if state.tab == Tab::Monitor
                 && state.scroll.is_some_and(|bar| {
                     let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
                     inside(&bar.track, x, y)
@@ -624,16 +667,8 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
                 InvalidateRect(hwnd, null(), 0);
                 return 0;
             }
-            let [dash, mon, lang, full, top] = header_hits(client.right, scale_of(hwnd));
-            if inside(&lang, x, y) {
-                state.lang_open = !state.lang_open;
-            } else if state.lang_open {
-                // With the list open, a click picks a language or, anywhere else, only closes the list.
-                if let Some(&(Action::Lang(i), _)) = state.buttons.iter().find(|(_, r)| inside(r, x, y)) {
-                    choose_lang(state, Lang::ALL[i]);
-                }
-                state.lang_open = false;
-            } else if workspace_pill_hit(hwnd, state, client.right, x, y) {
+            let [dash, mon, full, top] = header_hits(client.right, scale_of(hwnd));
+            if workspace_pill_hit(hwnd, state, client.right, x, y) {
                 state.workspace_open = true;
                 state.workspace_reset_until = 0;
             } else if inside(&dash, x, y) {
@@ -685,20 +720,12 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
                             state.copied_at = now_ms();
                         }
                     }
-                    Action::Lang(i) => choose_lang(state, Lang::ALL[i]),
-                    // The Settings screen's choices: shown at once, then kept by the tray (it says back what it kept).
-                    Action::Toggle(pref) => {
-                        let mut account = lock(&state.ctx.account);
-                        account.prefs = account.prefs.toggled(pref);
-                        drop(account);
-                        crate::tray::pref_of_running(pref);
-                    }
-                    Action::Unit(kind, i) => {
-                        let mut account = lock(&state.ctx.account);
-                        account.units = kind.pick(account.units, i);
-                        drop(account);
-                        crate::tray::unit_of_running(kind, i);
-                    }
+                    // The Settings screen's choices wait as a draft (shown at once there) until Save keeps them.
+                    Action::Lang(i) => edit_draft(state, |d| d.lang = Lang::ALL[i]),
+                    Action::Toggle(pref) => edit_draft(state, |d| d.prefs = d.prefs.toggled(pref)),
+                    Action::Unit(kind, i) => edit_draft(state, |d| d.units = kind.pick(d.units, i)),
+                    Action::Save => save_draft(state),
+                    Action::Discard => state.draft = None,
                     Action::Cover(i) => {
                         let steps = carousel_steps(state.carousel.target, i, state.covers.len());
                         if steps != 0 {
@@ -833,7 +860,7 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
                 InvalidateRect(hwnd, null(), 0);
                 return 0;
             }
-            if state.edit.is_some() && !state.lang_open {
+            if state.edit.is_some() {
                 let key = match wparam {
                     VK_ESCAPE => Some(EditKey::Escape),
                     0x0d => Some(EditKey::Enter),
@@ -865,7 +892,6 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
                 VK_F11 | 0x46 => toggle_full(hwnd, state),
                 // D: race, qualifying, practice, time trial, automatic; kept for the game that is open.
                 0x44 => switch_dashboard(state),
-                VK_ESCAPE if state.lang_open => state.lang_open = false,
                 // Esc closes the example before it leaves full screen (the example is what was opened last).
                 VK_ESCAPE if state.preview.is_some() && state.tab == Tab::Dash => close_preview(state),
                 VK_ESCAPE if state.full.is_some() => toggle_full(hwnd, state),
@@ -1028,7 +1054,7 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             drag: None,
             press: None,
             carousel_step: 120.0,
-            lang_open: false,
+            draft: None,
             workspace_open: false,
             workspace_reset_until: 0,
             copied_at: 0,

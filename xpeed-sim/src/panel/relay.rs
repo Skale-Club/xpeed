@@ -151,7 +151,7 @@ pub(super) fn phone_pixels(
         edit: None,
         edit_xf: Default::default(),
         phone_viewers: 0,
-        lang_open: false,
+        draft: None,
         workspace_open: false,
         workspace_reset_until: 0,
         copied: false,

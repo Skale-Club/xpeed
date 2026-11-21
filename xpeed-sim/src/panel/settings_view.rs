@@ -13,6 +13,12 @@ const SUPPORT_H: f32 = 96.0;
 /// The preferences' rows: the language, the four units, then the three switches.
 const PREF_ROWS: f32 = 8.0;
 
+/// The height of the line under the preferences that says changes wait, with Discard and Save changes (design units).
+const SAVE_BAR_H: f32 = 60.0;
+
+/// A language choice's flag (design units), drawn before its name.
+const CHIP_FLAG: (f32, f32) = (18.0, 13.5);
+
 pub(super) fn settings(g: &mut Painter, body: RECT, view: &View) {
     let s = view.scale;
     g.place(s, body.left, body.top);
@@ -29,7 +35,7 @@ pub(super) fn settings(g: &mut Painter, body: RECT, view: &View) {
     let support_y = update_y + UPDATE_H + gap;
     if stacked {
         let prefs_y = support_y;
-        let prefs_h = prefs_need().min(h - prefs_y).max(0.0);
+        let prefs_h = prefs_need(view).min(h - prefs_y).max(0.0);
         if prefs_h >= 120.0 {
             prefs_card(g, view, 0.0, prefs_y, col, prefs_h);
         }
@@ -40,13 +46,13 @@ pub(super) fn settings(g: &mut Painter, body: RECT, view: &View) {
     } else {
         // Each card as tall as what it holds, so a big window has no empty cards.
         support_card(g, view, 0.0, support_y, col, SUPPORT_H);
-        prefs_card(g, view, col + gap, 0.0, col, prefs_need().min(h));
+        prefs_card(g, view, col + gap, 0.0, col, prefs_need(view).min(h));
     }
 }
 
-/// The height the preferences want at their roomiest.
-fn prefs_need() -> f32 {
-    52.0 + PREF_ROWS * 42.0 + S3
+/// The height the preferences want at their roomiest, with the save line while changes wait.
+fn prefs_need(view: &View) -> f32 {
+    52.0 + PREF_ROWS * 42.0 + S3 + if view.draft.is_some() { SAVE_BAR_H } else { 0.0 }
 }
 
 /// The account card's buttons, by what the card says: label, primary, width (design units).
@@ -142,7 +148,14 @@ pub(super) fn account_card(g: &mut Painter, view: &View, x: f32, y: f32, col: f3
             },
         ),
     };
-    g.fill(g.r(x + 20.0, y + 52.0, 10.0, 10.0), dot);
+    // Signed in with Google: its "G" in the dot's place while all is well (a colour that warns stays a dot).
+    let google = google_account(&view.card) && view.snapshot.cloud == Cloud::Idle;
+    let image = if google { google_image() } else { null_mut() };
+    if image.is_null() {
+        g.fill(g.r(x + 20.0, y + 52.0, 10.0, 10.0), dot);
+    } else {
+        g.image(g.r(x + 18.0, y + 48.0, 16.0, 16.0), image);
+    }
     let r = g.r(x + 40.0, y + 42.0, col - 60.0, 30.0);
     g.text(&headline, r, T_LEAD, semi, Face::Ui, FOREGROUND, DT_LEFT);
     if let Some(code) = code {
@@ -168,6 +181,13 @@ pub(super) fn account_card(g: &mut Painter, view: &View, x: f32, y: f32, col: f3
         g.text(label, r, T_BODY, semi, Face::Ui, ink, DT_CENTER);
         view.buttons.borrow_mut().push((*action, r));
     }
+}
+
+/// Whether the account this computer is connected to signed in with Google. Xpeed signs in two ways, Google and a code sent to a
+/// phone, and only Google gives the account an email; the server names the account by its email first, so a name with an @ is a
+/// Google account.
+pub(super) fn google_account(card: &crate::connect::Card) -> bool {
+    matches!(card, crate::connect::Card::Connected { who: Some(who) } if who.contains('@'))
 }
 
 /// Updates: this version and what the updater is doing, a bar while something is under way, and the one button that fits
@@ -245,20 +265,30 @@ pub(super) fn update_card(g: &mut Painter, view: &View, x: f32, uy: f32, col: f3
     }
 }
 
-/// Preferences: the language and the four units as rows of small choices (the one in use outlined in yellow), then the three
-/// switches. Each row's height shrinks with the card, never below what its words need.
+/// Preferences: the language (each with its flag) and the four units as rows of small choices (the one picked outlined in
+/// yellow), then the three switches. Each row's height shrinks with the card, never below what its words need. A change only
+/// waits (the card shows it at once): a line at the card's foot says so, with Discard and Save changes.
 pub(super) fn prefs_card(g: &mut Painter, view: &View, x: f32, y: f32, col: f32, h: f32) {
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
     g.tile(x, y, col, h, CARD);
     g.label(&text(view.lang, &Msg::PanelPreferences), x + 20.0, y + S4, col - 40.0);
+    let shown = view.draft.unwrap_or(Draft {
+        lang: view.lang,
+        units: view.units,
+        prefs: view.prefs,
+    });
+    let bar = if view.draft.is_some() { SAVE_BAR_H } else { 0.0 };
     let top = y + 46.0;
-    let row_h = ((h - 46.0 - S3) / PREF_ROWS).clamp(28.0, 42.0);
+    let row_h = ((h - 46.0 - S3 - bar) / PREF_ROWS).clamp(28.0, 42.0);
     let (left, right) = (x + 20.0, x + col - 20.0);
+    if view.draft.is_some() {
+        save_bar(g, view, left, right, y + h - bar, bar);
+    }
     let mut row = 0.0_f32;
     let mut next = |g: &mut Painter| -> Option<f32> {
         let ry = top + row * row_h;
         row += 1.0;
-        if ry + row_h > y + h - S2 {
+        if ry + row_h > y + h - S2 - bar {
             return None;
         }
         if row > 1.0 {
@@ -268,58 +298,89 @@ pub(super) fn prefs_card(g: &mut Painter, view: &View, x: f32, y: f32, col: f32,
     };
     // A row of choices: its name at the left, the choices at the right, the one in use outlined in yellow.
     let chip_h = (row_h - 12.0).min(26.0);
-    let choices = |g: &mut Painter, ry: f32, name: &str, labels: &[String], chosen: usize, action: &dyn Fn(usize) -> Action| {
-        let widths: Vec<f32> = labels.iter().map(|l| g.width_of(l, T_CAPTION, semi, Face::Ui) + 18.0).collect();
-        let total = widths.iter().sum::<f32>() + S1 * (widths.len().saturating_sub(1)) as f32;
-        let name_room = (right - left - total - S3).max(0.0);
-        g.text(
-            name,
-            g.r(left, ry, name_room, row_h),
-            T_BODY,
-            normal,
-            Face::Ui,
-            FOREGROUND_2,
-            DT_LEFT,
-        );
-        let mut cx = right - total;
-        for (i, (label, cw)) in labels.iter().zip(&widths).enumerate() {
-            let r = g.r(cx.max(left), ry + (row_h - chip_h) / 2.0, *cw, chip_h);
-            let hot = view.mouse.is_some_and(|(mx, my)| inside(&r, mx, my));
-            let (edge, ink) = if i == chosen {
-                (PRIMARY, PRIMARY)
-            } else if hot {
-                (MUTED_TEXT, FOREGROUND)
-            } else {
-                (BORDER, MUTED_TEXT)
-            };
-            g.round(r, CARD, Some(edge));
-            g.text(label, r, T_CAPTION, semi, Face::Ui, ink, DT_CENTER);
-            view.buttons.borrow_mut().push((action(i), r));
-            cx += cw + S1;
-        }
-    };
-    if let Some(ry) = next(g) {
-        let now = Lang::ALL.iter().position(|l| *l == view.lang).unwrap_or(0);
-        // The languages by name in their own words, or by their codes when the names do not fit beside the row's name.
-        let names: Vec<String> = Lang::ALL.iter().map(|l| l.name().to_owned()).collect();
-        let fits = names
-            .iter()
-            .map(|n| g.width_of(n, T_CAPTION, semi, Face::Ui) + 18.0 + S1)
-            .sum::<f32>()
-            + 110.0
-            <= right - left;
-        let labels: Vec<String> = if fits {
-            names
+    // With `flags`, each choice is a language (its place in `Lang::ALL`) and starts with its flag; an empty label is the flag alone.
+    let flag_room = CHIP_FLAG.0 + 6.0;
+    let chip_w = |g: &mut Painter, label: &str, flags: bool| -> f32 {
+        let words = if label.is_empty() {
+            0.0
         } else {
-            Lang::ALL.iter().map(|l| l.code().to_uppercase()).collect()
+            g.width_of(label, T_CAPTION, semi, Face::Ui)
         };
-        choices(g, ry, &text(view.lang, &Msg::MenuLanguage), &labels, now, &Action::Lang);
+        let flag = match (flags, label.is_empty()) {
+            (false, _) => 0.0,
+            (true, true) => CHIP_FLAG.0,
+            (true, false) => flag_room,
+        };
+        words + flag + 18.0
+    };
+    let choices =
+        |g: &mut Painter, ry: f32, name: &str, labels: &[String], chosen: usize, flags: bool, action: &dyn Fn(usize) -> Action| {
+            let widths: Vec<f32> = labels.iter().map(|l| chip_w(g, l, flags)).collect();
+            let total = widths.iter().sum::<f32>() + S1 * (widths.len().saturating_sub(1)) as f32;
+            let name_room = (right - left - total - S3).max(0.0);
+            g.text(
+                name,
+                g.r(left, ry, name_room, row_h),
+                T_BODY,
+                normal,
+                Face::Ui,
+                FOREGROUND_2,
+                DT_LEFT,
+            );
+            let mut cx = right - total;
+            for (i, (label, cw)) in labels.iter().zip(&widths).enumerate() {
+                let r = g.r(cx.max(left), ry + (row_h - chip_h) / 2.0, *cw, chip_h);
+                let hot = view.mouse.is_some_and(|(mx, my)| inside(&r, mx, my));
+                let (edge, ink) = if i == chosen {
+                    (PRIMARY, PRIMARY)
+                } else if hot {
+                    (MUTED_TEXT, FOREGROUND)
+                } else {
+                    (BORDER, MUTED_TEXT)
+                };
+                g.round(r, CARD, Some(edge));
+                if flags {
+                    let (fw, fh) = CHIP_FLAG;
+                    let fx = cx.max(left) + 9.0;
+                    let image = flag_image(Lang::ALL[i]);
+                    if !image.is_null() {
+                        g.image(g.r(fx, ry + (row_h - fh) / 2.0, fw, fh), image);
+                    }
+                    if !label.is_empty() {
+                        let words = g.r(fx + flag_room, ry + (row_h - chip_h) / 2.0, cw - 18.0 - flag_room + 9.0, chip_h);
+                        g.text(label, words, T_CAPTION, semi, Face::Ui, ink, DT_LEFT);
+                    }
+                } else {
+                    g.text(label, r, T_CAPTION, semi, Face::Ui, ink, DT_CENTER);
+                }
+                view.buttons.borrow_mut().push((action(i), r));
+                cx += cw + S1;
+            }
+        };
+    if let Some(ry) = next(g) {
+        let now = Lang::ALL.iter().position(|l| *l == shown.lang).unwrap_or(0);
+        // The languages by flag and name in their own words; flag and code when the names do not fit beside the row's name;
+        // only the flags when even that does not.
+        let room = right - left - 110.0;
+        let names: Vec<String> = Lang::ALL.iter().map(|l| l.name().to_owned()).collect();
+        let codes: Vec<String> = Lang::ALL.iter().map(|l| l.code().to_uppercase()).collect();
+        let need = |g: &mut Painter, labels: &[String]| labels.iter().map(|l| chip_w(g, l, true) + S1).sum::<f32>();
+        let labels = if need(g, &names) <= room {
+            names
+        } else if need(g, &codes) <= room {
+            codes
+        } else {
+            vec![String::new(); Lang::ALL.len()]
+        };
+        choices(g, ry, &text(view.lang, &Msg::MenuLanguage), &labels, now, true, &Action::Lang);
     }
     for kind in UnitKind::ALL {
         let Some(ry) = next(g) else { return };
-        let (labels, now) = kind.choices(view.units);
+        let (labels, now) = kind.choices(shown.units);
         let labels: Vec<String> = labels.into_iter().map(str::to_owned).collect();
-        choices(g, ry, &text(view.lang, &kind.msg()), &labels, now, &|i| Action::Unit(kind, i));
+        choices(g, ry, &text(view.lang, &kind.msg()), &labels, now, false, &|i| {
+            Action::Unit(kind, i)
+        });
     }
     // The switches: the whole row is the button.
     for (pref, msg) in [
@@ -328,7 +389,7 @@ pub(super) fn prefs_card(g: &mut Painter, view: &View, x: f32, y: f32, col: f32,
         (Pref::PhoneView, Msg::MenuPhoneView),
     ] {
         let Some(ry) = next(g) else { return };
-        let on = view.prefs.get(pref);
+        let on = shown.prefs.get(pref);
         let row_r = g.r(left, ry, right - left, row_h);
         let hot = view.mouse.is_some_and(|(mx, my)| inside(&row_r, mx, my));
         let (sw, sh) = (34.0, 18.0);
@@ -352,6 +413,40 @@ pub(super) fn prefs_card(g: &mut Painter, view: &View, x: f32, y: f32, col: f32,
         g.round(g.r(tx, ty, sw, sh), track, if on { None } else { Some(BORDER) });
         g.round(g.r(knob_x, ty + 3.0, sh - 6.0, sh - 6.0), knob, None);
         view.buttons.borrow_mut().push((Action::Toggle(pref), row_r));
+    }
+}
+
+/// The line at the preferences' foot while changes wait: a yellow mark and "Unsaved changes" at the left, Discard and Save changes
+/// (the yellow one) at the right.
+fn save_bar(g: &mut Painter, view: &View, left: f32, right: f32, y: f32, h: f32) {
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    g.fill(g.r(left, y, right - left, 1.0), BORDER);
+    let by = y + (h - BUTTON_H) / 2.0;
+    let save = text(view.lang, &Msg::PanelSaveChanges);
+    let discard = text(view.lang, &Msg::PanelDiscard);
+    let save_w = g.width_of(&save, T_BODY, semi, Face::Ui) + 36.0;
+    let discard_w = g.width_of(&discard, T_BODY, semi, Face::Ui) + 36.0;
+    let save_r = g.r(right - save_w, by, save_w, BUTTON_H);
+    let discard_r = g.r(right - save_w - S2 - discard_w, by, discard_w, BUTTON_H);
+    g.round(save_r, PRIMARY, None);
+    g.text(&save, save_r, T_BODY, semi, Face::Ui, ON_PRIMARY, DT_CENTER);
+    let hot = view.mouse.is_some_and(|(mx, my)| inside(&discard_r, mx, my));
+    g.round(discard_r, if hot { ROW_HOVER } else { CARD }, Some(BORDER));
+    g.text(&discard, discard_r, T_BODY, semi, Face::Ui, FOREGROUND, DT_CENTER);
+    view.buttons.borrow_mut().push((Action::Discard, discard_r));
+    view.buttons.borrow_mut().push((Action::Save, save_r));
+    let room = right - save_w - S2 - discard_w - S3 - left - 18.0;
+    if room > 40.0 {
+        g.fill(g.r(left, y + h / 2.0 - 4.0, 8.0, 8.0), PRIMARY);
+        g.text(
+            &text(view.lang, &Msg::PanelUnsaved),
+            g.r(left + 18.0, y, room, h),
+            T_CAPTION,
+            normal,
+            Face::Ui,
+            PRIMARY,
+            DT_LEFT,
+        );
     }
 }
 

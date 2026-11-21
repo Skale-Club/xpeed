@@ -31,9 +31,9 @@ pub(super) fn content_left(scale: f32) -> i32 {
     (SIDEBAR_W * scale).round() as i32
 }
 
-/// The places of the window's frame that can be clicked: the two screens (icon buttons down the sidebar), then the
-/// language, "full screen" and "always on top" (square icon buttons at the header's right).
-pub(super) fn header_hits(width: i32, scale: f32) -> [RECT; 5] {
+/// The places of the window's frame that can be clicked: the two screens (icon buttons down the sidebar), then "full screen"
+/// and "always on top" (square icon buttons at the header's right). The language and the version live on the Settings screen.
+pub(super) fn header_hits(width: i32, scale: f32) -> [RECT; 4] {
     let p = |v: f32| (v * scale).round() as i32;
     let (top, bottom) = (p(13.0), p(51.0));
     let right = width - p(16.0);
@@ -46,7 +46,7 @@ pub(super) fn header_hits(width: i32, scale: f32) -> [RECT; 5] {
         let y = first + n * (small + gap);
         rect(left, y, left + small, y + small)
     };
-    [screen(0), screen(1), nth(2), nth(1), nth(0)]
+    [screen(0), screen(1), nth(1), nth(0)]
 }
 
 /// The sidebar's third button, Settings (pixels): under the two screens, the same size and gap.
@@ -56,41 +56,32 @@ pub(super) fn settings_hit(width: i32, scale: f32) -> RECT {
     rect(mon.left, mon.top + step, mon.right, mon.bottom + step)
 }
 
-/// Where the version text sits in the header (pixels), or `None` when the window is too narrow to show it.
-pub(super) fn version_hit(width: i32, scale: f32) -> Option<RECT> {
-    let p = |v: f32| (v * scale).round() as i32;
-    let [_, _, lang, _, _] = header_hits(width, scale);
-    let right = header_edge(width, scale) - p(14.0);
-    (right - p(60.0) > content_left(scale) + p(12.0)).then(|| rect(right - p(120.0), lang.top, right, lang.bottom))
-}
-
-/// Where the header's "Edit layout" button sits (pixels): a square button left of the language button, when the window is wide
-/// enough to have it beside the tabs and the dashboard's name.
+/// Where the header's "Edit layout" button sits (pixels): a square button left of the full screen button, when the window is
+/// wide enough to have it beside the dashboard's name.
 pub(super) fn edit_button_hit(width: i32, scale: f32) -> Option<RECT> {
     let p = |v: f32| (v * scale).round() as i32;
-    let [_, _, lang, _, _] = header_hits(width, scale);
+    let [_, _, full, _] = header_hits(width, scale);
     let (side, gap) = (p(38.0), p(8.0));
-    (width as f32 / scale >= EDIT_BUTTON_MIN_W).then(|| rect(lang.left - gap - side, lang.top, lang.left - gap, lang.bottom))
+    (width as f32 / scale >= EDIT_BUTTON_MIN_W).then(|| rect(full.left - gap - side, full.top, full.left - gap, full.bottom))
 }
 
-/// The left edge of the header's right-hand buttons (pixels): what the version and the pills keep clear of.
+/// The left edge of the header's right-hand buttons (pixels): what the pills keep clear of.
 fn header_edge(width: i32, scale: f32) -> i32 {
-    let [_, _, lang, _, _] = header_hits(width, scale);
-    edit_button_hit(width, scale).map_or(lang.left, |edit| edit.left)
+    let [_, _, full, _] = header_hits(width, scale);
+    edit_button_hit(width, scale).map_or(full.left, |edit| edit.left)
 }
 
-/// Where the dashboard's name sits in the header (pixels): at its left, after the sidebar, when the window leaves room before the
-/// version (or the language button, without the version).
+/// Where the dashboard's name sits in the header (pixels): at its left, after the sidebar, when the window leaves room before
+/// the header's buttons.
 pub(super) fn dashboard_hit(width: i32, scale: f32) -> Option<RECT> {
     let p = |v: f32| (v * scale).round() as i32;
     let left = content_left(scale) + p(S4);
     (header_limit(width, scale) - left >= p(150.0)).then(|| rect(left, p(17.0), left + p(150.0), p(47.0)))
 }
 
-/// How far right the header's pills may reach (pixels): before the version, or the language button without the version.
+/// How far right the header's pills may reach (pixels): a little before the header's buttons.
 fn header_limit(width: i32, scale: f32) -> i32 {
-    let p = |v: f32| (v * scale).round() as i32;
-    version_hit(width, scale).map_or(header_edge(width, scale) - p(14.0), |v| v.left + p(60.0))
+    header_edge(width, scale) - (14.0 * scale).round() as i32
 }
 
 /// Where the "Phone" mark sits in the header (pixels): after the dashboard's name, when the window leaves room for both.

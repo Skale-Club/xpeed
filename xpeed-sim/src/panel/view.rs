@@ -21,7 +21,7 @@ pub enum Action {
     PreviewAll,
     /// Closes the example (the header's "Example" pill).
     ExitPreview,
-    /// Picks this language (its place in `Lang::ALL`) from the language list.
+    /// Picks this language (its place in `Lang::ALL`) on the Settings screen (kept as a change waiting for Save).
     Lang(usize),
     /// Puts the support text (versions, games, connection, last log lines) on the clipboard.
     CopyDiagnostics,
@@ -33,6 +33,18 @@ pub enum Action {
     Toggle(Pref),
     /// Picks the unit at this place in its kind's list (`SpeedUnit::ALL` and the others).
     Unit(UnitKind, usize),
+    /// Keeps the Settings screen's changes that wait (language, units, switches).
+    Save,
+    /// Forgets them: the screen shows what is kept again.
+    Discard,
+}
+
+/// The Settings screen's preferences as the person left them there: what is kept until Save, then kept for good.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Draft {
+    pub lang: Lang,
+    pub units: crate::config::Units,
+    pub prefs: Prefs,
 }
 
 /// A choice of the Settings screen that is on or off (the tray menu has the same ones, with a check mark).
@@ -193,8 +205,8 @@ pub struct View<'a> {
     pub(super) edit_xf: std::cell::Cell<Option<Xf>>,
     /// How many phones are watching the panel through the Xpeed server (none unless "Show the panel on my phone" is on).
     pub phone_viewers: u32,
-    /// The language list under the language button is open.
-    pub lang_open: bool,
+    /// The Settings screen's changes that wait for Save (`None` when what it shows is what is kept).
+    pub draft: Option<Draft>,
     /// The workspace menu under the header's dashboard pill is open, and until when (ms) its reset waits for the second click.
     pub(super) workspace_open: bool,
     pub(super) workspace_reset_until: i64,
