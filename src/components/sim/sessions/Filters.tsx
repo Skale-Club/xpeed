@@ -128,8 +128,8 @@ export function SessionFilterBar({ filters, onChange, onClear, gameOptions, trac
         />
         {/* In the row with the drop-downs, as the tracks list's "Has a layout": an on/off chip of their height, never a line of its own. */}
         <span className="inline-flex" title={t('sessionsDash.filters.validOnlyHint', 'Hides sessions where the game counted no lap as valid.')}>
-          <ToggleChip pressed={filters.validOnly} onChange={(on) => onChange('validOnly', on)} testId="filter-valid">
-            <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />{validLabel}</span>
+          <ToggleChip pressed={filters.validOnly} onChange={(on) => onChange('validOnly', on)} icon={<CheckCircle2 />} testId="filter-valid">
+            {validLabel}
           </ToggleChip>
         </span>
       </FilterBar>

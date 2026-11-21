@@ -13,7 +13,9 @@ export function TrackLayoutThumb({ trackId, name, className = 'h-10 w-10' }: { t
   const [attach, seen] = useOnScreen<HTMLSpanElement>();
   const detail = useTrackDetail(trackId ?? null, seen);
   const track = detail.data?.track;
-  const wanted = track && track.hasLayout !== false ? { game: track.game, name: track.name, layoutId: track.layoutId } : null;
+  // The whole track, as the track page passes it: the layout file is checked against the raw catalog name (`sourceName`) and the variant, and an
+  // AC track's `name` is its real title ("Laguna Seca" for `ks_laguna_seca`), which never matches the file.
+  const wanted = track && track.hasLayout !== false ? track : null;
   const layout = useTrackLayout(wanted, seen);
   // isLoading, not isPending: a read that never starts (signed out) ends on the placeholder, not on a skeleton forever.
   const pending = !!trackId && (!seen || detail.isLoading || (!!wanted && layout.isLoading));

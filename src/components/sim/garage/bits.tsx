@@ -82,9 +82,9 @@ export function SearchField({ label, value, onChange, placeholder, testId, class
 }
 
 /** An on/off filter as a button (`aria-pressed`), the size of the drop-downs next to it (h-8, text-xs): the shared `Chip` as a toggle. */
-export function ToggleChip({ pressed, onChange, children, testId, className }: { pressed: boolean; onChange: (pressed: boolean) => void; children: ReactNode; testId?: string; className?: string }) {
+export function ToggleChip({ pressed, onChange, children, icon, testId, className }: { pressed: boolean; onChange: (pressed: boolean) => void; children: ReactNode; icon?: ReactNode; testId?: string; className?: string }) {
   return (
-    <Chip selected={pressed} onClick={() => onChange(!pressed)} testId={testId} className={cn(FILTER_CELL, 'h-8 gap-1.5 whitespace-nowrap px-2.5 text-xs focus-visible:ring-1', className)}>
+    <Chip selected={pressed} onClick={() => onChange(!pressed)} icon={icon} testId={testId} className={cn(FILTER_CELL, 'h-8 gap-1.5 whitespace-nowrap px-2.5 text-xs focus-visible:ring-1', className)}>
       {children}
     </Chip>
   );

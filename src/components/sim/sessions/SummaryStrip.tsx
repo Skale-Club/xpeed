@@ -17,14 +17,16 @@ export function SessionsSummaryStrip({ summary, showBest, more }: { summary: Ses
   return (
     <TileGrid testId="sessions-summary">
       <StatTile
+        compact
         testId="sum-sessions"
         accent="sky"
         label={t('sessionsDash.summary.sessions', 'Sessions')}
         value={`${format.number(summary.sessions)}${plus}`}
-        sub={more ? t('sessionsDash.summary.soFar', 'so far: load more for the rest') : t('sessionsDash.summary.inView', 'in this view')}
+        sub={more ? t('sessionsDash.summary.soFar', 'so far: load more for the rest') : undefined}
       />
-      <StatTile testId="sum-laps" accent="blue" label={t('sessionsDash.summary.laps', 'Laps')} value={`${format.number(summary.laps)}${plus}`} />
+      <StatTile compact testId="sum-laps" accent="blue" label={t('sessionsDash.summary.laps', 'Laps')} value={`${format.number(summary.laps)}${plus}`} />
       <StatTile
+        compact
         testId="sum-time"
         accent="purple"
         label={t('sessionsDash.summary.time', 'Session time')}
@@ -33,6 +35,7 @@ export function SessionsSummaryStrip({ summary, showBest, more }: { summary: Ses
       />
       {showBest ? (
         <StatTile
+        compact
           testId="sum-best"
           accent="yellow"
           label={t('sessionsDash.summary.best', 'Best lap')}
@@ -43,6 +46,7 @@ export function SessionsSummaryStrip({ summary, showBest, more }: { summary: Ses
         />
       ) : (
         <StatTile
+        compact
           testId="sum-pairs"
           accent="pink"
           label={t('sessionsDash.summary.tracksCars', 'Tracks · cars')}

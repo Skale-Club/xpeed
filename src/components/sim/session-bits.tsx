@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { Award } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useGames } from '@/lib/sim/games';
 import { GameCover } from './GameCover';
@@ -26,5 +27,19 @@ export function GameBadge({ game, cover = true }: { game: string; cover?: boolea
       {cover && <GameCover game={game} className="w-5 self-center rounded-[3px] border-0" />}
       <span className="truncate">{games.name(game)}</span>
     </span>
+  );
+}
+
+/**
+ * The personal-best mark next to a lap time: a small green pill with the award icon. The label is trimmed to its capitals so "PB" sits on the
+ * icon's centre line instead of riding high over the font's descender space.
+ */
+export function PbBadge({ title, testId }: { title?: string; testId?: string }) {
+  const { t } = useTranslation();
+  return (
+    <Badge variant="success" className="shrink-0 gap-1 px-1.5 py-0.5 text-2xs leading-none" title={title} data-testid={testId}>
+      <Award className="h-3 w-3" aria-hidden="true" />
+      <span className="[text-box:trim-both_cap_alphabetic]">{t('sessionsDash.row.pb', 'PB')}</span>
+    </Badge>
   );
 }

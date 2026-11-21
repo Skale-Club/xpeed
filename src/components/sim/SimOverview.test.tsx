@@ -295,11 +295,10 @@ describe('consistency', () => {
 });
 
 describe('the latest', () => {
-  it('lists the latest sessions in a table (when, game, track, car, laps, best valid lap, kind) with a link to all of them, and the latest personal bests', async () => {
+  it('lists the latest sessions as one-line rows (track, car, when, game, kind, best valid lap, laps) with a link to all of them, and the latest personal bests', async () => {
     const state = dashboardState();
     await dashboard(state);
-    const table = within(screen.getByTestId('overview-sessions')).getByRole('table');
-    expect(within(table).getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['When', 'Track and car', 'Laps', 'Best valid lap']);
+    expect(within(screen.getByTestId('overview-sessions')).queryByRole('table')).not.toBeInTheDocument();
     const rows = screen.getAllByTestId('overview-session');
     expect(rows).toHaveLength(5);
     expect(rows[0]).toHaveTextContent('Monza');

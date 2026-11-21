@@ -1,8 +1,7 @@
 import { memo, useMemo } from 'react';
-import { Badge } from '@/components/ui/badge';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Award, ChevronRight } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { GameCover } from '../GameCover';
 import { formatGap, formatLapTime } from '@/lib/sim/analysis';
@@ -12,7 +11,7 @@ import { flyingLaps } from '@/lib/sim/session-detail';
 import { lapSparkPath, lapTally, pbStanding } from '@/lib/sim/sessions-view';
 import type { V1Pb, V1Session } from '@/lib/sim/v1-client';
 import { CHART_PALETTE } from '@/lib/chart-palette';
-import { GameBadge, KindBadge } from '../session-bits';
+import { GameBadge, KindBadge, PbBadge } from '../session-bits';
 import { SimCarIdentity } from '../SimCarIdentity';
 import { TrackLayoutThumb } from '../TrackLayoutThumb';
 import { useDashFormat } from '../overview/use-format';
@@ -75,75 +74,68 @@ function SessionRowView({ session, pb, pbsReady }: { session: V1Session; pb: V1P
     <li ref={ref}>
       <Link to={sessionPath(session.id)} className="group block rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="session-link">
         <Card className="border-border bg-card transition-colors group-hover:bg-muted/30" data-testid="session">
-          <div className="flex gap-3 p-3 sm:p-4">
-            <GameCover game={session.game} className="w-16 sm:w-20" testId="session-cover" />
-            <div className="min-w-0 flex-1 space-y-2.5">
-              {/* On a phone the game and the kind get their own line above the track, so the track name is never squeezed to a few letters. */}
-              <div className="flex flex-col-reverse gap-1.5 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
-                <div className="flex min-w-0 items-center gap-3">
-                  <TrackLayoutThumb trackId={session.track.id} name={session.track.name} className="h-11 w-11" />
-                  <div className="min-w-0">
-                    <h3 className="truncate text-sm font-semibold sm:text-base">{session.track.name}</h3>
-                    <SimCarIdentity name={session.car.name} className="text-sm text-muted-foreground" />
-                  </div>
+          <div className="space-y-3 p-3 sm:p-4">
+            {/* The cover is as tall as the head of the card (track, car, time), and the numbers below run the card's full width. */}
+            <div className="flex gap-3">
+              <GameCover game={session.game} className="w-14 self-stretch aspect-auto sm:w-16" testId="session-cover" />
+              {/* A phone keeps the track and the car on the first line and puts the kind at the end of the time line; the game's name is the cover's. */}
+              <div className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2">
+                <TrackLayoutThumb trackId={session.track.id} name={session.track.name} className="col-start-1 row-start-1 h-11 w-11" />
+                <div className="col-span-2 col-start-2 row-start-1 min-w-0 sm:col-span-1">
+                  <h3 className="truncate text-sm font-semibold sm:text-base">{session.track.name}</h3>
+                  <SimCarIdentity name={session.car.name} className="text-sm text-muted-foreground" logoClassName="h-7 w-10" />
                 </div>
-                <div className="flex min-w-0 shrink-0 items-center gap-1.5">
-                  <GameBadge game={session.game} cover={false} />
+                <div className="col-start-3 row-start-2 flex shrink-0 items-center gap-1.5 justify-self-end sm:row-start-1 sm:self-start">
+                  <span className="hidden sm:contents"><GameBadge game={session.game} cover={false} /></span>
                   <KindBadge kind={session.kind} />
                   <ChevronRight className="hidden h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 sm:block" aria-hidden="true" />
                 </div>
+                <div className="col-span-2 col-start-1 row-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground sm:col-span-3">
+                  <span data-testid="session-time">{timeOfDay(Date.parse(session.startedAt))}</span>
+                  {weather && <span data-testid="session-conditions">{weather}</span>}
+                </div>
               </div>
+            </div>
 
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                <span data-testid="session-time">{timeOfDay(Date.parse(session.startedAt))}</span>
-                {weather && <span data-testid="session-conditions">{weather}</span>}
-              </div>
-
-              <dl className="grid grid-cols-2 items-end gap-x-4 gap-y-2.5 border-t border-border pt-2.5 sm:grid-cols-4">
-                <Metric label={t('sessionsDash.row.laps', 'Laps')} testId="session-laps-metric">
-                  <span className="tabular-nums" data-testid="session-lap-count">{format.number(session.lapCount)}</span>
-                  {tally && (
-                    <span className="ml-1.5 text-xs text-muted-foreground" data-testid="session-valid">
-                      {t('sessionsDash.row.validOf', '{{valid}} valid', { valid: tally.valid })}
+            <dl className="grid grid-cols-2 items-end gap-x-4 gap-y-2.5 border-t border-border pt-3 sm:grid-cols-4">
+              <Metric label={t('sessionsDash.row.laps', 'Laps')} testId="session-laps-metric">
+                <span className="tabular-nums" data-testid="session-lap-count">{format.number(session.lapCount)}</span>
+                {tally && (
+                  <span className="ml-1.5 text-xs text-muted-foreground" data-testid="session-valid">
+                    {t('sessionsDash.row.validOf', '{{valid}} valid', { valid: tally.valid })}
+                  </span>
+                )}
+              </Metric>
+              <Metric label={t('modes.sessions.bestLabel', 'Best valid lap')} testId="session-best">
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <span className="font-mono font-semibold tabular-nums">{session.bestLapMs !== null ? formatLapTime(session.bestLapMs) : '–'}</span>
+                  {session.bestLapMs === null && (
+                    <span className="text-xs text-muted-foreground" data-testid="session-no-valid">{t('sessionsDash.row.noValid', 'no valid lap')}</span>
+                  )}
+                  {standing.kind === 'pb' && <PbBadge title={t('sessionsDash.row.pbHint', 'This is your personal best on this track in this car.')} testId="session-pb" />}
+                  {standing.kind === 'behind' && (
+                    <span
+                      className="font-mono text-xs tabular-nums text-muted-foreground"
+                      title={t('sessionsDash.row.behindHint', 'Slower than your personal best on this track in this car by this much.')}
+                      data-testid="session-delta"
+                    >
+                      {formatGap(standing.deltaMs / 1000)}
+                      <span className="sr-only"> {t('sessionsDash.row.vsPb', 'against your personal best')}</span>
                     </span>
                   )}
-                </Metric>
-                <Metric label={t('modes.sessions.bestLabel', 'Best valid lap')} testId="session-best">
-                  <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <span className="font-mono font-semibold tabular-nums">{session.bestLapMs !== null ? formatLapTime(session.bestLapMs) : '–'}</span>
-                    {session.bestLapMs === null && (
-                      <span className="text-xs text-muted-foreground" data-testid="session-no-valid">{t('sessionsDash.row.noValid', 'no valid lap')}</span>
-                    )}
-                    {standing.kind === 'pb' && (
-                      <Badge variant="success" className="gap-1 px-1.5 py-0.5 text-2xs leading-none" title={t('sessionsDash.row.pbHint', 'This is your personal best on this track in this car.')} data-testid="session-pb">
-                        <Award className="h-3 w-3" aria-hidden="true" />
-                        {t('sessionsDash.row.pb', 'PB')}
-                      </Badge>
-                    )}
-                    {standing.kind === 'behind' && (
-                      <span
-                        className="font-mono text-xs tabular-nums text-muted-foreground"
-                        title={t('sessionsDash.row.behindHint', 'Slower than your personal best on this track in this car by this much.')}
-                        data-testid="session-delta"
-                      >
-                        {formatGap(standing.deltaMs / 1000)}
-                        <span className="sr-only"> {t('sessionsDash.row.vsPb', 'against your personal best')}</span>
-                      </span>
-                    )}
-                  </span>
-                </Metric>
-                <Metric label={t('sessionsDash.row.consistency', 'Consistency')} testId="session-spread">
-                  {steady?.spreadS != null ? (
-                    <span className="font-mono tabular-nums" title={t('sessionsDash.row.spreadHint', 'Spread of the valid laps (standard deviation), pit laps left out.')}>±{steady.spreadS.toFixed(2)} s</span>
-                  ) : (
-                    <span className="text-muted-foreground">–</span>
-                  )}
-                </Metric>
-                <Metric label={t('sessionsDash.row.trend', 'Lap times')} testId="session-trend">
-                  {laps ? <LapSparkline laps={laps} /> : <span className="block h-[30px] w-full max-w-[104px] rounded bg-muted/50" aria-hidden="true" />}
-                </Metric>
-              </dl>
-            </div>
+                </span>
+              </Metric>
+              <Metric label={t('sessionsDash.row.consistency', 'Consistency')} testId="session-spread">
+                {steady?.spreadS != null ? (
+                  <span className="font-mono tabular-nums" title={t('sessionsDash.row.spreadHint', 'Spread of the valid laps (standard deviation), pit laps left out.')}>±{steady.spreadS.toFixed(2)} s</span>
+                ) : (
+                  <span className="text-muted-foreground">–</span>
+                )}
+              </Metric>
+              <Metric label={t('sessionsDash.row.trend', 'Lap times')} testId="session-trend">
+                {laps ? <LapSparkline laps={laps} /> : <span className="block h-[30px] w-full max-w-[104px] rounded bg-muted/50" aria-hidden="true" />}
+              </Metric>
+            </dl>
           </div>
         </Card>
       </Link>

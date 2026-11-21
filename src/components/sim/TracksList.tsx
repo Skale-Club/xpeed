@@ -202,8 +202,8 @@ export function TracksList() {
           className="sm:w-56"
           testId="sort-select"
         />
-        <ToggleChip pressed={layoutOnly} onChange={(on) => setParam('layout', on ? '1' : '')} testId="filter-layout">
-          <MapIcon aria-hidden="true" /> {t('garageDash.hasLayout', 'Has a layout')}
+        <ToggleChip pressed={layoutOnly} onChange={(on) => setParam('layout', on ? '1' : '')} icon={<MapIcon />} testId="filter-layout">
+          {t('garageDash.hasLayout', 'Has a layout')}
         </ToggleChip>
       </FilterBar>
       )}

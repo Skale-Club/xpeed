@@ -34,7 +34,14 @@ describe('TrackLayoutThumb', () => {
     const map = screen.getByTestId('track-thumb');
     expect(map).toHaveAttribute('aria-hidden', 'true');
     expect(map.querySelector('path')?.getAttribute('d')).toMatch(/^M/);
-    expect(queries.wanted.at(-1)).toEqual({ game: 'ac', name: 'Laguna Seca', layoutId: 'L1' });
+    expect(queries.wanted.at(-1)).toEqual({ id: 't1', game: 'ac', name: 'Laguna Seca', hasLayout: true, layoutId: 'L1' });
+  });
+
+  it('looks the layout up by the raw catalog name and variant, not by the real title the list shows', () => {
+    queries.detail = { data: { track: { id: 't9', game: 'ac', name: 'Laguna Seca', sourceName: 'ks_laguna_seca', variant: null, hasLayout: true, layoutId: 'L9' } }, isLoading: false };
+    queries.layout = { data: circle, isLoading: false };
+    render(<TrackLayoutThumb trackId="t9" name="Laguna Seca" />);
+    expect(queries.wanted.at(-1)).toMatchObject({ sourceName: 'ks_laguna_seca', variant: null, layoutId: 'L9' });
   });
 
   it('keeps a placeholder of the same size when the track has no layout, and looks for none', () => {

@@ -65,7 +65,7 @@ export function SessionHero({ session, lapCount, shareLabel, onDelete, deleting 
                   <Link to={trackPath(session.track.id)} className="hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="session-track-link">{session.track.name}</Link>
                 </h2>
                 <Link to={carPath(session.car.id)} className="inline-flex min-w-0 hover:underline" data-testid="session-car-link">
-                  <SimCarIdentity name={session.car.name} className="text-sm text-muted-foreground" />
+                  <SimCarIdentity name={session.car.name} className="text-sm text-muted-foreground" logoClassName="h-7 w-10" />
                 </Link>
               </div>
             </div>

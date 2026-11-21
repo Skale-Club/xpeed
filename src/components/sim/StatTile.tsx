@@ -8,7 +8,7 @@ export type Tone = 'good' | 'bad' | 'accent' | 'plain';
 const TONE: Record<Tone, StatTone> = { good: 'success', bad: 'critical', accent: 'brand', plain: 'default' };
 
 // Dashboards 2027, phase 3 (owner approved 2026-11-20): the Virtual tiles use the shared `feature` look; `accent` gives a tile its colour.
-export function StatTile({ label, value, sub, tone = 'plain', hint, testId, children, accent }: {
+export function StatTile({ label, value, sub, tone = 'plain', hint, testId, children, accent, compact = false }: {
   label: ReactNode;
   value: ReactNode;
   /** The quiet line under the value. */
@@ -21,8 +21,10 @@ export function StatTile({ label, value, sub, tone = 'plain', hint, testId, chil
   testId?: string;
   children?: ReactNode;
   accent?: Accent;
+  /** The short, plain tile (no glow, smaller number) for a strip of counts over a list. */
+  compact?: boolean;
 }) {
-  return <UiStatTile size="feature" accent={accent} label={label} value={value} hint={sub} tone={TONE[tone]} title={hint} testId={testId} footer={children} />;
+  return <UiStatTile size={compact ? 'compact' : 'feature'} accent={compact ? undefined : accent} label={label} value={value} hint={sub} tone={TONE[tone]} title={hint} testId={testId} footer={children} />;
 }
 
 type GridColumns = NonNullable<Parameters<typeof StatGrid>[0]['columns']>;
