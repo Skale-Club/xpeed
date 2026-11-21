@@ -706,7 +706,7 @@
         "surface_limits": "limites de linhas brancas da fonte (alinhamento não verificado)"
       },
       "mapHintLayout": "Cinza: o asfalto, entre as bordas. Vermelho: a linha ideal do jogo. Laranja: o pit lane. Amarelo: a volta; azul tracejado: a referência. Ponto verde: a largada.",
-      "mapZoomHint": "Aproxime (ou dê dois cliques no mapa) para ver a volta contra as bordas e a linha ideal; arraste para mover.",
+      "mapZoomHint": "Gire a roda do mouse sobre o mapa para chegar mais perto, arraste para mover e aponte para a volta para ver os pedais naquele ponto.",
       "zoomIn": "Aproximar",
       "zoomOut": "Afastar",
       "zoomReset": "Mostrar a pista inteira",
@@ -754,7 +754,8 @@
       "back": "Voltar",
       "startIntro": "Abra uma volta para analisá-la: a partir de uma sessão, de uma pista, de um carro ou de um ranking. Ela é medida contra o seu recorde pessoal na mesma pista e no mesmo carro, e lá você pode escolher outra referência.",
       "latestLaps": "Suas últimas voltas",
-      "findLap": "Achar uma volta por pista e carro"
+      "findLap": "Achar uma volta por pista e carro",
+      "mapTouchHint": "Afaste dois dedos sobre o mapa para chegar mais perto, arraste para mover e toque na volta para ver os pedais naquele ponto."
     },
     "sessions": {
       "intro": "Suas sessões, com as voltas que o Xpeed Companion enviou.",
@@ -1184,6 +1185,16 @@
       "lapTitle": "Avançado: setores, curvas e telemetria",
       "lapHint": "O detalhe por trás do que está acima, para quando você quiser se aprofundar.",
       "comparisonDetails": "Sobre esta comparação"
+    },
+    "pedals": {
+      "title": "Acelerador e freio",
+      "compared": "Volta comparada",
+      "onThrottle": "Acelerando",
+      "onBrake": "Freando",
+      "coasting": "Sem pedal",
+      "mapLabel": "A volta desenhada na cor do pedal em uso",
+      "hint": "Aponte para a volta no mapa (ou mova o controle abaixo dele) para ver quanto cada pedal foi pressionado ali.",
+      "hintTouch": "Toque na volta no mapa (ou mova o controle abaixo dele) para ver quanto cada pedal foi pressionado ali."
     }
   },
   "refresh": {

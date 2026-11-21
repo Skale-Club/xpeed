@@ -15,6 +15,8 @@ import { cornerRange, type Range } from '@/lib/sim/corner-table';
 import type { CornerDelta } from '@/lib/sim/corner-compare';
 import { sectorStrip } from '@/lib/sim/sector-strip';
 import { CornerTable } from './CornerTable';
+import { PedalsCard } from './PedalsCard';
+import type { PedalSeries } from '@/lib/sim/pedals';
 import { SectorStripCard } from './SectorStripCard';
 import { WhereTimeWent } from './WhereTimeWent';
 import { TrackMap, type MapFocus } from '@/components/sim/TrackMap';
@@ -287,6 +289,21 @@ export function LapAnalysis({
     mapCard.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
   };
   const canShow = !!analysis.pathA && analysis.lap.x.some(Number.isFinite);
+  // The two laps as the pedal panel reads them (kept the same objects while the analysis is the same, so its small map is drawn once).
+  const pedals = useMemo(() => {
+    const of = (values: Record<string, number[]>): PedalSeries => ({ x: values.x, z: values.z, speed: values.speed, throttle: values.throttle, brake: values.brake });
+    return { lap: of(analysis.lap), reference: analysis.reference ? of(analysis.reference) : null };
+  }, [analysis]);
+  // A place pointed at on the map: the lap's nearest point becomes the cursor, when one is within reach of the pointer.
+  const pickOnMap = (point: { x: number; z: number }, reachM: number) => {
+    let best = -1;
+    let bestDistance = reachM * reachM;
+    for (let i = 0; i < analysis.grid.length; i++) {
+      const distance = (analysis.lap.x[i] - point.x) ** 2 + (analysis.lap.z[i] - point.z) ** 2;
+      if (distance < bestDistance) { bestDistance = distance; best = i; }
+    }
+    if (best >= 0 && analysis.grid[best] !== cursorM) setInspection({ lap: a.lap, m: analysis.grid[best] });
+  };
 
   const unit = distanceUnit as DistanceUnit;
   const finalGap = b ? (a.lap.header.lap.timeMs - b.lap.header.lap.timeMs) / 1000 : null;
@@ -484,6 +501,18 @@ export function LapAnalysis({
     </Card>
   );
 
+  // Beside the map: what the feet did around the lap, and at the point picked.
+  const pedalsCard = analysis.pathA && (
+    <PedalsCard
+      lap={pedals.lap}
+      reference={pedals.reference}
+      cursorIndex={cursorIndex}
+      touch={asPhone}
+      speedText={(ms) => `${Math.round(speedIn(ms, unit))} ${speedLabel(unit)}`}
+      onPick={(index) => setInspection({ lap: a.lap, m: analysis.grid[index] })}
+    />
+  );
+
   const offLine = lineStudy && !lineStudy.mismatch ? <OffLine items={lineStudy.stretches} unit={unit} onShow={showOnMap} /> : null;
 
   const mapNode = analysis.pathA && (
@@ -493,7 +522,7 @@ export function LapAnalysis({
       </CardHeader>
       <CardContent className="pb-3">
         <div ref={mapCard}>
-          <TrackMap lap={analysis.pathA} reference={analysis.pathB} layout={layout} focus={focus} highlight={zoomed?.marked ?? null} cursor={cursor} referenceCursor={referenceCursor} className="h-80 md:h-96" />
+          <TrackMap lap={analysis.pathA} reference={analysis.pathB} layout={layout} focus={focus} highlight={zoomed?.marked ?? null} cursor={cursor} referenceCursor={referenceCursor} onPick={pickOnMap} className="h-80 md:h-96" />
         </div>
         <div className="mt-3 space-y-1" data-testid="lap-inspector">
           <label className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -504,20 +533,6 @@ export function LapAnalysis({
               className="h-10 w-full accent-primary"
               onChange={(event) => setInspection({ lap: a.lap, m: Number(event.target.value) })} />
           </label>
-          {cursorIndex !== null && (
-            <div className="space-y-1 text-xs tabular-nums" data-testid="inspection-values">
-              {[analysis.lap, ...(analysis.reference ? [analysis.reference] : [])].map((values, index) => (
-                <p key={index} className="flex flex-wrap gap-x-4 gap-y-1">
-                  <span className="font-semibold">{index === 0 ? t('modes.compare.lap', 'Lap') : t('modes.compare.reference', 'Reference')}</span>
-                  {[[t('modes.compare.speed', 'Speed'), speedIn(values.speed[cursorIndex], unit), speedLabel(unit)],
-                    [t('modes.compare.throttle', 'Throttle'), values.throttle[cursorIndex] * 100, '%'],
-                    [t('modes.compare.brake', 'Brake'), values.brake[cursorIndex] * 100, '%']].map(([label, value, suffix]) => (
-                      <span key={String(label)}>{label}: {typeof value === 'number' && Number.isFinite(value) ? `${Math.round(value)} ${suffix}` : '–'}</span>
-                    ))}
-                </p>
-              ))}
-            </div>
-          )}
         </div>
         {layoutNote}
         <p className="mt-1 text-xs text-muted-foreground" data-testid="map-hint">
@@ -548,9 +563,11 @@ export function LapAnalysis({
             }
           />
         )}
-        {layout && (
-          <p className="text-xs text-muted-foreground">{t('modes.compare.mapZoomHint', 'Zoom in (or double-click the map) to see the lap against the edges and the ideal line; drag to move.')}</p>
-        )}
+        <p className="text-xs text-muted-foreground" data-testid="map-zoom-hint">
+          {asPhone
+            ? t('modes.compare.mapTouchHint', 'Spread two fingers on the map to get closer, drag to move it, and tap the lap to see the pedals there.')
+            : t('modes.compare.mapZoomHint', 'Roll the mouse wheel over the map to get closer, drag to move it, and point at the lap to see the pedals there.')}
+        </p>
       </CardContent>
     </Card>
   );
@@ -570,6 +587,7 @@ export function LapAnalysis({
         <div className={cn('grid gap-4', mapNode && 'lg:grid-cols-12')}>
           {mapNode && <div className="min-w-0 lg:col-span-7">{mapNode}</div>}
           <div className={cn('min-w-0 space-y-4', mapNode && 'lg:col-span-5')}>
+            {pedalsCard}
             {whereCard}
             {changesCard}
             {numbersCard}
@@ -605,6 +623,7 @@ export function LapAnalysis({
         {refusalNote}
         {zoomBar}
         {mapNode}
+        {pedalsCard}
         {whereCard}
         {changesCard}
         {numbersCard}

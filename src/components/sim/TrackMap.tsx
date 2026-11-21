@@ -73,9 +73,10 @@ export interface MapFocus {
  * between its edges, the game's ideal line and the pit lane. Over it go the lap being looked at (solid) and the reference
  * (dashed). x is to the right and z is down, the way the layout file defines them, so nothing is mirrored.
  *
- * Zoom: buttons, double click, pinch, or + and - on the keyboard; zoomed in, it is dragged (or moved with the arrows).
+ * Zoom: the mouse wheel (towards the pointer), buttons, double click, pinch, or + and - on the keyboard; zoomed in, it is dragged (or
+ * moved with the arrows). Pointing at the lap (or tapping it) picks that point of it (`onPick`), which the page shows as the cursor.
  */
-export function TrackMap({ lap, reference, layout, focus, highlight, cursor, referenceCursor, className }: {
+export function TrackMap({ lap, reference, layout, focus, highlight, cursor, referenceCursor, onPick, className }: {
   /** Extra classes for the picture (a taller one on a page that makes the map its hero); the height of a lap analysis is the default. */
   className?: string;
   lap: TrackPath;
@@ -87,12 +88,21 @@ export function TrackMap({ lap, reference, layout, focus, highlight, cursor, ref
   /** The selected recorded position, shared with the distance cursor in the charts. */
   cursor?: { x: number; z: number } | null;
   referenceCursor?: { x: number; z: number } | null;
+  /**
+   * The place the person pointed at or tapped, in the game's coordinates, and how far from it (in meters) a point of the lap still
+   * counts as "the one meant" at the current zoom. The page finds the lap's nearest point and makes it the cursor.
+   */
+  onPick?: (point: { x: number; z: number }, reachM: number) => void;
 }) {
   const { t } = useTranslation();
   const [view, setView] = useState<{ k: number; cx: number; cy: number; sig: string } | null>(null);
   const drag = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null);
   const touches = useRef(new Map<number, { x: number; y: number }>());
   const pinch = useRef<{ distance: number; k: number } | null>(null);
+  const svg = useRef<SVGSVGElement>(null);
+  /** When the map itself last moved the cursor: it must not then slide under the pointer to follow it. */
+  const pickedAt = useRef(0);
+  const frame = useRef<number | null>(null);
   // Building the road is the heavy part; it is done once per layout, not on every move of the map.
   const drawing = useMemo(() => (layout ? drawingOf(layout) : null), [layout]);
   const paths = reference ? [lap, reference] : [lap];
@@ -131,6 +141,8 @@ export function TrackMap({ lap, reference, layout, focus, highlight, cursor, ref
   const cursorZ = cursor?.z;
   useEffect(() => {
     if (cursorX == null || cursorZ == null || !Number.isFinite(cursorX) || !Number.isFinite(cursorZ)) return;
+    // A cursor moved from elsewhere (the slider, a chart) is brought to the middle; one picked on the map stays where the pointer is.
+    if (performance.now() - pickedAt.current < 400) return;
     const cx = cursorX - minX + margin;
     const cy = cursorZ - minZ + margin;
     setView((current) => current && current.sig === sig && current.k > 1
@@ -162,20 +174,61 @@ export function TrackMap({ lap, reference, layout, focus, highlight, cursor, ref
   const zoom = (factor: number) => setZoom(k * factor, k === 1 && factor > 1 ? toMap(startX, startZ) : undefined);
   const unitsPerPixel = (rect: DOMRect) => Math.max(vbW / (rect.width || 1), vbH / (rect.height || 1));
 
-  // A double click zooms in on the point clicked.
-  const zoomAt = (event: MouseEvent<SVGSVGElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
+  /** The place of the picture under a point of the screen, in the picture's own units. */
+  const under = (clientX: number, clientY: number, rect: DOMRect) => {
     const u = unitsPerPixel(rect);
     const offsetX = (rect.width - vbW / u) / 2;
     const offsetY = (rect.height - vbH / u) / 2;
-    setZoom(k * 2, { x: cx - vbW / 2 + (event.clientX - rect.left - offsetX) * u, y: cy - vbH / 2 + (event.clientY - rect.top - offsetY) * u });
+    return { x: cx - vbW / 2 + (clientX - rect.left - offsetX) * u, y: cy - vbH / 2 + (clientY - rect.top - offsetY) * u, u };
+  };
+  // A double click zooms in on the point clicked.
+  const zoomAt = (event: MouseEvent<SVGSVGElement>) => {
+    const at = under(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect());
+    setZoom(k * 2, { x: at.x, y: at.y });
+  };
+  // The mouse wheel zooms towards the pointer: what is under it stays under it. Rolling back on the whole track is left to the page,
+  // so the page still scrolls past the map. (React's own wheel handler cannot stop the page from scrolling: this one is set by hand.)
+  const wheel = useRef<(event: WheelEvent) => void>(() => undefined);
+  wheel.current = (event: WheelEvent) => {
+    const out = event.deltaY > 0;
+    if (out && k <= 1) return;
+    event.preventDefault();
+    const element = svg.current;
+    if (!element) return;
+    const at = under(event.clientX, event.clientY, element.getBoundingClientRect());
+    const next = Math.min(MAX_ZOOM, Math.max(1, k * Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.0018))));
+    const f = next / k;
+    setZoom(next, { x: at.x + (cx - at.x) / f, y: at.y + (cy - at.y) / f });
+  };
+  useEffect(() => {
+    const element = svg.current;
+    if (!element) return;
+    const listener = (event: WheelEvent) => wheel.current(event);
+    element.addEventListener('wheel', listener, { passive: false });
+    return () => element.removeEventListener('wheel', listener);
+  }, []);
+  useEffect(() => () => { if (frame.current !== null) cancelAnimationFrame(frame.current); }, []);
+  /** Tells the page which place was pointed at (at most once a frame). */
+  const pick = (clientX: number, clientY: number, rect: DOMRect) => {
+    if (!onPick) return;
+    const at = under(clientX, clientY, rect);
+    const point = { x: at.x + minX - margin, z: at.y + minZ - margin };
+    const reachM = at.u * 28;
+    if (frame.current !== null) cancelAnimationFrame(frame.current);
+    frame.current = requestAnimationFrame(() => {
+      frame.current = null;
+      pickedAt.current = performance.now();
+      onPick(point, reachM);
+    });
   };
   const spread = () => {
     const [a, b] = [...touches.current.values()];
     return Math.hypot(a.x - b.x, a.y - b.y) || 1;
   };
+  const pressed = useRef<{ x: number; y: number } | null>(null);
   const pointerDown = (event: PointerEvent<SVGSVGElement>) => {
     touches.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    pressed.current = { x: event.clientX, y: event.clientY };
     if (touches.current.size === 2) {
       // Two fingers: a pinch, never a drag.
       pinch.current = { distance: spread(), k };
@@ -193,11 +246,21 @@ export function TrackMap({ lap, reference, layout, focus, highlight, cursor, ref
       return;
     }
     const start = drag.current;
-    if (!start) return;
+    if (!start) {
+      // A mouse moving over the map with no button down points at the lap.
+      if (event.pointerType === 'mouse' && event.buttons === 0) pick(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect());
+      return;
+    }
     const u = unitsPerPixel(event.currentTarget.getBoundingClientRect());
     setView({ k, cx: start.cx - (event.clientX - start.x) * u, cy: start.cy - (event.clientY - start.y) * u, sig });
   };
   const pointerUp = (event: PointerEvent<SVGSVGElement>) => {
+    // A press let go where it began is a tap or a click on a point of the lap, not a drag.
+    const from = pressed.current;
+    if (from && event.type === 'pointerup' && !pinch.current && Math.hypot(event.clientX - from.x, event.clientY - from.y) < 6) {
+      pick(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect());
+    }
+    pressed.current = null;
     touches.current.delete(event.pointerId);
     if (touches.current.size < 2) pinch.current = null;
     drag.current = null;
@@ -227,6 +290,7 @@ export function TrackMap({ lap, reference, layout, focus, highlight, cursor, ref
         </Button>
       </div>
       <svg
+        ref={svg}
         viewBox={`${(cx - vbW / 2).toFixed(1)} ${(cy - vbH / 2).toFixed(1)} ${vbW.toFixed(1)} ${vbH.toFixed(1)}`}
         preserveAspectRatio="xMidYMid meet"
         className={cn(

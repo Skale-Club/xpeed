@@ -172,8 +172,13 @@ describe('map inspection and recovery', () => {
     const input = screen.getByRole('slider', { name: 'Move along the lap' });
     fireEvent.change(input, { target: { value: '500' } });
     expect(screen.getByTestId('inspection-distance')).toHaveTextContent('500 m');
-    expect(screen.getByTestId('inspection-values')).toHaveTextContent('Speed:');
-    expect(screen.getByTestId('inspection-values')).toHaveTextContent('Throttle:');
+    // What the feet did at that point is shown beside the map, as bars (the pedal panel), not as a line of text under it.
+    const values = screen.getByTestId('inspection-values');
+    expect(screen.getByTestId('pedals').contains(values)).toBe(true);
+    expect(values).toHaveTextContent('Speed:');
+    expect(within(values).getByRole('meter', { name: 'Throttle' })).toBeInTheDocument();
+    expect(within(values).getByRole('meter', { name: 'Brake' })).toBeInTheDocument();
+    expect(screen.getByTestId('pedal-cursor')).toBeInTheDocument();
     expect(screen.getByTestId('map-cursor')).toBeInTheDocument();
     expect(screen.getByTestId('track-map').getAttribute('class')).toContain('md:h-96');
     const panel = screen.getByTestId('lap-map-panel');

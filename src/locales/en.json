@@ -706,7 +706,7 @@
         "surface_limits": "source-labelled white-line limits (alignment unverified)"
       },
       "mapHintLayout": "Grey: the road, between its edges. Red: the game’s ideal line. Orange: the pit lane. Yellow: the lap; dashed blue: the reference. Green dot: the start.",
-      "mapZoomHint": "Zoom in (or double-click the map) to see the lap against the edges and the ideal line; drag to move.",
+      "mapZoomHint": "Roll the mouse wheel over the map to get closer, drag to move it, and point at the lap to see the pedals there.",
       "zoomIn": "Zoom in",
       "zoomOut": "Zoom out",
       "zoomReset": "Show the whole track",
@@ -754,7 +754,8 @@
       "back": "Back",
       "startIntro": "Open a lap to analyze it: from a session, a track, a car or a leaderboard. It is measured against your personal best on the same track and car, and you can choose another reference there.",
       "latestLaps": "Your latest laps",
-      "findLap": "Find a lap by track and car"
+      "findLap": "Find a lap by track and car",
+      "mapTouchHint": "Spread two fingers on the map to get closer, drag to move it, and tap the lap to see the pedals there."
     },
     "sessions": {
       "intro": "Your sessions, with the laps Xpeed Companion sent.",
@@ -1184,6 +1185,16 @@
       "lapTitle": "Advanced: sectors, corners and telemetry",
       "lapHint": "The detail behind what is above, for when you want to dig in.",
       "comparisonDetails": "About this comparison"
+    },
+    "pedals": {
+      "title": "Throttle and brake",
+      "compared": "Compared lap",
+      "onThrottle": "On the throttle",
+      "onBrake": "Braking",
+      "coasting": "No pedal",
+      "mapLabel": "The lap drawn in the colour of the pedal in use",
+      "hint": "Point at the lap on the map (or move the slider under it) to see how far each pedal was pressed there.",
+      "hintTouch": "Tap the lap on the map (or move the slider under it) to see how far each pedal was pressed there."
     }
   },
   "refresh": {
