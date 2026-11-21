@@ -12,12 +12,28 @@ pub fn paint(hdc: HDC, width: i32, height: i32, view: &View) {
         Tab::Dash => dashboard_screen(&mut g, body, view),
         Tab::Monitor => monitor(&mut g, body, view),
         Tab::Settings => settings(&mut g, body, view),
+        Tab::Web(_) => web_screen(&mut g, body, view),
     }
     if view.workspace_open {
         workspace_list(&mut g, width, view);
     } else {
         tooltip(&mut g, width, view);
     }
+}
+
+/// What the content area of a site page holds under the web view: the plain panel ground and a quiet "Loading…" in the middle (the
+/// web view covers it as soon as it shows; it stays visible in the pictures the tests and the preview make, which have no web view).
+pub(super) fn web_screen(g: &mut Painter, body: RECT, view: &View) {
+    g.place(view.scale, 0, 0);
+    g.text(
+        &text(view.lang, &Msg::PanelWebLoading),
+        body,
+        T_BODY,
+        FW_NORMAL as i32,
+        Face::Ui,
+        MUTED_TEXT,
+        DT_CENTER,
+    );
 }
 
 /// The workspace menu, open under the dashboard pill (`workspace_menu` says what is in it and where): Automatic, the four
@@ -146,6 +162,13 @@ pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
     );
     full_icon(g, full, full_ink, view.full);
     pin_icon(g, top, pin_ink);
+    // A page of the site is open: the header names it in the site's own words (the dashboard's pills are for the dashboard).
+    if let Tab::Web(place) = view.tab {
+        let name = SideItem::Web(place).label(view.lang);
+        let room = header_title_hit(width, view.scale);
+        let size = g.fitted(&name, (room.right - room.left) as f32 / g.s, T_LEAD, T_CAPTION, semi, Face::Ui);
+        g.text(&name, room, size, semi, Face::Ui, FOREGROUND, DT_LEFT);
+    }
     // The dashboard in use, as a small pill after the tabs ("Race · Auto" when picked from the session).
     if view.tab == Tab::Dash && dashboard_shown(view.live, &view.snapshot.game, view.now_ms) {
         if let Some(r) = dashboard_hit(width, view.scale) {
@@ -211,7 +234,7 @@ pub(super) fn sidebar(g: &mut Painter, _width: i32, height: i32, view: &View) {
         g.fill(rect(left, y, right, y + hair), SIDEBAR_BORDER);
     }
     for &(item, r) in &layout.buttons {
-        let selected = item == SideItem::Screen(view.tab);
+        let selected = item == SideItem::of_tab(view.tab);
         let hot = view.mouse.is_some_and(|(mx, my)| inside(&r, mx, my));
         if selected || hot {
             g.round(r, SIDEBAR_ACCENT, None);

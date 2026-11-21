@@ -135,6 +135,8 @@ pub enum Msg {
     PanelTabMonitor,
     /// The Settings screen (the sidebar's gear) and its cards.
     PanelTabSettings,
+    /// What a site page's place shows for a moment before the page itself appears.
+    PanelWebLoading,
     PanelPreferences,
     PanelSupport,
     /// The Settings screen's changes that wait: what says so, and the two buttons that keep or forget them.
@@ -744,6 +746,7 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
         PanelTabDash => t(s("Dashboard"), s("Painel"), s("Panel")),
         PanelTabMonitor => t(s("Monitor"), s("Monitor"), s("Monitor")),
         PanelTabSettings => t(s("Settings"), s("Configurações"), s("Ajustes")),
+        PanelWebLoading => t(s("Loading…"), s("Carregando…"), s("Cargando…")),
         PanelPreferences => t(s("Preferences"), s("Preferências"), s("Preferencias")),
         PanelSupport => t(s("Support"), s("Suporte"), s("Soporte")),
         PanelUnsaved => t(s("Unsaved changes"), s("Alterações não salvas"), s("Cambios sin guardar")),
@@ -1345,6 +1348,7 @@ mod tests {
             Msg::PanelTabDash,
             Msg::PanelTabMonitor,
             Msg::PanelTabSettings,
+            Msg::PanelWebLoading,
             Msg::PanelPreferences,
             Msg::PanelSupport,
             Msg::PanelUnsaved,

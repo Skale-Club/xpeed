@@ -1,7 +1,7 @@
 //! The sidebar's buttons, mirrored from the website's menu (`shared/design/nav.json`, read in at build time by `site`): the
 //! Companion's own screens (Dashboard, Monitor) first, then the site's Virtual places in their groups and order, then Settings,
-//! a line between groups. A screen opens in the panel; a website place opens on the site, in the browser, for now (the plan is to
-//! show the site's own page inside the Companion later). Names and icons come from the site, so a change there shows here.
+//! a line between groups. A screen opens in the panel; a website place shows the site's own page inside the panel (`webview`; the
+//! browser opens it only when WebView2 is not available). Names and icons come from the site, so a change there shows here.
 
 use super::site::{WebPlace, SCREEN_ICONS, SETTINGS_ICON, WEB_PLACES};
 use super::*;
@@ -23,7 +23,15 @@ impl SideItem {
             SideItem::Screen(Tab::Dash) => screen("dashboard"),
             SideItem::Screen(Tab::Monitor) => screen("monitor"),
             SideItem::Screen(Tab::Settings) => SETTINGS_ICON,
-            SideItem::Web(place) => place.icon,
+            SideItem::Web(place) | SideItem::Screen(Tab::Web(place)) => place.icon,
+        }
+    }
+
+    /// The button of the screen or page that is open: the one the sidebar marks.
+    pub(super) fn of_tab(tab: Tab) -> SideItem {
+        match tab {
+            Tab::Web(place) => SideItem::Web(place),
+            screen => SideItem::Screen(screen),
         }
     }
 
@@ -33,7 +41,9 @@ impl SideItem {
             SideItem::Screen(Tab::Dash) => text(lang, &Msg::PanelTabDash),
             SideItem::Screen(Tab::Monitor) => text(lang, &Msg::PanelTabMonitor),
             SideItem::Screen(Tab::Settings) => text(lang, &Msg::PanelTabSettings),
-            SideItem::Web(place) => place.label[Lang::ALL.iter().position(|l| *l == lang).unwrap_or(0)].to_owned(),
+            SideItem::Web(place) | SideItem::Screen(Tab::Web(place)) => {
+                place.label[Lang::ALL.iter().position(|l| *l == lang).unwrap_or(0)].to_owned()
+            }
         }
     }
 }

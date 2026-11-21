@@ -49,6 +49,10 @@ windows-sys = { version = "0.61", features = [
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
+# The site's own pages inside the panel (WebView2). Its loader is linked in statically, so no DLL ships beside the program. It
+# brings the `windows` crate (the COM types its API speaks); everything else here stays on `windows-sys`.
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com"] }
 
 [profile.release]
 opt-level = 3

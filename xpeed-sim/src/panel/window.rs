@@ -10,6 +10,9 @@ pub(super) const WM_COVERS: u32 = 0x8000 + 20;
 
 pub(super) const WM_BRAND_DONE: u32 = 0x8000 + 21;
 
+/// The page in the panel's web view changed its address, or the web view stopped for good: read what it left (`webview`).
+pub(super) const WM_WEB: u32 = 0x8000 + 22;
+
 pub(super) const WM_MOUSEMOVE: u32 = 0x0200;
 
 pub(super) const TIMER: usize = 1;
@@ -74,6 +77,10 @@ pub(super) struct State {
     /// The games installed here, read when the window opens and each time it comes to the front.
     pub(super) installed: Option<HashSet<&'static str>>,
     pub(super) tab: Tab,
+    /// The site's pages shown inside the panel (WebView2), made on the first click of one of the site's places.
+    pub(super) web: webview::Web,
+    /// The screen that was open before a page of the site, for the failure of the web view to go back to.
+    pub(super) before_web: Tab,
     /// The modeless Coach window, when the driver has opened it.
     pub(super) coach_window: HWND,
     pub(super) on_top: bool,
@@ -108,6 +115,8 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
     }
     let memory = state.buffer.as_ref().map_or(null_mut(), |b| b.dc);
 
+    // The site's page shows in the content area while its place is open and hides otherwise.
+    state.web.reconcile(hwnd, &state.tab, now_ms());
     // A game that starts driving takes the dashboard back from the example (an edit going on stays, on the real readings).
     if state.preview.is_some() && dashboard_shown(state.ctx.shared.live().as_ref(), &state.ctx.shared.snapshot().game, now_ms()) {
         state.preview = None;
@@ -566,6 +575,31 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
         }
         WM_TIMER => {
             fetch_brand_if_needed(hwnd, state);
+            // Also here, so a hidden page is closed on time even when the window is not being painted.
+            state.web.reconcile(hwnd, &state.tab, now_ms());
+            InvalidateRect(hwnd, null(), 0);
+            0
+        }
+        WM_SIZE => {
+            // The page follows the window's size at once (resizing, a new DPI, full screen), not a frame later.
+            state.web.reconcile(hwnd, &state.tab, now_ms());
+            0
+        }
+        WM_WEB => {
+            // The page moved: the sidebar marks the place it is on (a page that is no place of the menu leaves the mark where it is).
+            if let Some(url) = state.web.take_url() {
+                if let (Tab::Web(_), Some(place)) = (state.tab, webview::place_for_url(&url)) {
+                    state.tab = Tab::Web(place);
+                }
+            }
+            // The web view could not be used: the page that was asked for opens in the browser, and the screen from before comes back.
+            if state.web.take_failure() {
+                if let Tab::Web(place) = state.tab {
+                    win::open(&format!("{}{}", server_of(state), place.to));
+                    state.tab = state.before_web;
+                }
+            }
+            state.web.reconcile(hwnd, &state.tab, now_ms());
             InvalidateRect(hwnd, null(), 0);
             0
         }
@@ -661,6 +695,10 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
             let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
             let mut client = rect(0, 0, 0, 0);
             GetClientRect(hwnd, &mut client);
+            // A click on the panel's own chrome takes the keyboard back from the page (a click inside the page gives it the keyboard).
+            if state.web.ready() {
+                SetFocus(hwnd);
+            }
             if state.workspace_open {
                 // With the workspace menu open, a click is for the menu: a row, or anywhere else it only closes.
                 workspace_press(hwnd, state, x, y);
@@ -674,8 +712,8 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
             } else if let Some(item) = sidebar_hit(scale_of(hwnd), x, y) {
                 match item {
                     SideItem::Screen(tab) => state.tab = tab,
-                    // A place of the website opens on the site, in the browser (inside the Companion later).
-                    SideItem::Web(place) => win::open(&format!("{}{}", lock(&state.ctx.account).server, place.to)),
+                    // A place of the website shows the site's page inside the panel; the browser opens it when the web view cannot.
+                    SideItem::Web(place) => open_place(hwnd, state, place),
                 }
             } else if inside(&full, x, y) {
                 toggle_full(hwnd, state);
@@ -936,6 +974,8 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
         }
         WM_DESTROY => {
             KillTimer(hwnd, TIMER);
+            // The web view goes before its window does (closing the panel, or hiding it to the tray, gives its memory back).
+            state.web.close();
             crate::coach::close(hwnd, state.coach_window);
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
             if state.ctx.quit_on_close {
@@ -945,6 +985,32 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
             0
         }
         _ => DefWindowProcW(hwnd, message, wparam, lparam),
+    }
+}
+
+/// The server the panel is paired with (the default one before pairing), without a closing slash.
+pub(super) fn server_of(state: &State) -> String {
+    let server = lock(&state.ctx.account).server.clone();
+    let server = if server.is_empty() {
+        crate::config::DEFAULT_SERVER.to_owned()
+    } else {
+        server
+    };
+    server.trim_end_matches('/').to_owned()
+}
+
+/// A click on one of the site's places in the sidebar: its page shows inside the panel. When the web view cannot be used (no
+/// WebView2 runtime, or it failed once this run) the place opens in the browser, as it did before the page lived in the panel.
+pub(super) unsafe fn open_place(hwnd: HWND, state: &mut State, place: site::WebPlace) {
+    let server = server_of(state);
+    let from_native = !matches!(state.tab, Tab::Web(_));
+    if state.web.show(hwnd, &server, place, from_native) {
+        if from_native {
+            state.before_web = state.tab;
+        }
+        state.tab = Tab::Web(place);
+    } else {
+        win::open(&format!("{server}{}", place.to));
     }
 }
 
@@ -1034,6 +1100,8 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             views: crate::config::home_dir().map(|h| Views::load(&h)).unwrap_or_default(),
             ctx: ctx(),
             tab: Tab::Dash,
+            web: webview::Web::default(),
+            before_web: Tab::Dash,
             coach_window: null_mut(),
             on_top: false,
             full: None,
@@ -1067,7 +1135,8 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             0,
             class.as_ptr(),
             win::wide("Xpeed Companion").as_ptr(),
-            WS_OVERLAPPEDWINDOW,
+            // Clipping the children keeps the panel's own frames from painting over the page's web view.
+            WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             WIDTH,
