@@ -295,7 +295,7 @@ describe('finding a lap', () => {
     fireEvent.click(await within(picker).findByRole('button', { name: /Lap 7/ }));
     await waitFor(() => expect(search().get('a')).toBe(myLap.id));
     await gapReady(); // and its reference is the personal best
-    expect(container.querySelector('input[type="file"]')).toHaveAttribute('accept', '.xtrk,.gz,application/gzip');
+    expect(container.querySelector('input[type="file"]')).toBeNull();
   });
 
   it('invites to install and connect Xpeed Companion when the account has no laps', async () => {
@@ -306,10 +306,10 @@ describe('finding a lap', () => {
     expect(within(empty).getByRole('link', { name: 'Connect it to your account' })).toHaveAttribute('href', '/virtual/companion');
   });
 
-  it('offers only the local track selector, no lap import or sample laps', async () => {
+  it('offers no file input, lap import or sample laps', async () => {
     const { container } = open(`/virtual/compare?a=${myLap.id}`);
     await waitFor(() => expect(screen.getByTestId('lap-numbers')).toBeInTheDocument());
-    expect(container.querySelector('input[type="file"]')).toHaveAttribute('accept', '.xtrk,.gz,application/gzip');
+    expect(container.querySelector('input[type="file"]')).toBeNull();
     expect(screen.queryByText(/sample laps|Open lap files|drop/i)).not.toBeInTheDocument();
   });
 });

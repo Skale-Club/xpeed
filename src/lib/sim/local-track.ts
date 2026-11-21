@@ -1,10 +1,8 @@
-import { gunzipTrack, layoutGame, TRACK_LIMITS, TrackFormatError, trackKeyOf, unpackTrack } from './track-file';
 import type { TrackFile } from './track-file';
 import { offsetsFromLine } from './line-offset';
+import type { LapHeader } from './lap-file';
+import { evoCoordinateFrame } from './reference-context';
 
-export interface LocalTrackIdentity { game: string; name: string; variant?: string | null }
-/** Bound the input before reading it; decompression has its own streaming output bound. */
-export const LOCAL_TRACK_MAX_BYTES = TRACK_LIMITS.unpackedBytes;
 
 export function localTrackSurface(track: TrackFile): 'asphalt' | 'limits' | 'ai' | 'estimated' | 'unknown' {
   const source = track.header.source.toLowerCase();
@@ -24,12 +22,27 @@ export function assertLocalTrackAlignment(track: TrackFile, x: ArrayLike<number>
   if (!distances.length || distances[Math.floor(distances.length / 2)] > 25) throw new Error('alignment_mismatch');
 }
 
-export async function readLocalTrack(file: Pick<File, 'size' | 'arrayBuffer'>, wanted: LocalTrackIdentity) {
-  if (file.size > LOCAL_TRACK_MAX_BYTES) throw new TrackFormatError('too_large', 'The local file exceeds the size limit.');
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (bytes.length > LOCAL_TRACK_MAX_BYTES) throw new TrackFormatError('too_large', 'The local file exceeds the size limit.');
-  const track = bytes[0] === 0x1f && bytes[1] === 0x8b ? await gunzipTrack(bytes) : unpackTrack(bytes);
-  const key = (identity: LocalTrackIdentity) => trackKeyOf(layoutGame(identity.game), identity.name, identity.variant);
-  if (key({ game: track.header.game, ...track.header.track }) !== key(wanted)) throw new Error('identity_mismatch');
-  return track;
+/**
+ * Assetto Corsa EVO layouts are always stored in the reflected X frame (`x = -source.x`). A lap recorded in the original frame
+ * (see `evoCoordinateFrame`) gets a mirrored copy of the layout: every X negated and, because a mirror swaps the driver's sides,
+ * left and right exchanged. Pure: neither the layout nor the lap is modified; any other case returns the layout itself.
+ */
+export function layoutInLapFrame(track: TrackFile, lap: LapHeader): TrackFile {
+  if (track.header.game !== 'acevo' || lap.game !== 'acevo' || evoCoordinateFrame(lap) !== 'original') return track;
+  const neg = (a: Float32Array) => a.map((v) => -v);
+  const copy = (a: Float32Array) => a.slice();
+  const { centerline: c, fast, pitlane: p, boundaries: b } = track;
+  return {
+    header: track.header,
+    centerline: { x: neg(c.x), y: copy(c.y), z: copy(c.z), dist: copy(c.dist), left: copy(c.right), right: copy(c.left) },
+    ...(fast ? { fast: { x: neg(fast.x), z: copy(fast.z) } } : {}),
+    ...(p ? { pitlane: { x: neg(p.x), z: copy(p.z), left: copy(p.right), right: copy(p.left) } } : {}),
+    ...(b ? { boundaries: { left_x: neg(b.right_x), left_z: copy(b.right_z), right_x: neg(b.left_x), right_z: copy(b.left_z) } } : {}),
+  };
+}
+
+/** Whether an account layout may be drawn over a lap: converted to the lap's frame first, then the 25 m alignment check decides. */
+export function layoutFitsLap(track: TrackFile, header: LapHeader, x: ArrayLike<number>, z: ArrayLike<number>): boolean {
+  try { assertLocalTrackAlignment(layoutInLapFrame(track, header), x, z); return true; }
+  catch { return false; }
 }

@@ -29,8 +29,7 @@ import { layoutGame, trackKeyOf, type TrackFile } from '@/lib/sim/track-file';
 import type { LibraryTrack } from '@/lib/sim/track-library';
 import { cn } from '@/lib/utils';
 import { SimCarIdentity } from './SimCarIdentity';
-import { LocalTrackLayout } from './LocalTrackLayout';
-import { assertLocalTrackAlignment, localTrackSurface } from '@/lib/sim/local-track';
+import { assertLocalTrackAlignment, layoutInLapFrame, localTrackSurface } from '@/lib/sim/local-track';
 
 /** A lap whose samples are loaded, by the id the server gave it. */
 export interface LoadedLap {
@@ -216,11 +215,10 @@ export function LapAnalysis({
     // `wanted` is rebuilt every render; `wantedKey` says when it really changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantedKey, findLayout, layoutAttempt]);
-  const [local, setLocal] = useState<{ lap: LapFile; id: string; layout: TrackFile; finder: typeof findLayout } | null>(null);
-  useEffect(() => { setLocal(null); }, [a.id, a.lap]);
-  const localLayout = local?.lap === a.lap && local.id === a.id && local.finder === findLayout ? local.layout : null;
   const currentKept = kept?.key === wantedKey && kept.finder === findLayout ? kept : null;
-  const selectedLayout = localLayout ?? currentKept?.layout ?? null;
+  // EVO layouts are stored reflected; a lap recorded in the original frame gets the mirrored copy (the alignment check still decides).
+  const keptLayout = currentKept?.layout ?? null;
+  const selectedLayout = useMemo(() => (keptLayout ? layoutInLapFrame(keptLayout, a.lap.header) : null), [keptLayout, a.lap.header]);
 
   const refusal = b ? incomparableReason(a.lap, b.lap) : null;
   const analysis = useMemo(() => {
@@ -531,11 +529,6 @@ export function LapAnalysis({
             <Button size="sm" variant="outline" onClick={() => { setKept(null); setLayoutAttempt((value) => value + 1); }}>{t('common.retry', 'Try again')}</Button>
           </div>
         )}
-        <LocalTrackLayout key={`${a.id}|${wantedKey}`} wanted={wanted} selected={!!localLayout} onLayout={(picked) => {
-          if (picked) assertLocalTrackAlignment(picked, analysis.lap.x, analysis.lap.z);
-          setLocal(picked ? { lap: a.lap, id: a.id, layout: picked, finder: findLayout } : null);
-        }} />
-        {localLayout && <p className="mt-1 text-xs text-muted-foreground" role="status">{t('modes.compare.localTrack.sourceLabel', { source: localLayout.header.source, surface: t(`modes.compare.localTrack.surface_${localTrackSurface(localLayout)}`) })}</p>}
         {!selectedLayout && wanted && wantedKey && findLayout && currentKept && !currentKept.failed && (
           <NoLayout
             game={wanted.game}

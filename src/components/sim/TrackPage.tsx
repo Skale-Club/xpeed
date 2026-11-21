@@ -28,7 +28,7 @@ import { GameBadge } from './session-bits';
 import { QueryGate } from './SimStates';
 import { TrackMap } from './TrackMap';
 import { useAge } from './use-age';
-import { assertLocalTrackAlignment, localTrackSurface } from '@/lib/sim/local-track';
+import { layoutFitsLap, layoutInLapFrame, localTrackSurface } from '@/lib/sim/local-track';
 import { layoutGame, trackKeyOf } from '@/lib/sim/track-file';
 
 /**
@@ -47,8 +47,7 @@ function LayoutPanel({ detail, bestLapId }: { detail: V1TrackDetail; bestLapId: 
     const map = layout.data;
     if (trackKeyOf(layoutGame(lap.header.game), lap.header.track.name, lap.header.track.variant) !==
       trackKeyOf(layoutGame(map.header.game), map.header.track.name, map.header.track.variant)) return false;
-    try { assertLocalTrackAlignment(map, lap.data.x ?? [], lap.data.z ?? []); return true; }
-    catch { return false; }
+    return layoutFitsLap(map, lap.header, lap.data.x ?? [], lap.data.z ?? []);
   }, [file.data, layout.data]);
 
   if (track.hasLayout !== false && layout.isPending) {
@@ -71,7 +70,7 @@ function LayoutPanel({ detail, bestLapId }: { detail: V1TrackDetail; bestLapId: 
     <Panel title={t('modes.trackPage.layout', 'Layout and best lap')} testId="track-layout-map" className="h-full">
       {path && compatible ? (
         <>
-          <TrackMap lap={path} layout={layout.data} className="h-56 md:h-72" />
+          <TrackMap lap={path} layout={file.data ? layoutInLapFrame(layout.data, file.data.header) : layout.data} className="h-56 md:h-72" />
           <p className="text-xs text-muted-foreground">{t('modes.compare.localTrack.mapHint', { surface: t(`modes.compare.localTrack.surface_${localTrackSurface(layout.data)}`) })}</p>
         </>
       ) : bestLapId && file.isPending ? (

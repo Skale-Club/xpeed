@@ -2,9 +2,17 @@ import type { LapFile, LapHeader } from './lap-file.ts';
 
 export type ComparisonGoal = 'practice' | 'qualifying' | 'race';
 
+const REFLECTION_LANDED_MS = Date.parse('2026-11-16T16:34:09Z');
+
 /** The reflection landed inside 0.8.2, not at its version boundary (commit 9c36958). */
 export function evoCoordinateFrame(header: LapHeader): 'original' | 'reflected' | 'unknown' {
-  if (header.game !== 'acevo' || !header.recorder) return 'unknown';
+  if (header.game !== 'acevo') return 'unknown';
+  // Laps without a recorder block that started before the reflection landed (commit 9c36958, 2026-11-16T16:34:09Z; recorder
+  // stamping only began later) were necessarily recorded in the original frame.
+  if (!header.recorder) {
+    const started = Date.parse(header.startedAt);
+    return Number.isFinite(started) && started < REFLECTION_LANDED_MS ? 'original' : 'unknown';
+  }
   const explicit = header.recorder.coordinateFrame;
   if (explicit === 'acevo-reflected-x-v1') return 'reflected';
   if (explicit === 'acevo-original-x-v1') return 'original';

@@ -1,5 +1,6 @@
 //! Private native geometry cache. This directory is deliberately outside the
-//! upload outbox: game-derived sources are not published by discovering them.
+//! upload outbox: nothing here is sent by being found. The layout worker offers
+//! a layout to the outbox (`auto::offer`) only after this cache validated it.
 
 use std::fs;
 use std::io::Read;

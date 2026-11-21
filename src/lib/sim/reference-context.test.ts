@@ -1,9 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import { makeLapFixtures } from '@/test/lap-fixture';
-import { comparisonGoal, referenceDifferences, referenceVersionContext } from './reference-context';
+import { comparisonGoal, evoCoordinateFrame, referenceDifferences, referenceVersionContext } from './reference-context';
 import { incomparableReason } from './analysis';
 
 const [lap] = makeLapFixtures();
+
+describe('EVO frame of laps recorded before the recorder block', () => {
+  const header = (extra: Record<string, unknown>) => ({ ...lap.header, game: 'acevo', recorder: undefined, ...extra }) as typeof lap.header;
+  it('is original before the reflection landed (commit 9c36958) and unknown after it', () => {
+    expect(evoCoordinateFrame(header({ startedAt: '2026-11-16T16:20:00Z' }))).toBe('original');
+    expect(evoCoordinateFrame(header({ startedAt: '2026-11-16T16:34:08Z' }))).toBe('original');
+    expect(evoCoordinateFrame(header({ startedAt: '2026-11-16T16:34:09Z' }))).toBe('unknown');
+    expect(evoCoordinateFrame(header({ startedAt: '2026-11-17T10:00:00Z' }))).toBe('unknown');
+  });
+  it('is unknown with a missing or invalid startedAt, and for other games', () => {
+    expect(evoCoordinateFrame(header({ startedAt: undefined }))).toBe('unknown');
+    expect(evoCoordinateFrame(header({ startedAt: 'not a date' }))).toBe('unknown');
+    expect(evoCoordinateFrame({ ...header({ startedAt: '2026-11-16T16:20:00Z' }), game: 'ac' })).toBe('unknown');
+  });
+  it('keeps the recorder rules when a recorder is present', () => {
+    const recorder = { app: 'xpeed-companion', source: 'acevo', version: '0.8.2', build: '9c36958' };
+    expect(evoCoordinateFrame(header({ startedAt: '2026-11-16T16:20:00Z', recorder }))).toBe('reflected');
+    expect(evoCoordinateFrame(header({ startedAt: '2026-11-16T16:20:00Z', recorder: { ...recorder, build: 'unknown' } }))).toBe('unknown');
+  });
+});
 
 describe('comparison reference context', () => {
   const recorded = (build: string, gameBuild?: string) => ({ ...lap, header: { ...lap.header, game: 'acevo', recorder: { app: 'xpeed-companion', source: 'acevo', version: '0.8.2', build, gameBuild } } });

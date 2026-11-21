@@ -7,8 +7,9 @@
 //! waits for a disk full of game files. Every request returns the exact layout
 //! or the reason it could not be prepared. The requesting reader can retry.
 //!
-//! EVO's verified package sources instead go to the private `native-tracks`
-//! cache, outside this upload outbox. Only game folders are read, never written.
+//! EVO's verified package sources are built into the private `native-tracks` cache (its own source receipts), and only a
+//! layout that passed that validation is then offered to this outbox ([`offer`]) so it reaches the account like the others.
+//! Only game folders are read, never written.
 
 use std::collections::HashSet;
 use std::fmt;
@@ -387,6 +388,24 @@ fn build_current(seen: &Seen, folders: &Folders, outbox: &Path) -> Result<(Built
     Ok((if unchanged { Built::Unchanged(path) } else { Built::Written(path) }, track))
 }
 
+/// A validated layout made outside the outbox (EVO's private cache) offered to it, so the uploader sends it to the account:
+/// the same file name a layout of that identity always has, written whole (a partial file never shows) and only when its
+/// bytes changed. True when the file was written.
+pub(crate) fn offer(outbox: &Path, track: &Track) -> Result<bool, String> {
+    let bytes = dump::gzip_checked(track)?;
+    let path = outbox.join(file_name(&track.game, &track.name, track.variant.as_deref()));
+    if fresh::read(&path, MAX_UNPACKED).is_some_and(|old| old == bytes) {
+        return Ok(false);
+    }
+    fs::create_dir_all(outbox).map_err(|error| format!("cannot create {}: {error}", outbox.display()))?;
+    let partial = path.with_extension("gz.part");
+    if let Err(error) = fs::write(&partial, &bytes).and_then(|()| fs::rename(&partial, &path)) {
+        let _ = fs::remove_file(partial);
+        return Err(format!("cannot write {}: {error}", path.display()));
+    }
+    Ok(true)
+}
+
 #[cfg(test)]
 fn build(seen: &Seen, folders: &Folders, outbox: &Path) -> Result<Built, String> {
     build_current(seen, folders, outbox)
@@ -403,7 +422,7 @@ fn label(seen: &Seen) -> String {
 
 /// Build or load each requested track. The reply belongs to that request, so a
 /// reader that changes layouts can discard the old receiver. Wake the uploader
-/// only for newly written AC/SCE payloads.
+/// only when a layout file in the outbox was written (AC, SCE, or a validated EVO layout offered from its cache).
 pub fn run(
     out: &Path,
     seen: &Receiver<Request>,
@@ -430,6 +449,18 @@ pub fn run(
             .map(|(written, track)| {
                 if written {
                     say(format!("Native EVO layout cached locally for {}", label(&seen)));
+                }
+                // The account gets the validated layout too; a failure here never takes the map off the panel.
+                match offer(&outbox, &track) {
+                    Ok(true) => {
+                        say(format!("Track layout of {} ready to send to your account", label(&seen)));
+                        ready();
+                    }
+                    Ok(false) => {}
+                    Err(error) => say(format!(
+                        "Could not queue the track layout of {} for your account: {error}",
+                        label(&seen)
+                    )),
                 }
                 track
             })
@@ -463,6 +494,33 @@ mod tests {
 
     use super::*;
     use crate::config::scratch_dir;
+
+    #[test]
+    fn a_validated_layout_from_outside_is_offered_once_under_its_identity_and_again_only_when_it_changes() {
+        let root = scratch_dir("offer-outbox");
+        let outbox = root.join(TRACKS_DIR);
+        let mut track = super::super::tests::golden_track();
+        track.game = "acevo".into();
+        track.name = "Laguna Seca".into();
+        track.variant = Some("GP".into());
+        assert_eq!(offer(&outbox, &track), Ok(true));
+        let files: Vec<_> = fs::read_dir(&outbox)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(
+            files,
+            vec![file_name("acevo", "Laguna Seca", Some("GP"))],
+            "one whole file, no partial left"
+        );
+        let sent = gunzip(&fs::read(outbox.join(&files[0])).unwrap(), MAX_UNPACKED).unwrap();
+        assert_eq!(track_key(&sent.game, &sent.name, sent.variant.as_deref()), "acevo|laguna seca|gp");
+        assert_eq!(offer(&outbox, &track), Ok(false), "the same bytes are not written again");
+        track.length_m = Some(3555.0);
+        assert_eq!(offer(&outbox, &track), Ok(true), "a changed layout replaces the file");
+        assert_eq!(fs::read_dir(&outbox).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     fn ac_track(root: &Path, track: &str, layout: Option<&str>, radius: f64) {
         let dir = match layout {

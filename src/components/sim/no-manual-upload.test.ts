@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-// Laps come only from Xpeed Companion. One bounded, memory-only track-map chooser
-// accepts XTRK geometry; lap imports, drop zones and folder pickers remain absent.
+// Laps and track layouts (.xtrk.gz) come only from Xpeed Companion, through the account. No lap or track import,
+// file input, drop zone or folder picker exists on the site.
 // (A render-based check of the same rule lives in each screen's own tests; this one reads the code of every Virtual screen.)
 
 const root = join(process.cwd(), 'src');
@@ -22,6 +22,8 @@ const FORBIDDEN: Array<[string, RegExp]> = [
   ['a file input (createElement)', /createElement\(\s*['"]input['"]/],
   ['a drop handler', /\bonDrop\b|\bonDragOver\b|addEventListener\(\s*['"]drop['"]/],
   ['dataTransfer', /\bdataTransfer\b/],
+  ['a track-file chooser (.xtrk/.gz accept)', /accept\s*=\s*[{'"`][^>]*(\.xtrk|\.gz\b|application\/gzip)/i],
+  ['a track-file reader (readLocalTrack)', /\breadLocalTrack\b|\bLocalTrackLayout\b/],
   ['a folder picker', /webkitdirectory|showOpenFilePicker|showDirectoryPicker/],
 ];
 
@@ -35,7 +37,7 @@ describe('the Virtual screens', () => {
   for (const [what, pattern] of FORBIDDEN) {
     it(`do not contain ${what}`, () => {
       const found = screens.filter((entry) => pattern.test(entry.text)).map((entry) => entry.file);
-      expect(found).toEqual(what === 'a file input' ? ['components/sim/LocalTrackLayout.tsx'] : []);
+      expect(found).toEqual([]);
     });
   }
 
