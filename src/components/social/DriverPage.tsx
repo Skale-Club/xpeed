@@ -229,7 +229,7 @@ export function DriverPage() {
                       <li key={lap.lapId} data-testid="driver-best-lap">
                         <Card className="flex h-full flex-col gap-3 bg-card p-4">
                           <div className="flex min-w-0 items-start gap-3">
-                            <TrackLayoutThumb trackId={lap.track.id} name={lap.track.name} className="h-12 w-12" />
+                            <TrackLayoutThumb trackId={lap.track.id} name={lap.track.name} />
                             <div className="min-w-0 space-y-1">
                               <Link to={trackPagePath(lap.track.id)} className="block truncate text-base font-semibold hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="driver-track-link">{lap.track.name}</Link>
                               <SimCarIdentity name={lap.car.name} className="text-sm text-muted-foreground" />

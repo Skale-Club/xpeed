@@ -31,6 +31,20 @@ export function GameBadge({ game, cover = true }: { game: string; cover?: boolea
 }
 
 /**
+ * The game inside a line of text (the quiet line of a row: "when · game"): its cover, small, and its name. Wherever a game is named in a
+ * list, its cover is beside the name; a head or a card uses `GameBadge`, a line of text uses this.
+ */
+export function GameName({ game, className = '' }: { game: string; className?: string }) {
+  const games = useGames();
+  return (
+    <span className={`inline-flex min-w-0 max-w-full items-center gap-1.5 align-middle ${className}`} data-testid="session-game">
+      <GameCover game={game} className="w-3 self-center rounded-[2px] border-0" />
+      <span className="truncate">{games.name(game)}</span>
+    </span>
+  );
+}
+
+/**
  * The personal-best mark next to a lap time: a small green pill with the award icon. The label is trimmed to its capitals so "PB" sits on the
  * icon's centre line instead of riding high over the font's descender space.
  */

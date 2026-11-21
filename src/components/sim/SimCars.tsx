@@ -21,6 +21,7 @@ import { useDashFormat } from './overview/use-format';
 import { GameBadge } from './session-bits';
 import { GameCover } from './GameCover';
 import { SimCarIdentity } from './SimCarIdentity';
+import { TrackLayoutThumb } from './TrackLayoutThumb';
 import { CompanionInvite, LoadMore, QueryGate } from './SimStates';
 import { useWhen } from './use-when';
 
@@ -55,7 +56,7 @@ function CarCard({ car, today }: { car: V1CarItem; today: string }) {
                 <GameBadge game={car.game} cover={false} />
                 <ChevronRight className="hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" aria-hidden="true" />
               </div>
-              <div className="min-w-0 text-base font-semibold"><SimCarIdentity name={car.name} logoClassName="h-8 w-8" /></div>
+              <div className="min-w-0 text-base font-semibold"><SimCarIdentity name={car.name} /></div>
               {(car.class || brand) && (
                 <div className="flex flex-wrap items-center gap-1.5">
                   {car.class && <Badge variant="outline" data-testid="car-class">{car.class}</Badge>}
@@ -84,7 +85,9 @@ function CarCard({ car, today }: { car: V1CarItem; today: string }) {
           </dl>
 
           <div className="flex items-end justify-between gap-3 border-t border-border pt-3">
-            <div className="min-w-0 space-y-0.5" data-testid="car-best">
+            <div className="flex min-w-0 items-center gap-2.5" data-testid="car-best">
+              {top && <TrackLayoutThumb trackId={top.track.id} name={top.track.name} />}
+              <div className="min-w-0 space-y-0.5">
               <p className="truncate text-xs text-muted-foreground">
                 {top ? t('garageDash.bestOn', 'Best valid lap on {{track}}', { track: top.track.name }) : t('modes.cars.bestLap', 'Best valid lap')}
               </p>
@@ -96,6 +99,7 @@ function CarCard({ car, today }: { car: V1CarItem; today: string }) {
                 <Skeleton className="h-6 w-24" />
               )}
               {car.bestLapMs === null && <p className="text-xs text-muted-foreground">{t('garageDash.noValidYet', 'No valid lap yet')}</p>}
+              </div>
             </div>
             <div className="w-28 shrink-0 space-y-0.5 text-right" data-testid="car-activity">
               {detail.data ? (

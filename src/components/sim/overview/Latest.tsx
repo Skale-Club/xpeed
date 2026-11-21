@@ -4,12 +4,11 @@ import { useTranslation } from 'react-i18next';
 import { ChevronRight } from 'lucide-react';
 import { formatLapTime } from '@/lib/sim/analysis';
 import { compareUrl } from '@/lib/sim/compare-url';
-import { useGames } from '@/lib/sim/games';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { sessionPath } from '@/lib/sim/routes';
 import type { V1Overview, V1Session } from '@/lib/sim/v1-client';
 import { SimCarIdentity } from '../SimCarIdentity';
-import { KindBadge, PbBadge } from '../session-bits';
+import { GameName, KindBadge, PbBadge } from '../session-bits';
 import { TrackLayoutThumb } from '../TrackLayoutThumb';
 import { useWhen } from '../use-when';
 import { Panel, Quiet } from './parts';
@@ -40,7 +39,7 @@ function OverviewRow({ to, title, trackId, trackName, head, lines, time, below, 
   return (
     <li data-testid={testId}>
       <Link to={to} title={title} className={`group -mx-2 flex items-center gap-3 rounded-md px-2 py-2.5 hover:bg-muted/40 ${FOCUS}`} data-testid={linkTestId}>
-        <TrackLayoutThumb trackId={trackId} name={trackName} className="h-10 w-10" />
+        <TrackLayoutThumb trackId={trackId} name={trackName} />
         <div className="min-w-0 flex-1 space-y-0.5">
           <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
             {head?.before}
@@ -63,7 +62,6 @@ function OverviewRow({ to, title, trackId, trackName, head, lines, time, below, 
 export function SessionsPanel({ sessions, bests = [] }: { sessions: V1Overview['latestSessions']; bests?: V1Overview['latestPersonalBests'] }) {
   const { t } = useTranslation();
   const mobile = useIsMobile();
-  const games = useGames();
   const when = useWhen();
   // A session shows the PB badge when its best lap is one of the recent personal bests (same game, track and car, same time).
   const isPb = (session: V1Session) => session.bestLapMs !== null && bests.some((pb) => pb.game === session.game && pb.track.id === session.track.id && pb.car.id === session.car.id && pb.bestMs === session.bestLapMs);
@@ -85,11 +83,12 @@ export function SessionsPanel({ sessions, bests = [] }: { sessions: V1Overview['
               trackName={session.track.name}
               lines={(
                 <>
-                  <SimCarIdentity name={session.car.name} className="max-w-full text-xs text-muted-foreground" logoClassName="h-5 w-7" />
+                  <SimCarIdentity name={session.car.name} size="line" className="text-xs text-muted-foreground" />
                   {/* The kind leads the quiet line, so the track's name never gives up its room to a badge. */}
                   <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                     <KindBadge kind={session.kind} />
-                    <span className="truncate">{when(Date.parse(session.startedAt))} · <span data-testid="session-game">{games.name(session.game)}</span></span>
+                    <span className="truncate">{when(Date.parse(session.startedAt))}</span>
+                    <GameName game={session.game} className="shrink-[2]" />
                   </p>
                 </>
               )}
@@ -114,7 +113,6 @@ export function SessionsPanel({ sessions, bests = [] }: { sessions: V1Overview['
  * what they are); each opens the lap's analysis. */
 export function BestsPanel({ bests }: { bests: V1Overview['latestPersonalBests'] }) {
   const { t } = useTranslation();
-  const games = useGames();
   const day = useWhen('date');
   return (
     <Panel title={t('modes.overview.bestLaps', 'Recent personal bests')} testId="overview-best">
@@ -135,8 +133,11 @@ export function BestsPanel({ bests }: { bests: V1Overview['latestPersonalBests']
                 chevron={false}
                 lines={(
                   <>
-                    <SimCarIdentity name={pb.car.name} className="max-w-full text-xs text-muted-foreground" logoClassName="h-5 w-7" />
-                    <p className="truncate text-xs text-muted-foreground">{day(Date.parse(pb.achievedAt))} · {games.name(pb.game)}</p>
+                    <SimCarIdentity name={pb.car.name} size="line" className="text-xs text-muted-foreground" />
+                    <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                      <span className="shrink-0">{day(Date.parse(pb.achievedAt))}</span>
+                      <GameName game={pb.game} />
+                    </p>
                   </>
                 )}
                 time={<span className="font-mono text-sm font-semibold tabular-nums" data-testid="overview-best-time">{formatLapTime(pb.bestMs)}</span>}

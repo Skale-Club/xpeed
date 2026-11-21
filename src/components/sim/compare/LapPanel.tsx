@@ -87,7 +87,7 @@ export function LapPanel({ side, label, testId, hint, file, lapId, onChange, onC
             </p>
             <p className="truncate text-sm" title={info.track}>{info.track}</p>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-              <SimCarIdentity name={info.car} className="text-xs" />
+              <SimCarIdentity name={info.car} size="line" className="text-xs" />
               <span className={cn(!info.valid && 'text-destructive')}>{info.valid ? t('modes.compare.valid', 'valid') : t('modes.compare.notValid', 'not valid')}</span>
               {badge && <Badge variant="secondary" className="gap-1"><Award className="h-3 w-3" aria-hidden="true" />{badge}</Badge>}
             </div>

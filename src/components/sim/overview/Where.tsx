@@ -7,6 +7,8 @@ import { GameCover } from '../GameCover';
 import { carPath, trackPath } from '@/lib/sim/routes';
 import type { V1Stats } from '@/lib/sim/v1-client';
 import { SimCarIdentity } from '../SimCarIdentity';
+import { GameName } from '../session-bits';
+import { TRACK_THUMB } from '../identity-sizes';
 import { TrackLayoutThumb } from '../TrackLayoutThumb';
 import { Panel, Quiet } from './parts';
 import { useDashFormat } from './use-format';
@@ -46,10 +48,8 @@ function Bars({ rows, testId }: { rows: Row[]; testId: string }) {
   );
 }
 
-/** The name of a track or car, with its game after it when another row of the list has the same name (Monza in two games). */
-function nameWithGame(entry: { name: string; game: string }, all: ReadonlyArray<{ name: string }>, gameName: (game: string) => string): string {
-  return all.filter((other) => other.name === entry.name).length > 1 ? `${entry.name} · ${gameName(entry.game)}` : entry.name;
-}
+/** Whether another row of the list has the same name (Monza in two games): the row then says its game too. */
+const sharesName = (entry: { name: string }, all: ReadonlyArray<{ name: string }>) => all.filter((other) => other.name === entry.name).length > 1;
 
 /** Where you drive: laps by game, and the tracks and cars you drove most in the period. "Games played" lives here too. */
 export function WherePanel({ stats }: { stats: V1Stats }) {
@@ -90,8 +90,9 @@ export function WherePanel({ stats }: { stats: V1Stats }) {
                 to: trackPath(track.id),
                 label: (
                   <span className="flex min-w-0 items-center gap-2">
-                    <TrackLayoutThumb trackId={track.id} name={track.name} className="h-7 w-7" />
-                    <span className="truncate">{nameWithGame(track, tracks, games.name)}</span>
+                    <TrackLayoutThumb trackId={track.id} name={track.name} className={TRACK_THUMB.dense} />
+                    <span className="truncate">{track.name}</span>
+                    {sharesName(track, tracks) && <GameName game={track.game} className="text-xs text-muted-foreground" />}
                   </span>
                 ),
               }))}
@@ -101,7 +102,12 @@ export function WherePanel({ stats }: { stats: V1Stats }) {
         <section className="min-w-0 space-y-2" aria-labelledby="where-cars" data-testid="where-cars">
           <h4 id="where-cars" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('modes.overview.dash.topCars', 'Top cars')}</h4>
           {cars.length === 0 ? <Quiet>{t('modes.overview.dash.whereEmpty', 'Nothing in this period.')}</Quiet> : (
-            <Bars testId="where-cars-list" rows={cars.map((car) => ({ key: car.id, name: car.name, laps: car.laps, to: carPath(car.id), label: <SimCarIdentity name={nameWithGame(car, cars, games.name)} className="text-sm" /> }))} />
+            <Bars testId="where-cars-list" rows={cars.map((car) => ({ key: car.id, name: car.name, laps: car.laps, to: carPath(car.id), label: (
+              <span className="flex min-w-0 items-center gap-2">
+                <SimCarIdentity name={car.name} size="line" className="text-sm" />
+                {sharesName(car, cars) && <GameName game={car.game} className="text-xs text-muted-foreground" />}
+              </span>
+            ) }))} />
           )}
         </section>
       </div>

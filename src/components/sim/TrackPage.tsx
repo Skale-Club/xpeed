@@ -25,6 +25,7 @@ import { lazyChart } from '@/components/LazyChart';
 
 const ProgressChart = lazyChart(() => import('./ProgressChart').then((m) => ({ default: m.ProgressChart })), 'h-60 md:h-80');
 import { GameBadge } from './session-bits';
+import { TrackLayoutThumb } from './TrackLayoutThumb';
 import { QueryGate } from './SimStates';
 import { TrackMap } from './TrackMap';
 import { useAge } from './use-age';
@@ -175,11 +176,14 @@ export function TrackPage() {
                   )}
                 </div>
                 <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
-                  <div className="min-w-0">
-                    <h2 className="text-2xl font-bold leading-tight" data-testid="track-name">{detail.track.name}</h2>
-                    <p className="text-sm text-muted-foreground" data-testid="track-subtitle">
-                      {detail.track.lengthM ? trackLength(detail.track.lengthM, distanceUnit as DistanceUnit) : t('garageDash.lengthUnknown', 'Length not known')}
-                    </p>
+                  <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+                    <TrackLayoutThumb trackId={detail.track.id} name={detail.track.name} className="h-16 w-16 sm:h-20 sm:w-20" />
+                    <div className="min-w-0">
+                      <h2 className="text-2xl font-bold leading-tight" data-testid="track-name">{detail.track.name}</h2>
+                      <p className="text-sm text-muted-foreground" data-testid="track-subtitle">
+                        {detail.track.lengthM ? trackLength(detail.track.lengthM, distanceUnit as DistanceUnit) : t('garageDash.lengthUnknown', 'Length not known')}
+                      </p>
+                    </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button asChild size="sm" variant="outline"><Link to={`/virtual/sessions?track=${encodeURIComponent(id)}`} data-testid="track-sessions-link">{t('modes.overview.allSessions', 'All sessions')}</Link></Button>

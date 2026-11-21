@@ -73,3 +73,21 @@ No page, at any width, in any language, may be wider than the screen or move sid
 Before finishing any change to a screen, run `npm run check:phone` (needs the test app's sample data and Playwright; see the
 head of `scripts/check-phone-width.mjs`). It opens every screen at 320, 360, 412, 768 and 1280 px in English, Portuguese and
 Spanish and fails on anything past the screen's edge. A new screen goes into its route list; sample data with long names stays.
+
+## One look for a game, a track and a car (owner, 2026-11-21)
+
+The same thing looks the same on every Virtual screen. Wherever a screen names a game, a track or a car, its picture is
+beside the name, drawn by the one shared component, in one of the shared sizes. Never write the name alone, and never
+build a second drawing of the same thing.
+
+| What is named | Its picture | Use |
+| --- | --- | --- |
+| A game | its cover | `GameCover` (the picture), `GameBadge` (a head or a card), `GameName` (inside a line of text) |
+| A track | its layout | `TrackLayoutThumb` (by the track's id; a quiet placeholder of the same size when there is no layout) |
+| A car | its brand's logo | `SimCarIdentity` |
+
+Sizes live in `src/components/sim/identity-sizes.ts` (`CAR_LOGO`, `TRACK_THUMB`): a list row or a card takes the default,
+a line of small text `size="line"`, a tight ranking `dense`; only a page header passes a bigger size by hand. A row that
+says "what was driven" reads the same everywhere: the track's map, the track's name, then a quiet line with the car, the
+game and when. Left as plain text on purpose: sentences, drop-down options, filter chips and the numbers of a summary tile.
+`src/components/sim/identity.test.tsx` pins this (it lists every file that still writes a game's name by hand, with the reason).

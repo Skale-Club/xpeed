@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { LoadMore, QueryGate } from '@/components/sim/SimStates';
+import { SimCarIdentity } from '@/components/sim/SimCarIdentity';
 import { TrackLayoutThumb } from '@/components/sim/TrackLayoutThumb';
 import { useWhen } from '@/components/sim/use-when';
 import { formatLapTime } from '@/lib/sim/analysis';
@@ -46,13 +47,16 @@ function FriendActivity({ handle, pairs }: { handle: string; pairs: Set<string> 
     <div className="space-y-1 rounded-lg border border-border bg-background/50 p-2.5 text-xs" data-testid="friend-activity">
       <p className="font-medium text-muted-foreground">{t('social.friends.latest', 'Latest personal best')}</p>
       <div className="flex min-w-0 items-center gap-2.5">
-        <TrackLayoutThumb trackId={latest.track.id} name={latest.track.name} className="h-10 w-10" />
+        <TrackLayoutThumb trackId={latest.track.id} name={latest.track.name} />
         <div className="min-w-0 flex-1 space-y-0.5">
           <p className="flex items-baseline justify-between gap-2">
             <span className="min-w-0 truncate text-sm font-medium">{latest.track.name}</span>
             <span className="shrink-0 font-mono text-sm font-semibold tabular-nums" data-testid="friend-activity-time">{formatLapTime(latest.timeMs)}</span>
           </p>
-          <p className="truncate text-muted-foreground">{latest.car.name} · {when(Date.parse(latest.achievedAt))}</p>
+          <p className="flex min-w-0 items-center gap-x-2 text-muted-foreground">
+            <SimCarIdentity name={latest.car.name} size="line" />
+            <span className="shrink-0">{when(Date.parse(latest.achievedAt))}</span>
+          </p>
         </div>
       </div>
       {both && (

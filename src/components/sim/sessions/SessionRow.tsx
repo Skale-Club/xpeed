@@ -14,6 +14,7 @@ import { CHART_PALETTE } from '@/lib/chart-palette';
 import { cn } from '@/lib/utils';
 import { GameBadge, KindBadge, PbBadge } from '../session-bits';
 import { SimCarIdentity } from '../SimCarIdentity';
+import { TRACK_THUMB } from '../identity-sizes';
 import { TrackLayoutThumb } from '../TrackLayoutThumb';
 import { useDashFormat } from '../overview/use-format';
 import { useConditions } from '../use-session-text';
@@ -91,11 +92,11 @@ function SessionRowView({ session, pb, pbsReady }: { session: V1Session; pb: V1P
               <GameCover game={session.game} className="w-12 self-stretch aspect-auto sm:w-11" testId="session-cover" />
               {/* A phone keeps the track and the car on the first line and puts the kind at the end of the time line; the game's name is the cover's. */}
               <div className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2">
-                <TrackLayoutThumb trackId={session.track.id} name={session.track.name} className="col-start-1 row-start-1 h-11 w-11" />
+                <TrackLayoutThumb trackId={session.track.id} name={session.track.name} className={`col-start-1 row-start-1 ${TRACK_THUMB.row}`} />
                 <div className="col-span-2 col-start-2 row-start-1 min-w-0 sm:col-span-1">
                   {/* Cut sideways only (not `truncate`): trimmed to its capitals, an accent above them (Ö, Á) must not be cut off. */}
                   <h3 className="overflow-x-clip text-ellipsis whitespace-nowrap text-sm font-semibold [text-box:trim-start_cap_alphabetic] sm:text-base">{session.track.name}</h3>
-                  <SimCarIdentity name={session.car.name} className="text-sm text-muted-foreground" logoClassName="h-7 w-10" />
+                  <SimCarIdentity name={session.car.name} className="text-sm text-muted-foreground" />
                 </div>
                 <div className="col-start-3 row-start-2 flex shrink-0 items-center gap-1.5 justify-self-end sm:row-start-1 sm:self-start">
                   <span className="hidden sm:contents"><GameBadge game={session.game} cover={false} /></span>

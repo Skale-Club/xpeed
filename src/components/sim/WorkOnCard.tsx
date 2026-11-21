@@ -11,6 +11,7 @@ import { sessionPath } from '@/lib/sim/routes';
 import { useWorkOn } from '@/lib/sim/use-work-on';
 import type { V1Session } from '@/lib/sim/v1-client';
 import { SimCarIdentity } from './SimCarIdentity';
+import { TrackLayoutThumb } from './TrackLayoutThumb';
 import { useWhen } from './use-when';
 
 /**
@@ -37,12 +38,18 @@ export function WorkOnCard({ sessions }: { sessions: readonly V1Session[] }) {
         </div>
         {query.isSuccess && query.data ? (
           <>
-            <p className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground" data-testid="work-on-session">
-              <span className="truncate">{query.data.session.track.name}</span>
-              <SimCarIdentity name={query.data.session.car.name} className="text-xs" />
-              <span>{when(Date.parse(query.data.session.startedAt))}</span>
-              <span>{t('modes.overview.workOnLaps', '{{count}} laps analysed', { count: query.data.lapsUsed })}</span>
-            </p>
+            {/* Which session: the track's map and name, the car, when (the same row as every list that names a track and a car). */}
+            <div className="flex min-w-0 items-center gap-3" data-testid="work-on-session">
+              <TrackLayoutThumb trackId={query.data.session.track.id} name={query.data.session.track.name} />
+              <div className="min-w-0 space-y-0.5">
+                <p className="truncate text-sm font-medium">{query.data.session.track.name}</p>
+                <p className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                  <SimCarIdentity name={query.data.session.car.name} size="line" className="text-xs" />
+                  <span>{when(Date.parse(query.data.session.startedAt))}</span>
+                  <span>{t('modes.overview.workOnLaps', '{{count}} laps analysed', { count: query.data.lapsUsed })}</span>
+                </p>
+              </div>
+            </div>
             <ul className="space-y-2">
               {query.data.findings.map((finding) => {
                 const text = sessionFindingText(finding, { unit: distanceUnit as DistanceUnit });

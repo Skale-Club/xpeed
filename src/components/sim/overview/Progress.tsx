@@ -11,8 +11,8 @@ import { compareUrl } from '@/lib/sim/compare-url';
 import { pairRange, savedSeconds } from '@/lib/sim/dashboard';
 import { formatTick, timeTicks } from '@/lib/sim/progress';
 import { trackPath } from '@/lib/sim/routes';
-import { useGames } from '@/lib/sim/games';
 import type { V1Improvement, V1Stats, V1StatsPair } from '@/lib/sim/v1-client';
+import { GameName } from '../session-bits';
 import { SimCarIdentity } from '../SimCarIdentity';
 import { TrackLayoutThumb } from '../TrackLayoutThumb';
 import { useWhen } from '../use-when';
@@ -29,7 +29,6 @@ function Improvements({ items }: { items: readonly V1Improvement[] }) {
   const { t } = useTranslation();
   const [all, setAll] = useState(false);
   const shown = all ? items : items.slice(0, FIRST_ROWS);
-  const games = useGames();
   const when = useWhen('date');
   return (
     <section className="space-y-2" aria-labelledby="improvements-title" data-testid="progress-improvements">
@@ -46,12 +45,13 @@ function Improvements({ items }: { items: readonly V1Improvement[] }) {
                 className="flex items-center justify-between gap-3 py-2 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <div className="flex min-w-0 items-center gap-3">
-                  <TrackLayoutThumb trackId={item.trackId} name={item.trackName} className="h-11 w-11" />
+                  <TrackLayoutThumb trackId={item.trackId} name={item.trackName} />
                   <div className="min-w-0 space-y-0.5">
                     <p className="truncate text-sm font-medium">{item.trackName}</p>
                     <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                      <SimCarIdentity name={item.carName} className="text-xs" />
-                      <span>{games.name(item.game)} · {when(Date.parse(item.achievedAt))}</span>
+                      <SimCarIdentity name={item.carName} size="line" className="text-xs" />
+                      <GameName game={item.game} />
+                      <span>{when(Date.parse(item.achievedAt))}</span>
                     </div>
                   </div>
                 </div>
@@ -96,10 +96,13 @@ function PairChart({ pair }: { pair: V1StatsPair }) {
   return (
     <li className="space-y-1 rounded-lg border border-border p-3" data-testid="progress-pair">
       <Link to={trackPath(pair.trackId)} className="flex min-w-0 items-center gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={t('modes.overview.dash.openTrack', 'Open the track page')}>
-        <TrackLayoutThumb trackId={pair.trackId} name={pair.trackName} className="h-11 w-11" />
+        <TrackLayoutThumb trackId={pair.trackId} name={pair.trackName} />
         <span className="min-w-0">
           <span className="block truncate text-sm font-medium">{pair.trackName}</span>
-          <span className="block truncate text-xs text-muted-foreground">{pair.carName} · {t('modes.overview.dash.lapsN', '{{count}} laps', { count: pair.laps })}</span>
+          <span className="flex min-w-0 items-center gap-x-2 text-xs text-muted-foreground">
+            <SimCarIdentity name={pair.carName} size="line" />
+            <span className="shrink-0">{t('modes.overview.dash.lapsN', '{{count}} laps', { count: pair.laps })}</span>
+          </span>
         </span>
       </Link>
       {range && axis && last ? (

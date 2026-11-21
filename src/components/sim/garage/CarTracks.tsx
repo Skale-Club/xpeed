@@ -42,7 +42,7 @@ export function CarTracks({ rows, pbsReady }: { rows: readonly TrackRow[]; pbsRe
                 <tr key={entry.track.id} className="hover:bg-muted/40" data-testid="best-track-row">
                   <td className="max-w-[11rem] py-2 pr-2 align-middle sm:max-w-[22rem] sm:pr-3">
                     <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-                      <TrackLayoutThumb trackId={entry.track.id} name={entry.track.name} className="h-8 w-8 sm:h-10 sm:w-10" />
+                      <TrackLayoutThumb trackId={entry.track.id} name={entry.track.name} className="h-8 w-8 sm:h-11 sm:w-11" />
                       <div className="min-w-0">
                         <Link to={trackPath(entry.track.id)} className="line-clamp-2 break-words rounded-sm font-medium sm:block sm:line-clamp-none sm:truncate hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="best-track-link">{entry.track.name}</Link>
                         {entry.bestMs === null && <p className="mt-0.5 text-xs text-muted-foreground">{t('garageDash.noValidYet', 'No valid lap yet')}</p>}
@@ -106,7 +106,7 @@ export function CarConsistency({ rows, loading, capped, count }: { rows: readonl
         <ul className="space-y-3">
           {shown.map((row) => (
             <li key={row.track.id} className="flex items-center gap-3" data-testid="car-consistency-row">
-              <TrackLayoutThumb trackId={row.track.id} name={row.track.name} className="h-10 w-10" />
+              <TrackLayoutThumb trackId={row.track.id} name={row.track.name} />
               <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex items-baseline justify-between gap-2 text-sm">
                   <Link to={trackPath(row.track.id)} className="min-w-0 truncate rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{row.track.name}</Link>

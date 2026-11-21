@@ -141,7 +141,7 @@ describe('the list of tracks', () => {
     expect(asked).not.toContain('/api/sim/tracks');
   });
 
-  it('draws a small shape of the track on a card that has a layout, and none on a card that has not', async () => {
+  it('draws the map of the track on a card that has a layout, and the same-size placeholder on a card that has not', async () => {
     const bytes = await gzipBytes(packLayout(makeLayout({ points: circle(300, 80), width: 8, closed: true, game: 'lmu', name: 'Spa-Francorchamps' })));
     Object.assign(state.tracks.find((track) => track.id === monza.id)!, { hasLayout: false, layoutId: null });
     Object.assign(state.tracks.find((track) => track.id === spa.id)!, { hasLayout: true, layoutId: 'layout-spa' });
@@ -149,10 +149,11 @@ describe('the list of tracks', () => {
     const cards = await screen.findAllByTestId('track');
     const spaCard = cards.find((card) => card.textContent?.includes('Spa'))!;
     const monzaCard = cards.find((card) => card.textContent?.includes('Monza'))!;
-    const shape = await within(spaCard).findByTestId('track-preview-shape');
-    expect(shape.querySelector('polyline')?.getAttribute('points')).not.toMatch(/NaN|Infinity/);
-    expect(within(monzaCard).queryByTestId('track-preview')).not.toBeInTheDocument();
-    expect(within(monzaCard).queryByTestId('track-preview-shape')).not.toBeInTheDocument();
+    const shape = await within(spaCard).findByTestId('track-thumb');
+    expect(shape.querySelector('path')?.getAttribute('d')).not.toMatch(/NaN|Infinity/);
+    // No layout: the map's place is kept (the names of every card start at the same spot), with the quiet placeholder in it.
+    expect(within(within(monzaCard).getByTestId('track-preview')).getByTestId('track-thumb-none')).toBeInTheDocument();
+    expect(within(monzaCard).queryByTestId('track-thumb')).not.toBeInTheDocument();
     // One small file for the one layout, nothing for the other card.
     expect(asked.filter((path) => path.includes('/file'))).toEqual(['/api/sim/tracks/layout-spa/file?account=ana']);
   });
@@ -164,7 +165,7 @@ describe('the list of tracks', () => {
     const spaCard = cards.find((card) => card.textContent?.includes('Spa'))!;
     await waitFor(() => expect(within(spaCard).getByTestId('track-preview')).toBeInTheDocument());
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(within(spaCard).queryByTestId('track-preview-shape')).not.toBeInTheDocument();
+    expect(within(spaCard).queryByTestId('track-thumb')).not.toBeInTheDocument();
   });
 
   it('reads the detail and the layout of a card only when it comes on screen', async () => {

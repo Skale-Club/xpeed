@@ -9,7 +9,9 @@ import { compareUrl } from '@/lib/sim/compare-url';
 import type { SavedComparison } from '@/lib/sim/compare-recent';
 import { useLaps, type V1Lap } from '@/lib/sim/v1-client';
 import { LapPicker } from '../LapPicker';
+import { SimCarIdentity } from '../SimCarIdentity';
 import { ListSkeleton } from '../SimStates';
+import { TrackLayoutThumb } from '../TrackLayoutThumb';
 import { useWhen } from '../use-when';
 import { SavedChips } from './SavedChips';
 
@@ -58,9 +60,15 @@ export function CompareStart({ saved, onPin, onForget, onPick }: {
                   {latest.map((lap) => (
                     <li key={lap.id}>
                       <Link to={compareUrl(lap.id)} className={`flex items-center justify-between gap-3 px-3 py-2 hover:bg-muted/40 ${FOCUS}`} data-testid="compare-latest-lap" data-lap-id={lap.id}>
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium">{lap.track?.name ?? '–'} · {t('modes.compare.lapN', 'Lap {{n}}', { n: lap.lapNumber })}</span>
-                          <span className="block truncate text-xs text-muted-foreground">{lap.car?.name ?? '–'} · {when(Date.parse(lap.startedAt))}</span>
+                        <span className="flex min-w-0 items-center gap-3">
+                          <TrackLayoutThumb trackId={lap.track?.id} name={lap.track?.name ?? ''} />
+                          <span className="min-w-0 space-y-0.5">
+                            <span className="block truncate text-sm font-medium">{lap.track?.name ?? '–'} · {t('modes.compare.lapN', 'Lap {{n}}', { n: lap.lapNumber })}</span>
+                            <span className="flex min-w-0 items-center gap-x-2 text-xs text-muted-foreground">
+                              {lap.car?.name ? <SimCarIdentity name={lap.car.name} size="line" /> : <span>–</span>}
+                              <span className="shrink-0">{when(Date.parse(lap.startedAt))}</span>
+                            </span>
+                          </span>
                         </span>
                         <span className="flex shrink-0 items-center gap-1">
                           <span className="font-mono text-sm tabular-nums">{formatLapTime(lap.timeMs)}</span>
