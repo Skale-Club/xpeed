@@ -21,12 +21,28 @@ const CompanionStatus = lazy(() => import('@/components/sim/CompanionStatus').th
 import { ExampleBanner } from '@/components/sim/Example';
 import { useModes } from '@/contexts/ModesContext';
 import { MODE_HOME } from '@/lib/modes';
+import { isCompanionShell } from '@/lib/companion-shell';
 
 export default function AppLayout({ children, refreshDisabled = false }: { children: React.ReactNode; refreshDisabled?: boolean }) {
   const { t } = useTranslation();
   const { refresh } = usePageRefresh();
   const { mode } = useModes();
   useEffect(restoreUpdatePosition, []);
+  // Inside the Companion the window draws the header and menu: only the page content shows.
+  if (isCompanionShell()) {
+    return (
+      <SidebarProvider style={{ '--sidebar-width': '17rem' } as CSSProperties}>
+        <SidebarInset className="min-w-0">
+          <PullToRefresh onRefresh={refresh} disabled={refreshDisabled}>
+            {mode === 'virtual' && <ExampleBanner />}
+            <main className="w-full flex-1 p-4 sm:p-6">{children}</main>
+          </PullToRefresh>
+        </SidebarInset>
+        <ChatBubble mode={mode} />
+        <NewCarDialog />
+      </SidebarProvider>
+    );
+  }
   return (
     // 17rem: the inset menu keeps 8 px around itself, so the car's name still fits whole (it did at 16rem without the inset).
     <SidebarProvider style={{ '--sidebar-width': '17rem' } as CSSProperties}>

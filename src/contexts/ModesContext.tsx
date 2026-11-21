@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   currentMode, modeOfPath, readModes, rememberMode, rememberModeRoute, virtualBuildEnabled, writeModes, type Mode,
 } from '@/lib/modes';
+import { isCompanionShell } from '@/lib/companion-shell';
 
 type ModesContextType = {
   /** The modes this person has: Real first, never empty. */
@@ -31,7 +32,10 @@ export function ModesProvider({ children }: { children: ReactNode }) {
   const { pathname, search } = useLocation();
   const stored = useMemo(() => readModes(userId), [userId]);
   const [chosen, setChosen] = useState<{ userId: string | null; modes: Mode[] } | null>(null);
-  const modes = chosen && chosen.userId === userId ? chosen.modes : stored;
+  const own = chosen && chosen.userId === userId ? chosen.modes : stored;
+  // Inside the Companion the person has Virtual only (Real and Virtual are never mixed in one panel).
+  const shellOnly = isCompanionShell() && virtualBuildEnabled();
+  const modes = useMemo<Mode[]>(() => (shellOnly ? ['virtual'] : own), [shellOnly, own]);
   const mode = currentMode(modes, pathname);
 
   // The last mode and the last screen of each mode, so the switch brings you back where you were.

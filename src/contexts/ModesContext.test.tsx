@@ -172,3 +172,20 @@ describe('the Modes card in Settings', () => {
     expect(screen.queryByTestId('mode-switch')).not.toBeInTheDocument();
   });
 });
+
+describe('inside the Companion (shell mode)', () => {
+  it('sends a Real address to /virtual and hides the switch, even for someone with both modes', () => {
+    sessionStorage.setItem('xpeed.shell', 'companion');
+    choose(['real', 'virtual']);
+    renderApp('/history');
+    expect(screen.getByTestId('where').textContent).toBe('/virtual');
+    expect(screen.getByText('Virtual home')).toBeInTheDocument();
+    expect(screen.queryByTestId('mode-switch')).not.toBeInTheDocument();
+  });
+
+  it('leaves Real alone when shell mode is off', () => {
+    choose(['real', 'virtual']);
+    renderApp('/history');
+    expect(screen.getByText('Trips')).toBeInTheDocument();
+  });
+});

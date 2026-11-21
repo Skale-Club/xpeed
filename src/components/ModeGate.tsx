@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useModes } from '@/contexts/ModesContext';
 import { MODE_HOME, type Mode } from '@/lib/modes';
+import { isCompanionShell } from '@/lib/companion-shell';
 
 /**
  * Layout route for the screens of one mode. Someone who did not choose that
@@ -17,6 +18,8 @@ import { MODE_HOME, type Mode } from '@/lib/modes';
  */
 export function ModeGate({ mode }: { mode: Mode }) {
   const { modes, virtualAvailable, setModes } = useModes();
+  // Inside the Companion only Virtual exists: a Real address lands on Virtual.
+  if (mode === 'real' && isCompanionShell() && virtualAvailable) return <Navigate to={MODE_HOME.virtual} replace />;
   if (modes.includes(mode)) return <Outlet />;
   const home = MODE_HOME[modes[0] ?? 'real'];
   if (mode === 'virtual' && !virtualAvailable) return <Navigate to={home} replace />;
