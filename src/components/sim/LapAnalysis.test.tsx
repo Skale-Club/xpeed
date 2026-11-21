@@ -106,7 +106,7 @@ describe('the track layout', () => {
     renderAnalysis(mine, null, { findLayout });
     await waitFor(() => expect(findLayout).toHaveBeenCalled());
     expect(screen.queryByTestId('track-layout')).not.toBeInTheDocument();
-    expect(screen.getByTestId('map-hint')).toHaveTextContent(/Solid: the recorded lap, not road geometry/);
+    expect(screen.getByTestId('map-hint')).toHaveTextContent(/Solid line: your lap as you drove it/);
     expect(screen.getByTestId('map-hint')).not.toHaveTextContent(/\.xtrk/);
   });
 
@@ -154,7 +154,7 @@ describe('the track layout', () => {
     ];
     const linkLayout = vi.fn(async () => layoutOfSample());
     renderAnalysis(mine, null, { findLayout: async () => null, listKeptLayouts: async () => kept, linkLayout });
-    await waitFor(() => expect(screen.getByTestId('no-layout')).toHaveTextContent(`No compatible game track geometry is available for “${sample.name}”`));
+    await waitFor(() => expect(screen.getByTestId('no-layout')).toHaveTextContent(`The map of “${sample.name}” has not arrived from the game yet`));
     const select = await screen.findByTestId('pick-layout');
     // Only the layouts of the lap's game are offered.
     expect(select).toHaveTextContent('Choose a layout');
@@ -169,7 +169,7 @@ describe('the track layout', () => {
 describe('map inspection and recovery', () => {
   it('exposes the map before the charts and links a selected distance to its position and recorded inputs', async () => {
     renderAnalysis(mine, null);
-    const input = screen.getByRole('slider', { name: 'Inspect the lap by distance' });
+    const input = screen.getByRole('slider', { name: 'Move along the lap' });
     fireEvent.change(input, { target: { value: '500' } });
     expect(screen.getByTestId('inspection-distance')).toHaveTextContent('500 m');
     expect(screen.getByTestId('inspection-values')).toHaveTextContent('Speed:');
@@ -184,7 +184,7 @@ describe('map inspection and recovery', () => {
     const layout = makeLayout({ points: trackPath(mine, 2000)!.points, width: 8, ideal: true, game: mine.header.game, name: mine.header.track.name });
     const findLayout = vi.fn().mockRejectedValueOnce(new Error('network')).mockResolvedValue(layout);
     renderAnalysis(mine, null, { findLayout });
-    expect(await screen.findByText('Track geometry could not be loaded.')).toBeInTheDocument();
+    expect(await screen.findByText('The map of the track could not be loaded.')).toBeInTheDocument();
     expect(screen.queryByTestId('no-layout')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByTestId('track-layout')).toBeInTheDocument();
@@ -228,7 +228,7 @@ describe('local layout scope', () => {
     await screen.findByTestId('track-layout');
     rerender(view(nextFinder));
     expect(screen.queryByTestId('track-layout')).not.toBeInTheDocument();
-    expect(screen.getByText('Loading track geometry…')).toBeInTheDocument();
+    expect(screen.getByText('Loading the map of the track…')).toBeInTheDocument();
     complete(null);
     await screen.findByTestId('no-layout');
     expect(screen.queryByTestId('track-layout')).not.toBeInTheDocument();

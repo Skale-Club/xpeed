@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { LapAnalysis } from '@/components/sim/LapAnalysis';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { advancedOpenByDefault } from '@/lib/advanced';
 import { formatGap, formatLapTime, incomparableReason } from '@/lib/sim/analysis';
 import { compareParams } from '@/lib/sim/compare-url';
 import { forget, loadSaved, remember, setPinned, type SavedComparison } from '@/lib/sim/compare-recent';
@@ -147,6 +149,8 @@ export function CompareScreen() {
     </div>
   );
 
+  // The fine print of the comparison (its objective, the game versions, recording notes) starts closed unless the person works with the advanced level.
+  const [finePrint, setFinePrint] = useState(advancedOpenByDefault);
   const analysis =
     aId && aFile.data ? (
       <LapAnalysis
@@ -179,7 +183,7 @@ export function CompareScreen() {
       {(!slim || editing || picking !== null) && (
         <Card className="border-border bg-card">
           <CardContent className="space-y-4 p-4">
-            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]" data-testid="compare-slots">
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]" data-testid="compare-slots">
               <LapPanel
                 side="lap"
                 label={t('modes.compare.lap', 'Lap')}
@@ -207,8 +211,19 @@ export function CompareScreen() {
 
             {aFile.data && (
               <div className="space-y-2" data-testid="reference-context">
+                <QuickPickers lapId={aId} header={aFile.data.header} referenceId={bId} pb={rejectedDefault ? null : pb} onChoose={(lapId) => go({ b: lapId })} />
+                {/* What must be seen: the laps were not driven in the same conditions, or the personal best cannot be the comparison. */}
+                {conditionDifferences.length > 0 && <p className="text-xs text-warn" data-testid="reference-conditions">{t('modes.referenceContext.conditionsDiffer', 'Recorded conditions differ: {{conditions}}.', { conditions: conditionDifferences.map((key) => t(`modes.referenceContext.condition_${key}`, key)).join(', ') })}</p>}
+                {rejectedDefault && <p role="status" className="text-xs text-warn" data-testid="default-reference-refused">{t('modes.referenceContext.defaultRefused')}</p>}
+                {/* The fine print of a comparison (what it is for, the game versions, how the laps were recorded): the second level. */}
+                <details className="group/context text-xs" open={finePrint} onToggle={(event) => setFinePrint(event.currentTarget.open)} data-testid="reference-details">
+                  <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+                    <ChevronDown className="h-3.5 w-3.5 transition-transform group-open/context:rotate-180" aria-hidden="true" />
+                    {t('modes.advanced.comparisonDetails', 'About this comparison')}
+                  </summary>
+                  <div className="mt-2 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span id="comparison-goal-label" className="text-xs text-muted-foreground">{t('modes.referenceContext.goal', 'Comparison objective')}</span>
+                  <span id="comparison-goal-label" className="text-xs text-muted-foreground">{t('modes.referenceContext.goal', 'What this comparison is for')}</span>
                   <OptionSelect size="sm" className="w-full sm:w-56" aria-labelledby="comparison-goal-label" value={goal} onChange={(value) => setGoalChoice({ lapId: aId, goal: value as ComparisonGoal })} options={[
                     { value: 'practice', label: t('modes.referenceContext.practice', 'Practice') },
                     { value: 'qualifying', label: t('modes.referenceContext.qualifying', 'Qualifying / time trial') },
@@ -218,11 +233,10 @@ export function CompareScreen() {
                 <p className="text-xs text-muted-foreground">{goal === 'race'
                   ? t('modes.referenceContext.raceReference', 'Choose a pace reference with similar tyres, fuel and weather. Your all-time best is not selected automatically.')
                   : t('modes.referenceContext.fastReference', 'Your personal best is a starting reference. Check tyres, fuel and weather, or choose another lap.')}</p>
-                {conditionDifferences.length > 0 && <p className="text-xs text-warn" data-testid="reference-conditions">{t('modes.referenceContext.conditionsDiffer', 'Recorded conditions differ: {{conditions}}.', { conditions: conditionDifferences.map((key) => t(`modes.referenceContext.condition_${key}`, key)).join(', ') })}</p>}
-                {rejectedDefault && <p role="status" className="text-xs text-warn" data-testid="default-reference-refused">{t('modes.referenceContext.defaultRefused')}</p>}
                 {versionContext && <p className="text-xs text-muted-foreground" data-testid="reference-versions">{t('modes.referenceContext.versionPair', { a: aHeader?.recorder?.gameBuild ?? t('modes.referenceContext.unknown'), b: bFile.data?.header.recorder?.gameBuild ?? t('modes.referenceContext.unknown') })} {t(`modes.referenceContext.build_${versionContext.gameBuild}`)}</p>}
                 {versionContext?.coordinatesUnknown && <p className="text-xs text-warn" data-testid="reference-coordinates-unknown">{t('modes.referenceContext.coordinatesUnknown')}</p>}
-                <QuickPickers lapId={aId} header={aFile.data.header} referenceId={bId} pb={rejectedDefault ? null : pb} onChoose={(lapId) => go({ b: lapId })} />
+                  </div>
+                </details>
               </div>
             )}
 

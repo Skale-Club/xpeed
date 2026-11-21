@@ -78,8 +78,11 @@ describe('the reference', () => {
     state.files.set(bestLap.id, await gzipLap({ ...best, header: { ...best.header, recorder: { ...recorder, gameBuild: '0.9.2' } } }));
     open(`/virtual/compare?a=${myLap.id}&b=${bestLap.id}`);
     await gapReady();
-    expect(screen.getByTestId('reference-versions')).toHaveTextContent('lap 0.9.1 · reference 0.9.2');
-    expect(screen.getByTestId('reference-versions')).toHaveTextContent('Different game builds');
+    // In plain words, and in the fine print of the comparison (closed until asked for): the first level stays clear of it.
+    expect(screen.getByTestId('reference-versions')).toHaveTextContent('lap 0.9.1 · compared lap 0.9.2');
+    expect(screen.getByTestId('reference-versions')).toHaveTextContent('The game was updated between the two laps');
+    expect(screen.getByTestId('reference-details')).not.toHaveAttribute('open');
+    expect(screen.getByTestId('reference-details').contains(screen.getByTestId('reference-versions'))).toBe(true);
     expect(screen.queryByTestId('different-tracks')).not.toBeInTheDocument();
   });
 

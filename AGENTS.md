@@ -91,3 +91,22 @@ a line of small text `size="line"`, a tight ranking `dense`; only a page header 
 says "what was driven" reads the same everywhere: the track's map, the track's name, then a quiet line with the car, the
 game and when. Left as plain text on purpose: sentences, drop-down options, filter chips and the numbers of a summary tile.
 `src/components/sim/identity.test.tsx` pins this (it lists every file that still writes a game's name by hand, with the reason).
+
+## Simple first, from the top down (owner, 2026-11-21)
+
+Xpeed is for a general public: simple and easy to read, with little jargon. Telemetry exists, but the balance leans to
+simple. Two rules for every screen, the Virtual ones above all:
+
+- **Order is importance.** From the top: what anybody understands and looks for first (the track with the lap on it, the
+  best lap, whether you got faster, your place in the ranking, where the time goes in one plain sentence). Further down:
+  the numbers. Last: the detail. Never put the most useful thing at the bottom (the lap analysis once had its track map
+  under five tables).
+- **Two levels.** The detail an enthusiast wants (sectors, corner tables, telemetry curves, game versions, recording notes)
+  is the second level: inside `AdvancedFold` (`src/components/ui/advanced-fold.tsx`), closed until asked for. One choice is
+  remembered for every fold, and "Advanced tools" in Settings opens them from the start. The Real side does the same with
+  "Technical details" and "For the mechanic".
+- **Plain words at the first level,** in the three languages: say what happened, not how it is stored ("The map has not
+  arrived from the game yet", never "No compatible track geometry is available").
+
+Applied so far: the lap analysis. The other Virtual screens follow one at a time, each shown to the owner (Journal:
+XPD-D-SIMPLE-FIRST).

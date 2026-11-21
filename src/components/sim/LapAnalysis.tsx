@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MapPin } from 'lucide-react';
+import { AdvancedFold } from '@/components/ui/advanced-fold';
 import { Button } from '@/components/ui/button';
 import { OptionSelect } from '@/components/ui/option-select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -281,8 +282,8 @@ export function LapAnalysis({
     const [x, z] = [analysis.lap.x[i], analysis.lap.z[i]];
     if (!Number.isFinite(x) || !Number.isFinite(z)) return;
     setFocus((current) => ({ x, z, key: (current?.key ?? 0) + 1 }));
-    // On a phone the map is on its own tab (it is mounted there with this focus).
-    if (asPhone) setTab('map');
+    // On a phone the map opens the first tab (it is mounted there with this focus).
+    if (asPhone) setTab('summary');
     mapCard.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
   };
   const canShow = !!analysis.pathA && analysis.lap.x.some(Number.isFinite);
@@ -350,9 +351,9 @@ export function LapAnalysis({
 
   const metric = (label: string, mine: string, other: string | null, diff: string | null) => (
     <tr key={label} className="border-t border-border">
-      <th scope="row" className="py-1.5 pr-3 text-left font-normal text-muted-foreground">{label}</th>
-      <td className="whitespace-nowrap py-1.5 pr-3 text-right font-mono tabular-nums">{mine}</td>
-      {other !== null && <td className="whitespace-nowrap py-1.5 pr-3 text-right font-mono tabular-nums">{other}</td>}
+      <th scope="row" className="py-1.5 pr-2 text-left font-normal text-muted-foreground sm:pr-3">{label}</th>
+      <td className="whitespace-nowrap py-1.5 pr-2 text-right font-mono tabular-nums sm:pr-3">{mine}</td>
+      {other !== null && <td className="whitespace-nowrap py-1.5 pr-2 text-right font-mono tabular-nums sm:pr-3">{other}</td>}
       {diff !== null && <td className="whitespace-nowrap py-1.5 text-right font-mono tabular-nums">{diff}</td>}
     </tr>
   );
@@ -385,7 +386,8 @@ export function LapAnalysis({
             </span>
           </p>
         )}
-        <table className="w-full text-xs sm:text-sm" data-testid="lap-numbers">
+        <div className="overflow-x-auto">
+        <table className="w-full text-xs max-[359px]:text-[11px] sm:text-sm" data-testid="lap-numbers">
           <thead>
             <tr className="text-xs text-muted-foreground">
               <th />
@@ -427,6 +429,7 @@ export function LapAnalysis({
             )}
           </tbody>
         </table>
+        </div>
       </CardContent>
     </Card>
   );
@@ -494,10 +497,10 @@ export function LapAnalysis({
         </div>
         <div className="mt-3 space-y-1" data-testid="lap-inspector">
           <label className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span>{t('modes.compare.inspectDistance', 'Inspect the lap by distance')}</span>
+            <span>{t('modes.compare.inspectDistance', 'Move along the lap')}</span>
             <output className="font-mono tabular-nums" data-testid="inspection-distance">{Math.round(lengthIn(cursorM ?? 0, unit))} {lengthLabel(unit)}</output>
             <input type="range" min={0} max={lapLengthM} step={analysis.grid[1] - analysis.grid[0] || 1} value={cursorM ?? 0}
-              aria-label={t('modes.compare.inspectDistance', 'Inspect the lap by distance')}
+              aria-label={t('modes.compare.inspectDistance', 'Move along the lap')}
               className="h-10 w-full accent-primary"
               onChange={(event) => setInspection({ lap: a.lap, m: Number(event.target.value) })} />
           </label>
@@ -520,7 +523,7 @@ export function LapAnalysis({
         <p className="mt-1 text-xs text-muted-foreground" data-testid="map-hint">
           {layout
             ? t('modes.compare.localTrack.mapHint', { surface: t(`modes.compare.localTrack.surface_${localTrackSurface(layout)}`) })
-            : t('modes.compare.mapHint', 'Solid: the recorded lap, not road geometry. Dashed: the reference. Green dot: the start.')}
+            : t('modes.compare.mapHint', 'Solid line: your lap as you drove it. Dashed line: the lap you compare with. Green dot: the start.')}
         </p>
         {findLayout && !currentKept && <p role="status" className="mt-2 text-xs text-muted-foreground">{t('modes.compare.layoutLoading', 'Loading track geometry…')}</p>}
         {currentKept?.failed && (
@@ -552,38 +555,43 @@ export function LapAnalysis({
     </Card>
   );
 
+  const advancedTitle = t('modes.advanced.lapTitle', 'Advanced: sectors, corners and telemetry');
+  const advancedHint = t('modes.advanced.lapHint', 'The detail behind what is above, for when you want to dig in.');
+
   if (!asPhone) {
     return (
       <div className="space-y-4" data-testid="lap-analysis">
         {refusalNote}
-        {/* What the comparison says: the numbers, and where the time went; then the sectors and the corners, then the curves, then the track and the stretches. */}
-        <div className={cn('grid gap-4', whereCard && 'lg:grid-cols-12')}>
-          <div className={cn('min-w-0', whereCard && 'lg:col-span-6')}>{numbersCard}</div>
-          {whereCard && <div className="min-w-0 lg:col-span-6">{whereCard}</div>}
+        {/*
+          From the top, what anybody reads first (owner, 2026-11-21: XPD-D-SIMPLE-FIRST): the track with the lap drawn on it, and beside it
+          where the time went in plain words, the stretches that lose and gain (each shows on the map) and the lap's numbers. The detail
+          (sectors, corner by corner, the curves of speed, throttle and brake) is the second level, in the fold under them.
+        */}
+        <div className={cn('grid gap-4', mapNode && 'lg:grid-cols-12')}>
+          {mapNode && <div className="min-w-0 lg:col-span-7">{mapNode}</div>}
+          <div className={cn('min-w-0 space-y-4', mapNode && 'lg:col-span-5')}>
+            {whereCard}
+            {changesCard}
+            {numbersCard}
+          </div>
         </div>
-        <div className={cn('grid gap-4', mapNode && (changesCard || offLine) && 'lg:grid-cols-12')}>
-          {mapNode && <div className={cn('min-w-0', (changesCard || offLine) && 'lg:col-span-7')}>{mapNode}</div>}
-          {(changesCard || offLine) && (
-            <div className={cn('min-w-0 space-y-4', mapNode && 'lg:col-span-5')}>
-              {changesCard}
-              {offLine}
-            </div>
-          )}
-        </div>
-        {stripCard}
-        {cornersCard}
-        {zoomBar}
-        {charts}
+        <AdvancedFold title={advancedTitle} hint={advancedHint} testId="analysis-advanced">
+          {stripCard}
+          {cornersCard}
+          {offLine}
+          {zoomBar}
+          {charts}
+        </AdvancedFold>
       </div>
     );
   }
 
   // A phone: one thing at a time, in tabs, under the lap selector that stays in view.
+  // The first tab is the first level: the track with the lap, where the time went, the numbers. The other tabs are the detail.
   const tabs = [
     { id: 'summary', label: t('modes.analysis.tab.summary', 'Summary') },
-    ...(compared ? [{ id: 'corners', label: t('modes.analysis.tab.corners', 'Corners') }] : []),
+    ...(compared || strip ? [{ id: 'corners', label: t('modes.analysis.tab.corners', 'Corners') }] : []),
     { id: 'charts', label: t('modes.analysis.tab.charts', 'Charts') },
-    ...(analysis.pathA ? [{ id: 'map', label: t('modes.analysis.tab.map', 'Map') }] : []),
   ];
   const current = tabs.some((item) => item.id === tab) ? tab : 'summary';
   return (
@@ -595,23 +603,21 @@ export function LapAnalysis({
       </TabsList>
       <TabsContent value="summary" className="mt-0 space-y-4">
         {refusalNote}
-        {numbersCard}
+        {zoomBar}
+        {mapNode}
         {whereCard}
-        {stripCard}
+        {changesCard}
+        {numbersCard}
       </TabsContent>
       <TabsContent value="corners" className="mt-0 space-y-4">
+        {stripCard}
         {cornersCard}
-        {changesCard}
         {offLine}
       </TabsContent>
       <TabsContent value="charts" className="mt-0 space-y-4">
         {zoomBar}
         {layoutNote}
         {charts}
-      </TabsContent>
-      <TabsContent value="map" className="mt-0 space-y-4">
-        {zoomBar}
-        {mapNode}
       </TabsContent>
     </Tabs>
   );

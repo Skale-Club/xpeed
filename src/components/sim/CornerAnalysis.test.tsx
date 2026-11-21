@@ -208,31 +208,31 @@ describe('on a phone', () => {
   const tabState = (id: string) => screen.getByTestId(`tab-${id}`).getAttribute('data-state');
   const press = (id: string) => fireEvent.mouseDown(screen.getByTestId(`tab-${id}`), { button: 0 });
 
-  it('has the tabs Summary, Corners, Charts and Map, with one thing at a time', async () => {
+  it('has the tabs Summary, Corners and Charts: the first is the first level (the track, where the time went, the numbers), the others the detail', async () => {
     renderAnalysis(mine, reference, { phone: true });
     expect(screen.getByTestId('lap-analysis')).toHaveAttribute('data-layout', 'tabs');
-    expect(within(screen.getByTestId('analysis-tabs')).getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Summary', 'Corners', 'Charts', 'Map']);
-    // Summary: the numbers, where the time went and the sectors; nothing of the other tabs.
+    expect(within(screen.getByTestId('analysis-tabs')).getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Summary', 'Corners', 'Charts']);
+    // Summary: the track with the lap on it comes first, then the numbers; nothing of the other tabs.
     expect(tabState('summary')).toBe('active');
     expect(screen.getByTestId('lap-numbers')).toBeInTheDocument();
+    expect(screen.getByTestId('track-map')).toBeInTheDocument();
+    expect(screen.getByTestId('lap-map-panel').compareDocumentPosition(screen.getByTestId('lap-numbers')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await ready();
-    expect(screen.getByTestId('sector-strip')).toBeInTheDocument();
+    expect(screen.queryByTestId('sector-strip')).not.toBeInTheDocument();
     expect(screen.queryByTestId('corner-table')).not.toBeInTheDocument();
     expect(screen.queryByTestId('lap-charts')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('track-map')).not.toBeInTheDocument();
 
     press('corners');
     expect(tabState('corners')).toBe('active');
     expect(await screen.findByTestId('corner-rows')).toBeInTheDocument();
+    expect(screen.getByTestId('sector-strip')).toBeInTheDocument();
     expect(screen.queryByTestId('lap-numbers')).not.toBeInTheDocument();
 
     press('charts');
     expect(screen.getByTestId('lap-charts')).toBeInTheDocument();
     expect(screen.queryByTestId('corner-table')).not.toBeInTheDocument();
 
-    press('map');
-    expect(screen.getByTestId('track-map')).toBeInTheDocument();
-    expect(screen.queryByTestId('lap-charts')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('track-map')).not.toBeInTheDocument();
   });
 
   it('goes to the charts when a corner is picked in the table, zoomed to it, and keeps the way back on the charts tab', async () => {
@@ -248,7 +248,7 @@ describe('on a phone', () => {
 
   it('has no Corners tab for a lap on its own', () => {
     renderAnalysis(mine, null, { phone: true });
-    expect(within(screen.getByTestId('analysis-tabs')).getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Summary', 'Charts', 'Map']);
+    expect(within(screen.getByTestId('analysis-tabs')).getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Summary', 'Charts']);
   });
 
   it('is the long page on a wide screen', async () => {
@@ -257,6 +257,14 @@ describe('on a phone', () => {
     expect(screen.queryByTestId('analysis-tabs')).not.toBeInTheDocument();
     await screen.findByTestId('corner-rows');
     expect(screen.getByTestId('lap-charts')).toBeInTheDocument();
+    // From the top: the track with the lap, where the time went and the numbers; the detail is the second level, in a fold closed until asked for.
+    const before = (first: string, second: string) => !!(screen.getByTestId(first).compareDocumentPosition(screen.getByTestId(second)) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(before('lap-map-panel', 'lap-numbers')).toBe(true);
+    expect(before('lap-numbers', 'analysis-advanced')).toBe(true);
+    const advanced = screen.getByTestId('analysis-advanced');
+    expect(advanced).not.toHaveAttribute('open');
+    for (const inside of ['sector-strip', 'corner-table', 'lap-charts']) expect(advanced.contains(screen.getByTestId(inside))).toBe(true);
+    for (const outside of ['lap-map-panel', 'lap-numbers']) expect(advanced.contains(screen.getByTestId(outside))).toBe(false);
     expect(screen.getByTestId('track-map')).toBeInTheDocument();
   });
 });

@@ -28,7 +28,7 @@ const id = (prefix, n) => `${prefix}-0000-4000-8000-${String(n).padStart(12, '0'
 const ROUTES = [
   '/', '/live', '/trends', '/issues', '/codes', '/history', '/fuel', '/maintenance', '/cars', '/scanner', '/settings', '/session/s-3', '/session/s-1',
   '/onboarding', '/admin', '/admin/design',
-  '/virtual', '/virtual/sessions', `/virtual/sessions/${id('00000003', 1)}`, `/virtual/sessions/${id('00000003', 2)}`, '/virtual/compare',
+  '/virtual', '/virtual/sessions', `/virtual/sessions/${id('00000003', 1)}`, `/virtual/sessions/${id('00000003', 2)}`, '/virtual/compare', `/virtual/compare?a=${id('00000004', 3)}`,
   '/virtual/tracks', `/virtual/tracks/${id('00000001', 7)}`, `/virtual/tracks/${id('00000001', 1)}`,
   '/virtual/cars', `/virtual/cars/${id('00000002', 6)}`, `/virtual/cars/${id('00000002', 1)}`,
   '/virtual/leaderboards', '/virtual/friends', '/virtual/drivers/apex_anna', '/virtual/profile', '/virtual/privacy', '/virtual/companion', '/virtual/live',
