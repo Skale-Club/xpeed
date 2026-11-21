@@ -9,6 +9,10 @@ on:
     paths:
       - "xpeed-sim/**"
       - ".github/workflows/xpeed-sim.yml"
+      # What the panel takes from the site at build time (build.rs, site_design).
+      - "shared/design/**"
+      - "src/index.css"
+      - "src/locales/**"
       - "docs/telemetria-virtual-2026-11-10/FORMATO-DE-VOLTA.md"
       # The icon is drawn from the Xpeed mark; if the mark changes, this must be checked against it.
       - "branding/mark.svg"
@@ -19,6 +23,10 @@ on:
     paths:
       - "xpeed-sim/**"
       - ".github/workflows/xpeed-sim.yml"
+      # What the panel takes from the site at build time (build.rs, site_design).
+      - "shared/design/**"
+      - "src/index.css"
+      - "src/locales/**"
 
 # A main build is never cancelled: it may be in the middle of publishing a release.
 concurrency:

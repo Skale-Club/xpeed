@@ -256,7 +256,7 @@ pub(super) unsafe fn clickable(hwnd: HWND, state: &State, x: i32, y: i32) -> boo
     let mut client = rect(0, 0, 0, 0);
     GetClientRect(hwnd, &mut client);
     header_hits(client.right, scale_of(hwnd)).iter().any(|r| inside(r, x, y))
-        || inside(&settings_hit(client.right, scale_of(hwnd)), x, y)
+        || sidebar_hit(scale_of(hwnd), x, y).is_some()
         || edit_start_hit(hwnd, state, client.right, x, y)
         || workspace_pill_hit(hwnd, state, client.right, x, y)
         || workspace_row_hit(hwnd, state, client.right, x, y)
@@ -667,16 +667,16 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
                 InvalidateRect(hwnd, null(), 0);
                 return 0;
             }
-            let [dash, mon, full, top] = header_hits(client.right, scale_of(hwnd));
+            let [_, _, full, top] = header_hits(client.right, scale_of(hwnd));
             if workspace_pill_hit(hwnd, state, client.right, x, y) {
                 state.workspace_open = true;
                 state.workspace_reset_until = 0;
-            } else if inside(&dash, x, y) {
-                state.tab = Tab::Dash;
-            } else if inside(&mon, x, y) {
-                state.tab = Tab::Monitor;
-            } else if inside(&settings_hit(client.right, scale_of(hwnd)), x, y) {
-                state.tab = Tab::Settings;
+            } else if let Some(item) = sidebar_hit(scale_of(hwnd), x, y) {
+                match item {
+                    SideItem::Screen(tab) => state.tab = tab,
+                    // A place of the website opens on the site, in the browser (inside the Companion later).
+                    SideItem::Web(place) => win::open(&format!("{}{}", lock(&state.ctx.account).server, place.to)),
+                }
             } else if inside(&full, x, y) {
                 toggle_full(hwnd, state);
             } else if inside(&top, x, y) {

@@ -79,15 +79,10 @@ pub(super) fn check_icon(g: &mut Painter, r: RECT, color: COLORREF) {
 /// The name of the icon button under the mouse, in a small label below it (beside it, for the sidebar's).
 pub(super) fn tooltip(g: &mut Painter, width: i32, view: &View) {
     let Some((mx, my)) = view.mouse else { return };
-    let [dash, mon, full, top] = header_hits(width, view.scale);
-    let gear = settings_hit(width, view.scale);
-    for (r, label) in [
-        (dash, Msg::PanelTabDash),
-        (mon, Msg::PanelTabMonitor),
-        (gear, Msg::PanelTabSettings),
-    ] {
+    let [_, _, full, top] = header_hits(width, view.scale);
+    for (item, r) in sidebar_layout(view.scale).buttons {
         if inside(&r, mx, my) {
-            let label = text(view.lang, &label);
+            let label = item.label(view.lang);
             g.place(view.scale, 0, 0);
             let measured = g.width_of(&label, T_CAPTION, FW_SEMIBOLD as i32, Face::Ui);
             let (w, h) = (g.px(measured + 20.0), g.px(28.0));
@@ -199,89 +194,33 @@ pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
     }
 }
 
-/// The sidebar down the window's left edge: no fill of its own, only a hairline at its right, and a small icon for each screen.
-/// The screen on view has a yellow icon and a thin yellow mark at the window's edge; the one under the mouse is brighter, the rest
-/// muted. `tooltip` names them.
-pub(super) fn sidebar(g: &mut Painter, width: i32, height: i32, view: &View) {
+/// The sidebar down the window's left edge, the site's collapsed menu mirrored (`nav`; colours `SIDEBAR_*`, as the site's
+/// `--sidebar-*`): its own darker ground and edge line, the panel's screens, the site's places in their groups and Settings, a
+/// line between groups, each a 16 px Lucide icon in a 32 px button. The screen on view has the site's active look (Dashboards
+/// 2027, owner approved 2026-11-20): a raised fill with a faint top light and the icon in yellow; the button under the mouse
+/// gets the fill; the rest are muted grey icons. Corners stay the panel's own `R_CORNER`. `tooltip` names them.
+pub(super) fn sidebar(g: &mut Painter, _width: i32, height: i32, view: &View) {
     g.place(view.scale, 0, 0);
     let edge = content_left(view.scale);
-    g.fill(rect(edge - g.px(1.0).max(1), 0, edge, height), BORDER);
-    let [dash, mon, ..] = header_hits(width, view.scale);
-    let gear = settings_hit(width, view.scale);
-    for (r, tab) in [(dash, Tab::Dash), (mon, Tab::Monitor), (gear, Tab::Settings)] {
-        let selected = view.tab == tab;
+    let hair = g.px(1.0).max(1);
+    g.fill(rect(0, 0, edge, height), SIDEBAR_BG);
+    g.fill(rect(edge - hair, 0, edge, height), SIDEBAR_BORDER);
+    let layout = sidebar_layout(view.scale);
+    let (left, right) = (g.px((SIDEBAR_W - SIDEBAR_BUTTON) / 2.0), g.px((SIDEBAR_W + SIDEBAR_BUTTON) / 2.0));
+    for &y in &layout.dividers {
+        g.fill(rect(left, y, right, y + hair), SIDEBAR_BORDER);
+    }
+    for &(item, r) in &layout.buttons {
+        let selected = item == SideItem::Screen(view.tab);
         let hot = view.mouse.is_some_and(|(mx, my)| inside(&r, mx, my));
-        let ink = if selected {
-            PRIMARY
-        } else if hot {
-            FOREGROUND
-        } else {
-            MUTED_TEXT
-        };
+        if selected || hot {
+            g.round(r, SIDEBAR_ACCENT, None);
+        }
         if selected {
-            let inset = g.px(S2);
-            g.fill(rect(0, r.top + inset, g.px(2.0).max(2), r.bottom - inset), PRIMARY);
+            let corner = g.px(R_CORNER);
+            g.fill(rect(r.left + corner, r.top, r.right - corner, r.top + hair), SIDEBAR_ACCENT_LIGHT);
         }
-        match tab {
-            Tab::Dash => dash_icon(g, r, ink),
-            Tab::Monitor => monitor_icon(g, r, ink),
-            Tab::Settings => gear_icon(g, r, ink),
-        }
-    }
-}
-
-/// The Dashboard screen's icon in a box (pixels): its cards, square like the other icons: a wide one on top, a tall one at the
-/// lower left and two small ones beside it.
-pub(super) fn dash_icon(g: &mut Painter, r: RECT, color: COLORREF) {
-    let (cx, cy) = ((r.left + r.right) / 2, (r.top + r.bottom) / 2);
-    let p = |v: f32| g.px(v);
-    for (x0, y0, x1, y1) in [
-        (-7.0, -7.0, 7.0, -3.0), // wide card
-        (-7.0, -1.5, -1.0, 7.0), // tall card
-        (0.5, -1.5, 7.0, 2.0),   // small card
-        (0.5, 3.5, 7.0, 7.0),    // small card
-    ] {
-        g.fill(rect(cx + p(x0), cy + p(y0), cx + p(x1), cy + p(y1)), color);
-    }
-}
-
-/// The Monitor screen's icon in a box (pixels): a pulse, square like the other icons: a flat line, a beat up, down below it
-/// and back, and the flat line again.
-pub(super) fn monitor_icon(g: &mut Painter, r: RECT, color: COLORREF) {
-    let (cx, cy) = ((r.left + r.right) / 2, (r.top + r.bottom) / 2);
-    let t = g.px(1.8).max(2);
-    // The line as points (design units, from the middle), joined by small squares a step apart.
-    let points = [(-8.0_f32, 0.0_f32), (-3.5, 0.0), (-1.3, -6.0), (1.3, 6.0), (3.5, 0.0), (8.0, 0.0)];
-    for pair in points.windows(2) {
-        let ((x0, y0), (x1, y1)) = (pair[0], pair[1]);
-        let steps = ((x1 - x0).hypot(y1 - y0) / 0.8).ceil().max(1.0) as i32;
-        for i in 0..=steps {
-            let k = i as f32 / steps as f32;
-            let (x, y) = (cx + g.px(x0 + (x1 - x0) * k) - t / 2, cy + g.px(y0 + (y1 - y0) * k) - t / 2);
-            g.fill(rect(x, y, x + t, y + t), color);
-        }
-    }
-}
-
-/// The Settings screen's icon in a box (pixels): a gear, square like the other icons: a ring of small squares with eight
-/// teeth around it.
-pub(super) fn gear_icon(g: &mut Painter, r: RECT, color: COLORREF) {
-    let (cx, cy) = ((r.left + r.right) / 2, (r.top + r.bottom) / 2);
-    let t = g.px(1.8).max(2);
-    let dot = |g: &Painter, x: f32, y: f32, side: i32| {
-        let (px, py) = (cx + g.px(x) - side / 2, cy + g.px(y) - side / 2);
-        g.fill(rect(px, py, px + side, py + side), color);
-    };
-    // The ring.
-    for i in 0..28 {
-        let a = i as f32 / 28.0 * std::f32::consts::TAU;
-        dot(g, 4.6 * a.cos(), 4.6 * a.sin(), t);
-    }
-    // The teeth, a little bigger, standing out of the ring.
-    let tooth = g.px(2.6).max(3);
-    for i in 0..8 {
-        let a = i as f32 / 8.0 * std::f32::consts::TAU;
-        dot(g, 7.0 * a.cos(), 7.0 * a.sin(), tooth);
+        draw_icon(g, item.icon(), r, SIDEBAR_ICON, if selected { PRIMARY } else { MUTED_TEXT });
     }
 }
 

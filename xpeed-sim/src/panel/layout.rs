@@ -19,8 +19,8 @@ pub(super) const SHIFT_AT: f32 = 0.97;
 
 pub(super) const LIGHTS: usize = 20;
 
-/// Width of the sidebar down the window's left edge (design pixels): the screens (Dashboard, Monitor) as small icon buttons,
-/// each named by a tooltip while the mouse is on it.
+/// Width of the sidebar down the window's left edge (design pixels), the site's collapsed menu (`--sidebar-width-icon`, 3rem):
+/// the panel's screens and the site's places as small icon buttons (`nav`), each named by a tooltip while the mouse is on it.
 pub(super) const SIDEBAR_W: f32 = 48.0;
 
 /// The side of a sidebar button (design pixels).
@@ -31,29 +31,25 @@ pub(super) fn content_left(scale: f32) -> i32 {
     (SIDEBAR_W * scale).round() as i32
 }
 
-/// The places of the window's frame that can be clicked: the two screens (icon buttons down the sidebar), then "full screen"
-/// and "always on top" (square icon buttons at the header's right). The language and the version live on the Settings screen.
+/// The places of the window's frame that can be clicked: the two screens (icon buttons down the sidebar, `sidebar_layout`), then
+/// "full screen" and "always on top" (square icon buttons at the header's right). The language and the version live on the
+/// Settings screen.
 pub(super) fn header_hits(width: i32, scale: f32) -> [RECT; 4] {
     let p = |v: f32| (v * scale).round() as i32;
     let (top, bottom) = (p(13.0), p(51.0));
     let right = width - p(16.0);
     let (side, gap) = (p(38.0), p(8.0));
     let nth = |n: i32| rect(right - side - n * (side + gap), top, right - n * (side + gap), bottom);
-    // The sidebar's buttons: smaller squares centred in its width, the first one level with the header's buttons.
-    let (small, left) = (p(SIDEBAR_BUTTON), p((SIDEBAR_W - SIDEBAR_BUTTON) / 2.0));
-    let first = p(32.0 - SIDEBAR_BUTTON / 2.0);
-    let screen = |n: i32| {
-        let y = first + n * (small + gap);
-        rect(left, y, left + small, y + small)
-    };
-    [screen(0), screen(1), nth(1), nth(0)]
+    [screen_hit(Tab::Dash, scale), screen_hit(Tab::Monitor, scale), nth(1), nth(0)]
 }
 
-/// The sidebar's third button, Settings (pixels): under the two screens, the same size and gap.
-pub(super) fn settings_hit(width: i32, scale: f32) -> RECT {
-    let [dash, mon, ..] = header_hits(width, scale);
-    let step = mon.top - dash.top;
-    rect(mon.left, mon.top + step, mon.right, mon.bottom + step)
+/// The sidebar button of one of the panel's screens (pixels).
+pub(super) fn screen_hit(tab: Tab, scale: f32) -> RECT {
+    sidebar_layout(scale)
+        .buttons
+        .into_iter()
+        .find(|(item, _)| *item == SideItem::Screen(tab))
+        .map_or(rect(0, 0, 0, 0), |(_, r)| r)
 }
 
 /// Where the header's "Edit layout" button sits (pixels): a square button left of the full screen button, when the window is

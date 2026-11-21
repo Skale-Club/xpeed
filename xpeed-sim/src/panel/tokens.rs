@@ -2,8 +2,8 @@
 //! in `panel/` writes a colour, a font size, a corner radius or a gap as a literal; a view that needs a new one adds it
 //! here, with its reason.
 //!
-//! The surfaces, text and status colours are the site's (`src/index.css`, `tailwind.config.ts`), so the Companion and the
-//! website read as one product. What only a HUD needs (the rev bar, the cyan base line, the steel of a cold tyre) is
+//! The surfaces, text and status colours are the site's, taken from `src/index.css` when the program is built (`site`), so the
+//! Companion and the website read as one product and a colour changed on the site changes here too. What only a HUD needs (the rev bar, the cyan base line, the steel of a cold tyre) is
 //! marked as such. The typeface stays Chakra Petch (`paint.rs`, owner decision).
 
 use super::*;
@@ -32,40 +32,53 @@ pub(super) fn gear_carousel_ink(place: f32, fade: f32) -> COLORREF {
 // Surfaces.
 
 /// The window's background (`--background`, #101113).
-pub(super) const BACKGROUND: COLORREF = rgb(0x10, 0x11, 0x13);
+pub(super) const BACKGROUND: COLORREF = site::SITE_BACKGROUND;
 /// A card (`--card`, #18191b).
-pub(super) const CARD: COLORREF = rgb(0x18, 0x19, 0x1b);
+pub(super) const CARD: COLORREF = site::SITE_CARD;
 /// A menu or list that floats over a card (`--popover`, #1a1b1e).
-pub(super) const POPOVER: COLORREF = rgb(0x1a, 0x1b, 0x1e);
+pub(super) const POPOVER: COLORREF = site::SITE_POPOVER;
 /// A quiet surface inside a card (`--muted`, #1f2023).
-pub(super) const SURFACE: COLORREF = rgb(0x1f, 0x20, 0x23);
+pub(super) const SURFACE: COLORREF = site::SITE_MUTED;
 /// The empty part of a bar or a gauge, and a pressed or hovered surface (`--secondary`, #242529).
-pub(super) const SECONDARY: COLORREF = rgb(0x24, 0x25, 0x29);
+pub(super) const SECONDARY: COLORREF = site::SITE_SECONDARY;
 /// A line and the outline of a card (`--border`, #292a2e).
-pub(super) const BORDER: COLORREF = rgb(0x29, 0x2a, 0x2e);
+pub(super) const BORDER: COLORREF = site::SITE_BORDER;
+
+// The sidebar, as the site's (`--sidebar-*`): the rail of screens down the window's left edge mirrors the site's menu.
+
+/// The sidebar's ground (`--sidebar-background`, #0e0f11), a step darker than the window.
+pub(super) const SIDEBAR_BG: COLORREF = site::SITE_SIDEBAR_BACKGROUND;
+/// The sidebar's edge and the line between its groups (`--sidebar-border`).
+pub(super) const SIDEBAR_BORDER: COLORREF = site::SITE_SIDEBAR_BORDER;
+/// The fill of the sidebar button in use and of the one under the mouse (`--sidebar-accent`).
+pub(super) const SIDEBAR_ACCENT: COLORREF = site::SITE_SIDEBAR_ACCENT;
+/// The faint light along the top of the button in use (the site's `inset 0 1px 0 hsl(0 0% 100% / 0.05)`).
+pub(super) const SIDEBAR_ACCENT_LIGHT: COLORREF = mix(SIDEBAR_ACCENT, rgb(0xff, 0xff, 0xff), 0.05);
 
 // Text.
 
 /// The main text (`--foreground`, #eeeff2).
-pub(super) const FOREGROUND: COLORREF = rgb(0xee, 0xef, 0xf2);
+pub(super) const FOREGROUND: COLORREF = site::SITE_FOREGROUND;
 /// Text a step quieter than the main one (#d8dadf).
 pub(super) const FOREGROUND_2: COLORREF = rgb(0xd8, 0xda, 0xdf);
 /// Captions and notes (#93979f: the site's muted text, lighter than before for contrast on a card).
-pub(super) const MUTED_TEXT: COLORREF = rgb(0x93, 0x97, 0x9f);
+pub(super) const MUTED_TEXT: COLORREF = site::SITE_MUTED_FOREGROUND;
 
 // Brand and status.
 
-/// The brand colour (`--primary`, #f5e663): the gear, the lap number, a button.
+/// The brand colour, #f5e663 (`src/index.css` names it the brand accent; its `--primary` HSL, `54 88% 67%`, rounds to #f5e661,
+/// so this one colour is written here and not taken from the site): the gear, the lap number, a button.
 pub(super) const PRIMARY: COLORREF = rgb(0xf5, 0xe6, 0x63);
 /// The ink on `PRIMARY` and on any lit status colour (#121316).
-pub(super) const ON_PRIMARY: COLORREF = rgb(0x12, 0x13, 0x16);
+pub(super) const ON_PRIMARY: COLORREF = site::SITE_PRIMARY_FOREGROUND;
 /// Danger: a lap that does not count, a hot tyre, a low fuel (`--destructive`, #e64c4c).
-pub(super) const DESTRUCTIVE: COLORREF = rgb(0xe6, 0x4c, 0x4c);
+pub(super) const DESTRUCTIVE: COLORREF = site::SITE_DESTRUCTIVE;
 /// Caution (#f6ae31).
-pub(super) const WARN: COLORREF = rgb(0xf6, 0xae, 0x31);
+pub(super) const WARN: COLORREF = site::SITE_WARN;
 /// Good: faster than the best lap, the throttle, a tyre in its window (#31b97a).
-pub(super) const SUCCESS: COLORREF = rgb(0x31, 0xb9, 0x7a);
+pub(super) const SUCCESS: COLORREF = site::SITE_SUCCESS;
 /// Information: the clutch, ABS (#4c99f0).
+/// The Companion's own blue (the site's `--info` is lighter); the same for `BEST`.
 pub(super) const INFO: COLORREF = rgb(0x4c, 0x99, 0xf0);
 /// The best lap, as timing screens colour it (#a474e7).
 pub(super) const BEST: COLORREF = rgb(0xa4, 0x74, 0xe7);

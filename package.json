@@ -37,6 +37,7 @@
     "test:watch": "vitest",
     "test:auth-cloud": "node --test cloud/google-auth/policy.test.mjs",
     "brand": "node scripts/brand-assets.mjs",
+    "design:icons": "node scripts/design-icons.mjs",
     "test:auth-sql": "node scripts/verify-google-auth-sql.mjs --bootstrap",
     "build:web": "vite build",
     "build:server": "node scripts/build-server.mjs",

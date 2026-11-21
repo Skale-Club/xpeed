@@ -13,7 +13,8 @@ const sourceFiles = [
   ...readdirSync(join(root, 'components/social')).filter((name) => /\.tsx?$/.test(name) && !/\.test\./.test(name)).map((name) => `components/social/${name}`),
   ...readdirSync(join(root, 'pages')).filter((name) => /^Social.*\.tsx$/.test(name)).map((name) => `pages/${name}`),
   'components/sim/SessionPage.tsx',
-  'lib/mode-nav.ts',
+  // The menu's entries (their label keys) live in the shared menu file the Companion reads too.
+  '../shared/design/nav.json',
 ];
 
 const CALL = /\bt\(\s*'(social\.[^']+)'\s*,\s*'((?:[^'\\]|\\.)*)'/g;
@@ -21,7 +22,7 @@ const used = new Map<string, string>();
 for (const file of sourceFiles) {
   const text = readFileSync(join(root, file), 'utf8');
   for (const match of text.matchAll(CALL)) used.set(match[1], match[2].replace(/\\'/g, "'"));
-  for (const match of text.matchAll(/[iI]18nKey: '(social\.[^']+)'/g)) if (!used.has(match[1])) used.set(match[1], '');
+  for (const match of text.matchAll(/[iI]18nKey"?:\s*['"](social\.[^'"]+)['"]/g)) if (!used.has(match[1])) used.set(match[1], '');
 }
 
 const flat = (value: unknown, prefix = ''): Array<[string, string]> =>

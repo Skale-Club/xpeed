@@ -1,0 +1,29 @@
+{
+  "real": [
+    { "to": "/", "i18nKey": "nav.dashboard", "icon": "Gauge", "group": "car" },
+    { "to": "/live", "i18nKey": "nav.live", "icon": "Activity", "group": "car" },
+    { "to": "/trends", "i18nKey": "trends.title", "icon": "HeartPulse", "group": "health" },
+    { "to": "/issues", "i18nKey": "nav.issues", "icon": "AlertTriangle", "group": "health" },
+    { "to": "/codes", "i18nKey": "codes.title", "icon": "ScanSearch", "group": "health" },
+    { "to": "/history", "i18nKey": "nav.history", "icon": "History", "group": "records" },
+    { "to": "/fuel", "i18nKey": "fuel.title", "icon": "Fuel", "group": "records" },
+    { "to": "/maintenance", "i18nKey": "nav.maintenance", "icon": "Wrench", "group": "records" },
+    { "to": "/cars", "i18nKey": "nav.cars", "icon": "Car", "group": "garage" }
+  ],
+  "virtual": [
+    { "to": "/virtual", "i18nKey": "modes.nav.overview", "icon": "LayoutDashboard", "group": "driving" },
+    { "to": "/virtual/sessions", "i18nKey": "modes.nav.sessions", "icon": "Timer", "group": "driving" },
+    { "to": "/virtual/leaderboards", "i18nKey": "social.nav.leaderboards", "tabI18nKey": "social.nav.leaderboardsTab", "icon": "Trophy", "group": "community" },
+    { "to": "/virtual/friends", "i18nKey": "social.nav.friends", "icon": "Users", "group": "community" },
+    { "to": "/virtual/tracks", "i18nKey": "modes.nav.tracks", "icon": "Flag", "group": "garage" },
+    { "to": "/virtual/cars", "i18nKey": "modes.nav.cars", "icon": "CarFront", "group": "garage" }
+  ],
+  "advanced": [
+    { "to": "/scanner", "i18nKey": "nav.scanner", "icon": "Bluetooth" }
+  ],
+  "settings": { "to": "/settings", "i18nKey": "nav.settings", "icon": "Settings" },
+  "companion": [
+    { "id": "dashboard", "icon": "Gauge" },
+    { "id": "monitor", "icon": "Activity" }
+  ]
+}

@@ -3,6 +3,7 @@ import {
   History, LayoutDashboard, ScanSearch, Settings, Shield, Timer, Trophy, Users, Wrench, type LucideIcon,
 } from 'lucide-react';
 import { isActivePath, type Mode } from '@/lib/modes';
+import sharedNav from '../../shared/design/nav.json';
 
 /** Where every screen lives: the sidebar and the phone tab bar both read this one map. */
 export type NavEntry = {
@@ -20,36 +21,46 @@ export type NavEntry = {
 
 export type NavGroup = 'car' | 'health' | 'records' | 'garage' | 'driving' | 'community';
 
+// The entries themselves live in shared/design/nav.json, which the Companion's sidebar reads too (its Virtual places, their
+// icons and their names), so a change made there shows in both. Here each icon name becomes its Lucide component.
 // Virtual has no "Compare laps" entry: a comparison always starts from a lap (a session, a track, a car, a leaderboard), and
 // its screen counts as part of Sessions (see `isActivePath`).
-// Real: everyday places first; the technical Scanner only shows with "Advanced tools" on.
-// On phones Home, Trips and Problems live in the bottom tab bar, so the menu
-// ("More") only lists the rest.
-export const NAV: Record<Mode, NavEntry[]> = {
-  // Fuel sits with Trips and Maintenance (the records of the car) since the groups came in (2026-11-20).
-  real: [
-    { to: '/', i18nKey: 'nav.dashboard', icon: Gauge, group: 'car' },
-    { to: '/live', i18nKey: 'nav.live', icon: Activity, group: 'car' },
-    { to: '/trends', i18nKey: 'trends.title', icon: HeartPulse, group: 'health' },
-    { to: '/issues', i18nKey: 'nav.issues', icon: AlertTriangle, group: 'health' },
-    { to: '/codes', i18nKey: 'codes.title', icon: ScanSearch, group: 'health' },
-    { to: '/history', i18nKey: 'nav.history', icon: History, group: 'records' },
-    { to: '/fuel', i18nKey: 'fuel.title', icon: Fuel, group: 'records' },
-    { to: '/maintenance', i18nKey: 'nav.maintenance', icon: Wrench, group: 'records' },
-    { to: '/cars', i18nKey: 'nav.cars', icon: Car, group: 'garage' },
-  ],
-  virtual: [
-    { to: '/virtual', i18nKey: 'modes.nav.overview', icon: LayoutDashboard, group: 'driving' },
-    { to: '/virtual/sessions', i18nKey: 'modes.nav.sessions', icon: Timer, group: 'driving' },
-    { to: '/virtual/leaderboards', i18nKey: 'social.nav.leaderboards', tabI18nKey: 'social.nav.leaderboardsTab', icon: Trophy, group: 'community' },
-    { to: '/virtual/friends', i18nKey: 'social.nav.friends', icon: Users, group: 'community' },
-    { to: '/virtual/tracks', i18nKey: 'modes.nav.tracks', icon: Flag, group: 'garage' },
-    { to: '/virtual/cars', i18nKey: 'modes.nav.cars', icon: CarFront, group: 'garage' },
-  ],
+// Real: everyday places first; the technical Scanner only shows with "Advanced tools" on. Fuel sits with Trips and Maintenance
+// (the records of the car) since the groups came in (2026-11-20).
+// On phones Home, Trips and Problems live in the bottom tab bar, so the menu ("More") only lists the rest.
+
+/** Every icon a shared menu entry may name, by its name in shared/design/nav.json. */
+export const NAV_ICONS: Record<string, LucideIcon> = {
+  Activity, AlertTriangle, Bluetooth, Car, CarFront, Flag, Fuel, Gauge, HeartPulse, History, LayoutDashboard, ScanSearch,
+  Settings, Timer, Trophy, Users, Wrench,
 };
 
-export const ADVANCED_ITEMS: NavEntry[] = [{ to: '/scanner', i18nKey: 'nav.scanner', icon: Bluetooth }];
-export const SETTINGS_ITEM: NavEntry = { to: '/settings', i18nKey: 'nav.settings', icon: Settings };
+const NAV_GROUPS: readonly NavGroup[] = ['car', 'health', 'records', 'garage', 'driving', 'community'];
+
+type SharedEntry = { to: string; i18nKey: string; icon: string; tabI18nKey?: string; group?: string };
+
+/** One entry of the shared file as the site uses it; an unknown icon or group is a mistake in the file, so it throws. */
+function navEntry(entry: SharedEntry): NavEntry {
+  const icon = NAV_ICONS[entry.icon];
+  if (!icon) throw new Error(`shared/design/nav.json: no icon ${entry.icon} in NAV_ICONS`);
+  const group = entry.group as NavGroup | undefined;
+  if (group !== undefined && !NAV_GROUPS.includes(group)) throw new Error(`shared/design/nav.json: unknown group ${entry.group}`);
+  return {
+    to: entry.to,
+    i18nKey: entry.i18nKey,
+    icon,
+    ...(entry.tabI18nKey ? { tabI18nKey: entry.tabI18nKey } : {}),
+    ...(group ? { group } : {}),
+  };
+}
+
+export const NAV: Record<Mode, NavEntry[]> = {
+  real: sharedNav.real.map(navEntry),
+  virtual: sharedNav.virtual.map(navEntry),
+};
+
+export const ADVANCED_ITEMS: NavEntry[] = sharedNav.advanced.map(navEntry);
+export const SETTINGS_ITEM: NavEntry = navEntry(sharedNav.settings);
 
 const entries = (mode: Mode, ...paths: string[]) => paths.flatMap((to) => NAV[mode].filter((item) => item.to === to));
 

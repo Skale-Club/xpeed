@@ -86,14 +86,17 @@ mod edit_ui;
 #[cfg(test)]
 mod edit_ui_tests;
 mod edit_view;
+mod icons;
 mod layout;
 mod model;
 mod monitor_view;
+mod nav;
 mod paint;
 mod perspective_paint;
 mod preview;
 mod relay;
 mod settings_view;
+mod site;
 #[cfg(test)]
 mod tests;
 mod tokens;
@@ -114,9 +117,11 @@ use dashboards::*;
 use edit::*;
 use edit_ui::*;
 use edit_view::*;
+use icons::*;
 use layout::*;
 use model::*;
 use monitor_view::*;
+use nav::*;
 use paint::*;
 use preview::*;
 #[cfg(test)]
