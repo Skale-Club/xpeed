@@ -808,7 +808,7 @@ dependencies = [
 
 [[package]]
 name = "xpeed-sim"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "flate2",
  "jpeg-encoder",
