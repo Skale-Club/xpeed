@@ -57,7 +57,8 @@ const reachable = async () => {
 async function testApp() {
   if (await reachable()) return () => {};
   const url = new URL(BASE);
-  const child = spawn('npx', ['vite', '--config', 'vite.harness.config.ts', '--host', url.hostname, '--port', url.port || '5010', '--strictPort'], { stdio: 'ignore', detached: true });
+  // On Windows npx is npx.cmd, which only a shell runs (a plain spawn of 'npx' fails with ENOENT).
+  const child = spawn('npx', ['vite', '--config', 'vite.harness.config.ts', '--host', url.hostname, '--port', url.port || '5010', '--strictPort'], { stdio: 'ignore', detached: true, shell: process.platform === 'win32' });
   const stop = () => { try { process.kill(-child.pid); } catch { /* already gone */ } };
   for (let i = 0; i < 60; i++) {
     if (await reachable()) return stop;

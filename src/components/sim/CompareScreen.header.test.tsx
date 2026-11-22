@@ -119,10 +119,10 @@ describe('the quick references', () => {
     expect(screen.getByTestId('quick-previous')).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('chooses the best lap of another car on this track from a list', async () => {
+  it('keeps a tidy row of quick references and never offers another car, even when one was driven on the track', async () => {
     open(`/virtual/compare?a=${bestLap.id}`);
-    const select = await screen.findByTestId('quick-other-car');
-    // The row of quick references is a plain wrapping row of small controls: the buttons and the drop-down are all h-8 / text-xs.
+    await screen.findByTestId('quick-previous');
+    // The row of quick references is a plain wrapping row of small controls: the buttons are all h-8 / text-xs.
     const row = screen.getByTestId('quick-pickers');
     expect(row).toHaveClass('flex', 'flex-wrap', 'items-center', 'gap-2');
     // It is the base of the header, under the two laps, with its label before it.
@@ -138,12 +138,10 @@ describe('the quick references', () => {
     expect(about).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByTestId('reference-details')).toBeVisible();
     fireEvent.click(about);
-    for (const control of [screen.getByTestId('quick-mine'), select]) expect(control).toHaveClass('h-8', 'text-xs');
-    expect(selectOptions(select)).toEqual([expect.stringMatching(/^Another car/), expect.stringMatching(/^Other Car · 0:\d\d\.\d{3}$/)]);
-    chooseOption(select, /^Other Car/);
-    await waitFor(() => expect(search().get('b')).toBe(carLap.id));
-    await gapReady();
-    expect(screen.getByTestId('slot-reference')).toHaveTextContent('Lap 2');
+    for (const control of [screen.getByTestId('quick-mine'), screen.getByTestId('quick-previous')]) expect(control).toHaveClass('h-8', 'text-xs');
+    // Another car was driven on this track (carLap), but a reference only makes sense with the same car (owner, 2026-11-22).
+    expect(screen.queryByTestId('quick-other-car')).not.toBeInTheDocument();
+    expect(row).not.toHaveTextContent(/Another car|Other Car/);
   });
 
   it('does not offer the previous session when there is none before this lap’s session', async () => {
@@ -153,12 +151,47 @@ describe('the quick references', () => {
     await waitFor(() => expect(screen.queryByTestId('quick-previous')).not.toBeInTheDocument());
   });
 
-  it('offers no other car when only one car was driven on the track', async () => {
-    state.laps = state.laps.filter((lap) => lap.id !== carLap.id);
+  it('opens a reference picker fixed to the same game, track and car, with only those laps', async () => {
     open(`/virtual/compare?a=${myLap.id}`);
     await screen.findByTestId('quick-mine');
-    await waitFor(() => expect(state.requests.some((request) => request.path === '/pbs' && request.params.track === track.id)).toBe(true));
-    expect(screen.queryByTestId('quick-other-car')).not.toBeInTheDocument();
+    fireEvent.click(within(screen.getByTestId('slot-reference')).getByRole('button', { name: /Change|Choose a lap/ }));
+    const picker = await screen.findByTestId('lap-picker');
+    expect(picker).toHaveAttribute('data-locked', 'true');
+    expect(within(picker).getByTestId('picker-locked')).toHaveTextContent('same game, track and car');
+    // Nothing to choose but the lap: no game, track or car drop-down.
+    expect(within(picker).queryByTestId('picker-filters')).not.toBeInTheDocument();
+    const listed = await waitFor(() => {
+      const ids = within(picker).getAllByTestId('picker-lap').map((row) => row.getAttribute('data-lap-id'));
+      expect(ids).toContain(bestLap.id);
+      return ids;
+    });
+    expect(listed).not.toContain(carLap.id);
+    expect(listed.sort()).toEqual([myLap.id, bestLap.id, oldLap.id].sort());
+    // The lap itself is listed but cannot be its own reference.
+    expect(within(picker).getAllByTestId('picker-lap').find((row) => row.getAttribute('data-lap-id') === myLap.id)).toBeDisabled();
+    expect(state.requests.some((request) => request.path === '/laps' && request.params.track === track.id && request.params.car === car.id)).toBe(true);
+  });
+});
+
+describe('the names on a comparison', () => {
+  it("shows the account's names for the track and the car, not the game's own (an Assetto Corsa folder)", async () => {
+    // The account names the lap's track and car from the catalog; the file only has the game's own names.
+    const named = {
+      track: { ...ref('Laguna Seca'), id: track.id, sourceName: mine.header.track.name },
+      car: { ...ref('Porsche Macan Turbo'), id: car.id, sourceName: mine.header.car.name },
+    };
+    state.laps = state.laps.map((lap) => (lap.id === myLap.id || lap.id === bestLap.id ? { ...lap, ...named } : lap));
+    open(`/virtual/compare?a=${myLap.id}&b=${bestLap.id}`);
+    await gapReady();
+    const context = screen.getByTestId('compare-context');
+    await waitFor(() => expect(within(context).getByRole('heading', { level: 2 })).toHaveTextContent('Laguna Seca'));
+    expect(within(context).getByTestId('sim-car-identity')).toHaveTextContent('Porsche Macan Turbo');
+    expect(context).not.toHaveTextContent(mine.header.track.name);
+    // Same track and car underneath: the laps do not say "another track" or "another car" because the names shown differ from the file's.
+    for (const slot of [screen.getByTestId('slot-lap'), screen.getByTestId('slot-reference')]) {
+      expect(within(slot).queryByTestId('sim-car-identity')).not.toBeInTheDocument();
+      expect(slot).not.toHaveTextContent('Laguna Seca');
+    }
   });
 });
 

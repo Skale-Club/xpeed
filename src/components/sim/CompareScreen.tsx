@@ -26,7 +26,7 @@ import { CompareStart } from './compare/CompareStart';
 import { GameName } from './session-bits';
 import { SimCarIdentity } from './SimCarIdentity';
 import { TrackLayoutThumb } from './TrackLayoutThumb';
-import { LapPicker, type PickerStart } from './LapPicker';
+import { LapPicker, type PickerLock } from './LapPicker';
 import { useReadAllPages } from './use-read-all-pages';
 import { OptionSelect } from '@/components/ui/option-select';
 import { comparisonGoal, referenceDifferences, referenceVersionContext, type ComparisonGoal } from '@/lib/sim/reference-context';
@@ -98,13 +98,18 @@ export function CompareScreen() {
   // Track layouts are the ones Xpeed Companion sent to the account: copied onto this device once, then looked in.
   const { findLayout, listKeptLayouts, linkLayout } = useLayoutFinder();
 
-  const start: PickerStart | undefined = aHeader ? { game: aHeader.game, trackName: aHeader.track.name, carName: aHeader.car.name } : undefined;
+  // A reference only makes sense on the same game, track and car (owner, 2026-11-22): the picker for it is fixed to those of the
+  // lap, by their ids in the lap's metadata (names do not match: the file has the game's own, the lists the account's).
+  const lock: PickerLock | undefined = aMeta?.game && aMeta.track?.id && aMeta.car?.id
+    ? { game: aMeta.game, track: aMeta.track.id, car: aMeta.car.id }
+    : undefined;
   const showPicker = picking !== null;
   const usingDefault = !bParam && !!defaultRef;
   const isPb = !!aId && !!pb && pb.lapId === aId;
 
-  const aInfo = aFile.data ? describeLap(aFile.data) : null;
-  const bInfo = bFile.data && bId ? describeLap(bFile.data) : null;
+  const bMeta = useLapMeta(bId).data;
+  const aInfo = aFile.data ? describeLap(aFile.data, aMeta) : null;
+  const bInfo = bFile.data && bId ? describeLap(bFile.data, bMeta) : null;
   const refusal = aFile.data && bFile.data && bId ? incomparableReason(aFile.data, bFile.data) : null;
   const delta = aInfo && bInfo && !refusal ? (aInfo.timeMs - bInfo.timeMs) / 1000 : null;
   const deltaNote = refusal ? t('sessionsDash.compare.noDeltaRefused', 'These laps cannot be compared.') : isPb ? t('sessionsDash.compare.noDeltaPb', 'This is your best: choose a reference.') : undefined;
@@ -313,7 +318,7 @@ export function CompareScreen() {
             {showPicker && (
               <div className="space-y-2 border-t border-border pt-3">
                 <p className="text-sm font-medium">{picking === 'b' ? t('modes.compare.pickReference', 'Choose the reference lap') : t('modes.compare.pickLap', 'Choose a lap')}</p>
-                <LapPicker onPick={pick} start={picking === 'b' ? start : undefined} exclude={picking === 'b' && aId ? [aId] : []} />
+                <LapPicker onPick={pick} lock={picking === 'b' ? lock : undefined} exclude={picking === 'b' && aId ? [aId] : []} />
               </div>
             )}
           </CardContent>

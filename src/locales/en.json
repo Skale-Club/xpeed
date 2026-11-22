@@ -1028,7 +1028,8 @@
       "anyCar": "Any car",
       "hintGame": "Choose a game, then a track, to see your laps.",
       "hintTrack": "Now choose a track.",
-      "noLaps": "No laps with this track and car."
+      "noLaps": "No laps with this track and car.",
+      "lockedHint": "Your laps with the same game, track and car."
     },
     "weather": {
       "dry": "Dry",

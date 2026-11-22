@@ -183,6 +183,13 @@ describe('map inspection and recovery', () => {
     expect(screen.getByTestId('track-map').getAttribute('class')).toContain('md:h-96');
     const panel = screen.getByTestId('lap-map-panel');
     expect(panel.compareDocumentPosition(await screen.findByTestId('lap-charts')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // On a wide screen the track stays in view while the panels beside it scroll by (owner, 2026-11-22): its column is sticky,
+    // under the site's header, and the grid lets it keep its own height.
+    const column = screen.getByTestId('lap-map-column');
+    expect(column.contains(panel)).toBe(true);
+    expect(column).toHaveClass('lg:sticky', 'lg:top-[4.5rem]', 'lg:overflow-y-auto');
+    expect(column.parentElement).toHaveClass('lg:items-start');
+    expect(column.parentElement!.contains(screen.getByTestId('pedals'))).toBe(true);
   });
 
   it('distinguishes failed geometry from absent geometry and retries without switching laps', async () => {

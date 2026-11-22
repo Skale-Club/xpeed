@@ -1028,7 +1028,8 @@
       "anyCar": "Qualquer carro",
       "hintGame": "Escolha um jogo e depois uma pista para ver suas voltas.",
       "hintTrack": "Agora escolha uma pista.",
-      "noLaps": "Nenhuma volta com esta pista e este carro."
+      "noLaps": "Nenhuma volta com esta pista e este carro.",
+      "lockedHint": "Suas voltas no mesmo jogo, na mesma pista e com o mesmo carro."
     },
     "weather": {
       "dry": "Seco",

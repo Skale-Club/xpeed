@@ -584,8 +584,16 @@ export function LapAnalysis({
           where the time went in plain words, the stretches that lose and gain (each shows on the map) and the lap's numbers. The detail
           (sectors, corner by corner, the curves of speed, throttle and brake) is the second level, in the fold under them.
         */}
-        <div className={cn('grid gap-4', mapNode && 'lg:grid-cols-12')}>
-          {mapNode && <div className="min-w-0 lg:col-span-7">{mapNode}</div>}
+        {/*
+          The track stays in view on the left while the panels on the right go by with the scroll, so what the map shows and what a panel
+          says are read together (owner, 2026-11-22). Under the site's 56 px header; a map taller than the window scrolls inside itself.
+        */}
+        <div className={cn('grid gap-4', mapNode && 'lg:grid-cols-12 lg:items-start')}>
+          {mapNode && (
+            <div className="min-w-0 lg:sticky lg:top-[4.5rem] lg:col-span-7 lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto" data-testid="lap-map-column">
+              {mapNode}
+            </div>
+          )}
           <div className={cn('min-w-0 space-y-4', mapNode && 'lg:col-span-5')}>
             {pedalsCard}
             {whereCard}

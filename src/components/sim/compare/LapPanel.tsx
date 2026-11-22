@@ -4,6 +4,7 @@ import { Loader2, RefreshCw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatLapTime } from '@/lib/sim/analysis';
 import { LapReadError } from '@/lib/sim/read-lap-file';
+import { useLapMeta } from '@/lib/sim/use-lap-meta';
 import { V1Error, isSignedOut } from '@/lib/sim/v1-client';
 import type { useLapFile } from '@/lib/sim/use-lap-file';
 import { cn } from '@/lib/utils';
@@ -30,12 +31,13 @@ export function LapPanel({ side, label, testId, hint, file, lapId, onChange, onC
   badge?: string;
   /** The picker is already open for this lap: no button to open it. */
   hideChange?: boolean;
-  /** The track and the car the header names: the panel says them again only when this lap's differ. */
-  context?: { track: string; car: string } | null;
+  /** The track and the car the header names: the panel says them again only when this lap's differ (compared by the game's own names). */
+  context?: { trackKey: string; carKey: string } | null;
 }) {
   const { t } = useTranslation();
   const error = file.error;
-  const info = file.data ? describeLap(file.data) : null;
+  const meta = useLapMeta(lapId).data;
+  const info = file.data ? describeLap(file.data, meta) : null;
   const why = !error
     ? null
     : isSignedOut(error)
@@ -46,8 +48,8 @@ export function LapPanel({ side, label, testId, hint, file, lapId, onChange, onC
           ? t('modes.compare.badFile', 'The file of this lap is not a valid lap file.')
           : t('modes.compare.downloadFailed', 'The lap could not be downloaded. Check your connection and try again.');
   const gone = error instanceof V1Error && error.status === 404;
-  const otherTrack = info && context && info.track !== context.track;
-  const otherCar = info && context && info.car !== context.car;
+  const otherTrack = info && context && info.trackKey !== context.trackKey;
+  const otherCar = info && context && info.carKey !== context.carKey;
   return (
     <div className={cn('flex min-w-0 flex-col gap-1.5 border-l-2 pl-3', side === 'lap' ? 'border-l-primary' : 'border-l-blue-500')} data-testid={testId} data-side={side}>
       <div className="flex min-h-7 items-center justify-between gap-2">

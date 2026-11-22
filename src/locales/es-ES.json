@@ -1028,7 +1028,8 @@
       "anyCar": "Cualquier coche",
       "hintGame": "Elige un juego y luego un circuito para ver tus vueltas.",
       "hintTrack": "Ahora elige un circuito.",
-      "noLaps": "No hay vueltas con este circuito y este coche."
+      "noLaps": "No hay vueltas con este circuito y este coche.",
+      "lockedHint": "Tus vueltas en el mismo juego, la misma pista y con el mismo coche."
     },
     "weather": {
       "dry": "Seco",

@@ -12,51 +12,50 @@ import { useReadAllPages } from './use-read-all-pages';
 import { CompanionInvite, LoadMore, QueryGate } from './SimStates';
 import { useWhen } from './use-when';
 
-/** What the picker starts from when the person is changing one lap of a comparison: the same game, track and car by name. */
-export interface PickerStart { game: string; trackName: string; carName: string }
+/** The game, track and car (their ids) a reference lap must share with the lap it is compared with. */
+export interface PickerLock { game: string; track: string; car: string }
 
 /**
  * Finds a lap on the account: the game, then the track, then the car, then the laps of those (newest first, a page at a time).
  * Every list comes from the server; nothing here reads a file.
+ *
+ * With `lock` (choosing the reference of a comparison) there is nothing to choose but the lap: only the laps of that game, track
+ * and car are listed. Comparing with another game, track or car makes no sense (owner, 2026-11-22).
  */
-export function LapPicker({ onPick, start, exclude = [] }: { onPick: (lap: V1Lap) => void; start?: PickerStart; exclude?: string[] }) {
+export function LapPicker({ onPick, lock, exclude = [] }: { onPick: (lap: V1Lap) => void; lock?: PickerLock; exclude?: string[] }) {
   const { t } = useTranslation();
   const games = useGames();
   const when = useWhen();
   const overview = useOverview();
-  const [game, setGame] = useState(start?.game ?? '');
-  const [track, setTrack] = useState('');
-  const [car, setCar] = useState('');
+  const [chosenGame, setGame] = useState('');
+  const [chosenTrack, setTrack] = useState('');
+  const [chosenCar, setCar] = useState('');
+  const game = lock?.game ?? chosenGame;
+  const track = lock?.track ?? chosenTrack;
+  const car = lock?.car ?? chosenCar;
 
   const gameOptions = useMemo(() => overview.data?.lapsPerGame ?? [], [overview.data]);
   // With only one game there is nothing to choose.
   useEffect(() => {
-    if (!game && gameOptions.length === 1) setGame(gameOptions[0].game);
-  }, [game, gameOptions]);
+    if (!lock && !chosenGame && gameOptions.length === 1) setGame(gameOptions[0].game);
+  }, [lock, chosenGame, gameOptions]);
 
-  const tracks = useTracks({ game }, { enabled: !!game });
-  const cars = useCars({ game }, { enabled: !!game });
+  const tracks = useTracks({ game }, { enabled: !!game && !lock });
+  const cars = useCars({ game }, { enabled: !!game && !lock });
   useReadAllPages(tracks);
   useReadAllPages(cars);
-  // The track and car of the lap being changed, found by name, are the first choice.
-  useEffect(() => {
-    if (!start || start.game !== game) return;
-    if (!track) {
-      const found = tracks.items.find((item) => item.name.trim().toLowerCase() === start.trackName.trim().toLowerCase());
-      if (found) setTrack(found.id);
-    }
-    if (!car) {
-      const found = cars.items.find((item) => item.name.trim().toLowerCase() === start.carName.trim().toLowerCase());
-      if (found) setCar(found.id);
-    }
-  }, [start, game, track, car, tracks.items, cars.items]);
 
   const laps = useLaps({ game, track, car: car || undefined }, { enabled: !!game && !!track });
   const pbs = usePbs({ game, track, ...(car ? { car } : {}) }, { enabled: !!game && !!track });
   const pbLaps = new Set(pbs.items.map((pb) => pb.lapId));
 
   return (
-    <div className="space-y-3" data-testid="lap-picker">
+    <div className="space-y-3" data-testid="lap-picker" data-locked={lock ? 'true' : undefined}>
+      {lock ? (
+        <p className="text-sm text-muted-foreground" data-testid="picker-locked">
+          {t('modes.picker.lockedHint', 'Your laps with the same game, track and car.')}
+        </p>
+      ) : (
       <FilterBar data-testid="picker-filters">
         <FilterSelect
           label={t('modes.sessions.filterGame', 'Game')}
@@ -92,6 +91,7 @@ export function LapPicker({ onPick, start, exclude = [] }: { onPick: (lap: V1Lap
           testId="picker-car"
         />
       </FilterBar>
+      )}
 
       {!game || !track ? (
         overview.isSuccess && gameOptions.length === 0 ? (
