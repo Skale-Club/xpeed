@@ -170,7 +170,6 @@ impl<'a> Saver<'a> {
                         s.last_lap = Some(saved.clone());
                     });
                     self.shared.note_lap_saved(&lap.game, build, late);
-                    self.shared.note_played(&saved);
                     self.shared.notify_lap_saved(saved, generation);
                     self.shared.wake_uploader();
                     let mut queue = crate::util::lock(&self.queue);

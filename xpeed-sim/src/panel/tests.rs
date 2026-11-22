@@ -483,7 +483,6 @@ fn view<'a>(f: &'a Fixture, live: Option<&'a Live>, tab: Tab, scale: f32, lang: 
         check: &f.check,
         download_percent: f.percent,
         focus: None,
-        played: Default::default(),
         preview: None,
     }
 }
@@ -1024,12 +1023,6 @@ fn writes_the_design_preview_page() {
     let mut with_covers = view(&f, None, Tab::Dash, 1.0, Lang::En);
     with_covers.covers = &covers;
     with_covers.carousel = 9.0;
-    // The game in the middle was driven two days ago: three laps on Monza, the fastest of them invalid.
-    let mut seen = crate::played::History::new();
-    for (ms, valid) in [(107_918, true), (107_204, true), (106_000, false)] {
-        crate::played::record(&mut seen, covers[9].key, "Monza", ms, valid, 1_500 - 2 * 86_400_000);
-    }
-    with_covers.played = seen;
     let mut unpaired = fixture();
     unpaired.snapshot.cloud = Cloud::NotPaired;
     let mut monitor_covers = view(&unpaired, None, Tab::Monitor, 1.0, Lang::En);
@@ -6356,8 +6349,9 @@ fn the_example_drives_its_own_readings_and_stops_when_closed() {
     assert_eq!(all.label(Lang::En), "Example · All cards");
 }
 
-/// The waiting screen: the cover in the middle opens its game's example, and "See the dashboards" every card's; inside the
-/// window and clear of the carousel's other buttons, with the covers' art or without it.
+/// The waiting screen: the cover in the middle opens its game's example, and "See the dashboards" every card's. That button is
+/// in the header, left of full screen (owner, 2026-11-22), clear of the carousel's other buttons, with the covers' art or
+/// without it; the carousel's squares sit right under the game's name.
 #[test]
 fn the_waiting_screen_opens_the_example_from_the_middle_cover_and_its_button() {
     let f = fixture();
@@ -6388,6 +6382,16 @@ fn the_waiting_screen_opens_the_example_from_the_middle_cover_and_its_button() {
                 .unwrap_or_else(|| panic!("{w}x{h} covers {with_covers}: the button is drawn"))
                 .1;
             assert!(all.left >= 0 && all.right <= w && all.bottom <= h, "{w}x{h}: inside the window");
+            let [_, _, full, _] = header_hits(w, 1.0);
+            assert!(
+                all.bottom <= (HEADER_H as i32) && all.right < full.left,
+                "{w}x{h}: in the header, left of full screen"
+            );
+            assert_eq!(
+                buttons.iter().filter(|(a, _)| *a == Action::PreviewAll).count(),
+                1,
+                "{w}x{h}: one button"
+            );
             for (action, r) in &buttons {
                 if let Action::Cover(_) = action {
                     let apart = r.right <= all.left || r.left >= all.right || r.bottom <= all.top || r.top >= all.bottom;
@@ -6440,6 +6444,9 @@ fn the_example_says_so_in_the_header_and_each_game_shows_its_own_cards() {
             if let Some(r) = edit_button(w, &v) {
                 assert!(apart(r), "{name} {w}x{h}: clear of the edit button");
             }
+            // A dashboard is open (the example): no "See the dashboards" button in the header.
+            assert!(example_button(w, &v).is_none(), "{name} {w}x{h}: no example button");
+            assert!(!buttons.iter().any(|(a, _)| *a == Action::PreviewAll), "{name} {w}x{h}");
         }
         let plain = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
         render(&plain, 1280, 800);

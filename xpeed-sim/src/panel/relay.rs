@@ -160,7 +160,6 @@ pub(super) fn phone_pixels(
         check: &check,
         download_percent: None,
         focus: None,
-        played: Default::default(),
         scroll: Default::default(),
         preview: None,
     };

@@ -55,7 +55,6 @@ mod panel;
 mod persistence;
 mod perspective;
 mod phone;
-mod played;
 mod present;
 #[cfg(test)]
 mod rcgen;
@@ -676,7 +675,6 @@ mod live {
         };
         println!("Writing laps to {} (Ctrl+C to stop).", out.display());
         let shared = Shared::new(config.is_some());
-        shared.use_played(crate::played::path());
         // A thread of its own: a slow network must never make the reading of the game miss a sample.
         if let Some(config) = config {
             println!(

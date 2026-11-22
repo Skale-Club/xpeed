@@ -71,8 +71,11 @@ Type: files; Name: "{autoprograms}\{#OldName}.lnk"
 Type: files; Name: "{autodesktop}\{#OldName}.lnk"
 
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; Parameters: "run"; IconFilename: "{app}\{#AppIcon}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Parameters: "run"; IconFilename: "{app}\{#AppIcon}"; Tasks: desktopicon
+; A click on a shortcut opens the panel: "panel" asks the copy already running in the tray to show it, or starts the program
+; with it open. ("run" would leave in silence when a copy is running, so the click seemed to do nothing; owner, 2026-11-22.)
+; Starting with Windows and the start after an update stay "run": the tray only, no window.
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; Parameters: "panel"; IconFilename: "{app}\{#AppIcon}"
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Parameters: "panel"; IconFilename: "{app}\{#AppIcon}"; Tasks: desktopicon
 
 [Registry]
 ; The old link scheme (xpeedsim:) is gone: the connection no longer uses one. Removed if an old install left it.
@@ -84,7 +87,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#AppName}"; ValueData: """{app}\{#AppExe}"" run"; Tasks: autostart; Flags: uninsdeletevalue
 
 [Run]
-Filename: "{app}\{#AppExe}"; Parameters: "run"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExe}"; Parameters: "panel"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
 ; After the program updated itself (/UPDATE=1, a silent setup) the new version starts by itself: nobody is at the keyboard to
 ; tick "Launch". A normal install, silent or not, never takes this line, and it is a plain start (a second copy would find the
 ; first one running and leave).

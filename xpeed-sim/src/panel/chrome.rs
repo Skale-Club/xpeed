@@ -110,6 +110,7 @@ pub(super) fn tooltip(g: &mut Painter, width: i32, view: &View) {
         }
     }
     let edit = edit_button(width, view).filter(|e| inside(e, mx, my));
+    let example = example_button(width, view).filter(|e| inside(e, mx, my));
     let exit = view
         .buttons
         .borrow()
@@ -120,6 +121,8 @@ pub(super) fn tooltip(g: &mut Painter, width: i32, view: &View) {
         (e, text(view.lang, &Msg::PanelPreviewClose))
     } else if let Some(e) = edit {
         (e, text(view.lang, &Msg::PanelEditLayout))
+    } else if let Some(e) = example {
+        (e, text(view.lang, &Msg::PanelPreviewSee))
     } else if inside(&full, mx, my) {
         (
             full,
@@ -162,6 +165,14 @@ pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
     );
     full_icon(g, full, full_ink, view.full);
     pin_icon(g, top, pin_ink);
+    // No dashboard open: "See the dashboards" beside them, the Dashboard screen's own icon; it opens the example.
+    if let Some(r) = example_button(width, view) {
+        let hot = view.mouse.is_some_and(|(mx, my)| inside(&r, mx, my));
+        g.round(r, CARD, Some(if hot { PRIMARY } else { BORDER }));
+        // 20 px, a little bigger than the sidebar's 16, so its weight matches the full screen and pin icons beside it.
+        draw_icon(g, SideItem::Screen(Tab::Dash).icon(), r, 20.0, FOREGROUND);
+        view.buttons.borrow_mut().push((Action::PreviewAll, r));
+    }
     // A page of the site is open: the header names it in the site's own words (the dashboard's pills are for the dashboard).
     if let Tab::Web(place) = view.tab {
         let name = SideItem::Web(place).label(view.lang);
@@ -284,6 +295,16 @@ pub(super) fn pin_icon(g: &mut Painter, r: RECT, color: COLORREF) {
 pub(super) fn edit_button(width: i32, view: &View) -> Option<RECT> {
     let on = view.tab == Tab::Dash && view.edit.is_none() && dashboard_shown(view.live, &view.snapshot.game, view.now_ms);
     edit_button_hit(width, view.scale).filter(|_| on)
+}
+
+/// The header's "See the dashboards" button (pixels), while no dashboard is open: the Dashboard screen waiting for a game, not
+/// the example (it has its own pill to close it) and no layout being edited. It opens the example with every card.
+pub(super) fn example_button(width: i32, view: &View) -> Option<RECT> {
+    let on = view.tab == Tab::Dash
+        && view.edit.is_none()
+        && view.preview.is_none()
+        && !dashboard_shown(view.live, &view.snapshot.game, view.now_ms);
+    on.then(|| example_button_hit(width, view.scale))
 }
 
 /// A pencil on a line in a box (pixels), upright and square like the other icons: its body runs up to the right, its point

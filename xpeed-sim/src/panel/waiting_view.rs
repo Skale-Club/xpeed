@@ -357,7 +357,6 @@ pub(super) fn waiting(g: &mut Painter, body: RECT, view: &View) {
             x += w + 10.0;
         }
     }
-    preview_button(g, view, cw / 2.0, 262.0 + rows.len() as f32 * 40.0 + S4);
 }
 
 /// Where cover `i` of `count` sits from the middle of a carousel at `at`: a signed distance in covers, wrapped so the
@@ -438,43 +437,24 @@ pub(super) fn cover_carousel(g: &mut Painter, view: &View, cw: f32) {
         FOREGROUND,
         DT_CENTER,
     );
-    // Under the name (owner-approved module 8, 2026-11-19): when the game was last driven, its laps and the best on
-    // the track driven last; nothing for a game not driven since the history began.
-    if let Some(played) = view.played.get(covers[middle].key) {
-        let best = played.best_here().map(|(ms, track)| (crate::util::clock(ms), track.to_owned()));
-        let msg = Msg::PanelLastPlayed {
-            ago: crate::present::ago(view.lang, played.last_ms, view.now_ms),
-            laps: played.laps,
-            best,
-        };
-        let line = text(view.lang, &msg);
-        let r = g.r(20.0, top + big_h + 42.0, cw - 40.0, 22.0);
-        g.text(&line, r, T_BODY, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_CENTER);
-    }
+    // Nothing more under the name: the "last played" line (module 8, 2026-11-19) was taken out by the owner on 2026-11-22,
+    // and the squares sit right under the name.
     // The cover in the middle opens its game's example (the dashboard on made-up driving); it is on top of the side covers.
     buttons
         .borrow_mut()
         .insert(0, (Action::Preview(middle), g.r(mid_x - big_w / 2.0, top, big_w, big_h)));
     let (dot, gap) = (7.0, 6.0);
+    let dots_y = top + big_h + DOTS_BELOW_COVER;
     let total = count as f32 * dot + (count as f32 - 1.0) * gap;
     for i in 0..count {
         let x = mid_x - total / 2.0 + i as f32 * (dot + gap);
-        g.fill(g.r(x, top + big_h + 76.0, dot, dot), if i == middle { PRIMARY } else { SECONDARY });
+        g.fill(g.r(x, dots_y, dot, dot), if i == middle { PRIMARY } else { SECONDARY });
         // A square is small: its button reaches halfway to its neighbours and a little above and below.
-        let hit = g.r(x - gap / 2.0, top + big_h + 68.0, dot + gap, dot + S4);
+        let hit = g.r(x - gap / 2.0, dots_y - 8.0, dot + gap, dot + S4);
         buttons.borrow_mut().push((Action::Cover(i), hit));
     }
-    preview_button(g, view, mid_x, top + big_h + 92.0);
 }
 
-/// "See the dashboards", centred on `mid_x` from `y`: opens the example with every card. Its edge turns yellow under the mouse.
-fn preview_button(g: &mut Painter, view: &View, mid_x: f32, y: f32) {
-    let label = text(view.lang, &Msg::PanelPreviewSee);
-    let semi = FW_SEMIBOLD as i32;
-    let w = g.width_of(&label, T_BODY, semi, Face::Ui) + 2.0 * S6;
-    let r = g.r(mid_x - w / 2.0, y, w, S8);
-    let hot = view.mouse.is_some_and(|(mx, my)| inside(&r, mx, my));
-    g.round(r, CARD, Some(if hot { PRIMARY } else { BORDER }));
-    g.text(&label, r, T_BODY, semi, Face::Ui, FOREGROUND, DT_CENTER);
-    view.buttons.borrow_mut().push((Action::PreviewAll, r));
-}
+/// Where the carousel's squares sit under the big cover (canvas units): the name takes 14 to 40, the squares follow 12 below it
+/// (owner, 2026-11-22: the gap was too big; it was 76 with the "last played" line between them).
+pub(super) const DOTS_BELOW_COVER: f32 = 52.0;

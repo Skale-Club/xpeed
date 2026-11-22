@@ -213,7 +213,6 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         check: &check,
         download_percent: ctx.shared.download_percent(),
         focus: focus_of(&ctx.shared.games()),
-        played: ctx.shared.played(),
         preview: state
             .preview
             .as_ref()

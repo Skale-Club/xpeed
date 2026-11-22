@@ -61,6 +61,16 @@ pub(super) fn edit_button_hit(width: i32, scale: f32) -> Option<RECT> {
     (width as f32 / scale >= EDIT_BUTTON_MIN_W).then(|| rect(full.left - gap - side, full.top, full.left - gap, full.bottom))
 }
 
+/// Where the header's "See the dashboards" button sits (pixels): the square left of the full screen button, the place the edit
+/// button takes when a dashboard is open (the two are never there together). Owner, 2026-11-22: up here, next to full screen and
+/// the pin, while no dashboard is open, instead of under the waiting screen's carousel.
+pub(super) fn example_button_hit(width: i32, scale: f32) -> RECT {
+    let p = |v: f32| (v * scale).round() as i32;
+    let [_, _, full, _] = header_hits(width, scale);
+    let (side, gap) = (p(38.0), p(8.0));
+    rect(full.left - gap - side, full.top, full.left - gap, full.bottom)
+}
+
 /// The left edge of the header's right-hand buttons (pixels): what the pills keep clear of.
 fn header_edge(width: i32, scale: f32) -> i32 {
     let [_, _, full, _] = header_hits(width, scale);

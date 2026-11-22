@@ -1086,6 +1086,34 @@ mod tests {
 
     const HASH: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"; // sha256("abc")
 
+    /// A click on a shortcut opens the panel ("panel" shows the running copy's panel or starts with it); starting with Windows
+    /// and the start after an update stay "run" (tray only). With "run", a click while the tray copy ran did nothing (owner,
+    /// 2026-11-22).
+    #[test]
+    fn shortcuts_open_the_panel_and_start_up_stays_in_the_tray() {
+        let script = include_str!("../installer/xpeed-sim.iss");
+        let lines = |section: &str| -> Vec<&str> {
+            let start = script.find(&format!("[{section}]")).expect(section);
+            script[start..]
+                .lines()
+                .skip(1)
+                .take_while(|l| !l.starts_with('['))
+                .filter(|l| l.starts_with("Name:") || l.starts_with("Filename:") || l.starts_with("Root:"))
+                .collect()
+        };
+        let icons = lines("Icons");
+        assert_eq!(icons.len(), 2, "Start menu and desktop");
+        for icon in icons {
+            assert!(icon.contains("Parameters: \"panel\""), "{icon}");
+        }
+        let run = lines("Run");
+        assert!(run.iter().any(|l| l.contains("postinstall") && l.contains("Parameters: \"panel\"")));
+        assert!(run.iter().any(|l| l.contains("IsSelfUpdate") && l.contains("Parameters: \"run\"")));
+        for autostart in lines("Registry").into_iter().filter(|l| l.contains("ValueType: string")) {
+            assert!(autostart.contains("\" run\""), "{autostart}");
+        }
+    }
+
     fn answer_for(server: &str) -> Value {
         serde_json::json!({
             "version": "0.6.0",
