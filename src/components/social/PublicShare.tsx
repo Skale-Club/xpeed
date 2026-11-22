@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { GameBadge, KindBadge } from '@/components/sim/session-bits';
+import { SimCarIdentity } from '@/components/sim/SimCarIdentity';
 import { useWhen } from '@/components/sim/use-when';
 import { formatLapTime } from '@/lib/sim/analysis';
 import { cleanName, usePublicShare, type PublicLapShare, type PublicSessionShare, type PublicShare } from '@/lib/sim/social-client';
@@ -82,7 +83,7 @@ function LapView({ share, token }: { share: PublicLapShare; token: string }) {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <h1 className="text-xl font-bold" data-testid="public-track">{lap.track.name}</h1>
-            <p className="text-sm text-muted-foreground" data-testid="public-car">{lap.car.name}</p>
+            <p className="min-w-0 text-sm text-muted-foreground" data-testid="public-car"><SimCarIdentity name={lap.car.name} /></p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <GameBadge game={lap.game} />
@@ -120,7 +121,7 @@ function SessionView({ share, token }: { share: PublicSessionShare; token: strin
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
               <h1 className="text-xl font-bold" data-testid="public-track">{session.track.name}</h1>
-              <p className="text-sm text-muted-foreground" data-testid="public-car">{session.car.name}</p>
+              <p className="min-w-0 text-sm text-muted-foreground" data-testid="public-car"><SimCarIdentity name={session.car.name} /></p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <KindBadge kind={session.kind as 'practice' | 'qualifying' | 'race' | 'unknown'} />
@@ -134,7 +135,7 @@ function SessionView({ share, token }: { share: PublicSessionShare; token: strin
           <div className="flex flex-wrap items-end gap-x-6 gap-y-1">
             {session.bestLapMs !== null && (
               <p>
-                <span className="block text-xs text-muted-foreground">{t('modes.sessions.bestLabel', 'Best valid lap')}</span>
+                <span className="block text-xs text-muted-foreground">{t('modes.sessions.bestLabel', 'Best lap')}</span>
                 <span className="font-mono text-3xl font-semibold tabular-nums" data-testid="public-best">{formatLapTime(session.bestLapMs)}</span>
               </p>
             )}

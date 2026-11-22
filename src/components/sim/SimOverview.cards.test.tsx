@@ -179,16 +179,16 @@ describe('what to work on', () => {
     expect(within(card).getByTestId('work-on-session')).toHaveTextContent('6 laps analysed');
   });
 
-  it('sits in the right column beside Progress, above Consistency, not in the full-width flow', async () => {
+  it('sits in the right column beside the latest sessions, as on a phone; consistency is in the advanced part', async () => {
     const state = fakeV1State({ now: '2026-11-13T12:00:00.000Z' });
     await sessionWithLaps(state, 6);
     renderSim(<SimOverview />, { state, route: '/virtual' });
     const card = await screen.findByTestId('work-on');
     const column = card.parentElement!;
     expect(column.className).toMatch(/lg:col-span-4/);
-    expect(within(column).getByTestId('overview-consistency')).toBeInTheDocument();
     expect(column.previousElementSibling?.className).toMatch(/lg:col-span-8/);
-    expect(within(column.previousElementSibling as HTMLElement).getByTestId('overview-progress')).toBeInTheDocument();
+    expect(within(column.previousElementSibling as HTMLElement).getByTestId('overview-sessions')).toBeInTheDocument();
+    expect(within(screen.getByTestId('overview-advanced')).getByTestId('overview-consistency')).toBeInTheDocument();
   });
 
   it('reads the lap files of that one session only, and nothing for the other cards', async () => {

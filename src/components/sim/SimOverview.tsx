@@ -15,6 +15,7 @@ import { BestsPanel, SessionsPanel } from './overview/Latest';
 import { DashboardSkeleton, EmptyDashboard } from './overview/States';
 import { WherePanel } from './overview/Where';
 import { PageHeader } from '@/components/ui/page-header';
+import { AdvancedFold } from '@/components/ui/advanced-fold';
 
 // The three panels that draw charts load the chart library on their own, after the page has drawn.
 const ActivityPanel = lazyChart(() => import('./overview/Activity').then((m) => ({ default: m.ActivityPanel })), 'h-48');
@@ -59,23 +60,27 @@ function Dashboard({ stats, overview, refreshing }: { stats: V1Stats; overview: 
   }
   return (
     <div className={`space-y-5 transition-opacity ${refreshing ? 'opacity-60' : ''}`} aria-busy={refreshing || undefined} data-testid="overview-dashboard">
+      {/*
+        The same order as on a phone (owner, 2026-11-22: XPD-D-SIMPLE-FIRST): the numbers; what you drove lately and what to work on; where
+        you got faster and your recent personal bests; how often and where you drive. How consistent you are is the second level, in the fold.
+      */}
       <KpiTiles stats={stats} />
-      <ActivityPanel stats={stats} />
+      <div className="grid gap-4 lg:grid-cols-12">
+        <div className="min-w-0 lg:col-span-8"><SessionsPanel sessions={overview.latestSessions} bests={overview.latestPersonalBests} /></div>
+        <div className="min-w-0 space-y-4 lg:col-span-4"><WorkOnCard sessions={overview.latestSessions} /></div>
+      </div>
       <div className="grid gap-4 lg:grid-cols-12">
         <div className="min-w-0 lg:col-span-8"><ProgressPanel stats={stats} /></div>
-        <div className="min-w-0 space-y-4 lg:col-span-4">
-          <WorkOnCard sessions={overview.latestSessions} />
-          <ConsistencyPanel stats={stats} />
-        </div>
-      </div>
-      <WherePanel stats={stats} />
-      <div className="grid gap-4 lg:grid-cols-12">
-        <div className="min-w-0 lg:col-span-8"><SessionsPanel sessions={overview.latestSessions} /></div>
         <div className="min-w-0 space-y-4 lg:col-span-4">
           <BestsPanel bests={overview.latestPersonalBests} />
           <ComparisonsPanel />
         </div>
       </div>
+      <ActivityPanel stats={stats} />
+      <WherePanel stats={stats} />
+      <AdvancedFold title={t('modes.advanced.overviewTitle', 'Advanced: consistency')} hint={t('modes.advanced.overviewHint', 'How much your lap times vary, period by period.')} testId="overview-advanced">
+        <ConsistencyPanel stats={stats} />
+      </AdvancedFold>
     </div>
   );
 }

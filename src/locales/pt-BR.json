@@ -696,7 +696,7 @@
       "gapHint": "Acima de zero, a volta está atrás da referência naquele ponto; abaixo de zero, à frente. Distância em {{unit}}.",
       "mapTitle": "Pista",
       "mapLabel": "A linha percorrida, vista de cima",
-      "mapHint": "Linha cheia: a volta gravada, não a geometria da pista. Tracejada: a referência. Ponto verde: a largada.",
+      "mapHint": "Linha cheia: a sua volta, como você pilotou. Linha tracejada: a volta comparada. Ponto verde: a largada.",
       "localTrack": {
         "surface_asphalt": "malha de asfalto do jogo",
         "surface_ai": "corredor nativo da IA, não bordas de asfalto",
@@ -706,12 +706,12 @@
         "surface_limits": "limites de linhas brancas da fonte (alinhamento não verificado)"
       },
       "mapHintLayout": "Cinza: o asfalto, entre as bordas. Vermelho: a linha ideal do jogo. Laranja: o pit lane. Amarelo: a volta; azul tracejado: a referência. Ponto verde: a largada.",
-      "mapZoomHint": "Aproxime (ou dê dois cliques no mapa) para ver a volta contra as bordas e a linha ideal; arraste para mover.",
+      "mapZoomHint": "Gire a roda do mouse sobre o mapa para chegar mais perto, arraste para mover e aponte para a volta para ver os pedais naquele ponto.",
       "zoomIn": "Aproximar",
       "zoomOut": "Afastar",
       "zoomReset": "Mostrar a pista inteira",
       "showOnMap": "Mostrar no mapa",
-      "noLayout": "Ainda não há geometria do jogo compatível com “{{track}}”. A linha mostrada é a sua volta gravada.",
+      "noLayout": "O mapa de “{{track}}” ainda não chegou do jogo. A linha que você vê é a sua própria volta.",
       "useKeptLayout": "Ou use um traçado que você guardou (o jogo pode dar outro nome à pista):",
       "pickLayout": "Escolha um traçado",
       "offsetChart": "Distância da linha ideal",
@@ -721,11 +721,11 @@
       "offLineLeft": "até {{n}} {{unit}} à esquerda",
       "offLineRight": "até {{n}} {{unit}} à direita",
       "offLineHint": "Onde você saiu da linha ideal, e o que isso custou (+) ou ganhou (−).",
-      "layoutMismatch": "Este mapa não corresponde às coordenadas gravadas. A geometria e a linha ideal foram ocultadas.",
+      "layoutMismatch": "Este mapa não encaixa na volta como ela foi gravada, então a pista e a linha ideal não são desenhadas.",
       "layoutLapMismatch": "Esta volta não corresponde ao traçado e não foi sobreposta a ele.",
-      "layoutLoading": "Carregando geometria da pista…",
-      "layoutFailed": "Não foi possível carregar a geometria da pista.",
-      "inspectDistance": "Inspecionar a volta pela distância",
+      "layoutLoading": "Carregando o mapa da pista…",
+      "layoutFailed": "Não foi possível carregar o mapa da pista.",
+      "inspectDistance": "Percorrer a volta",
       "lostTitle": "Onde a volta perde tempo",
       "gainedTitle": "Onde a volta ganha tempo",
       "noChanges": "Nenhum trecho de 150 m muda a diferença em mais de 0,01 s.",
@@ -747,14 +747,18 @@
       "lookingForPb": "Procurando o seu recorde pessoal…",
       "noReference": "Sem referência. Escolha uma volta para comparar.",
       "myBest": "Meu recorde pessoal (padrão)",
-      "swap": "Trocar a volta e a referência de lugar",
+      "swap": "Inverter a volta e a referência",
       "removeReference": "Remover a referência",
       "useMyBest": "Usar o meu recorde pessoal como referência",
       "title": "Análise da volta",
       "back": "Voltar",
       "startIntro": "Abra uma volta para analisá-la: a partir de uma sessão, de uma pista, de um carro ou de um ranking. Ela é medida contra o seu recorde pessoal na mesma pista e no mesmo carro, e lá você pode escolher outra referência.",
       "latestLaps": "Suas últimas voltas",
-      "findLap": "Achar uma volta por pista e carro"
+      "findLap": "Achar uma volta por pista e carro",
+      "mapTouchHint": "Afaste dois dedos sobre o mapa para chegar mais perto, arraste para mover e toque na volta para ver os pedais naquele ponto.",
+      "yourBest": "Seu recorde pessoal",
+      "yourLap": "Sua volta",
+      "comparedWith": "Comparada com"
     },
     "sessions": {
       "intro": "Suas sessões, com as voltas que o Xpeed Companion enviou.",
@@ -770,7 +774,7 @@
       "all": "Todos",
       "noMatch": "Nenhuma sessão combina com esses filtros.",
       "clearFilters": "Limpar os filtros",
-      "bestLabel": "Melhor volta válida",
+      "bestLabel": "Melhor volta",
       "kind": {
         "practice": "Treino livre",
         "qualifying": "Classificação",
@@ -925,7 +929,7 @@
         "fasterTitle": "Onde você ficou mais rápido",
         "fasterEmpty": "Nenhuma marca pessoal nova neste período ainda.",
         "firstBest": "Primeira volta válida",
-        "pairsTitle": "Melhor volta válida por pista e carro",
+        "pairsTitle": "Melhor volta por pista e carro",
         "pairNotEnough": "Ainda não há voltas suficientes",
         "openTrack": "Abrir a página da pista",
         "pairAlt_one": "Melhor volta válida por dia, {{track}} com {{car}}: {{first}} em {{firstDay}}, {{last}} em {{lastDay}}, {{count}} dia.",
@@ -963,7 +967,7 @@
       "empty": "Nenhum carro ainda. Instale o Xpeed Companion e conecte à sua conta: os carros que você dirigir aparecem aqui.",
       "trackCount": "Pistas: {{count}}",
       "lastDriven": "Dirigido por último {{when}}",
-      "bestLap": "Melhor volta válida"
+      "bestLap": "Melhor volta"
     },
     "states": {
       "empty": "Nenhuma volta ainda. Instale o Xpeed Companion no computador em que você corre e conecte à sua conta: suas voltas aparecem aqui sozinhas.",
@@ -1126,7 +1130,7 @@
     "progress": {
       "title": "Progresso",
       "lapsTitle": "Voltas por dia",
-      "bestPerDay": "Melhor volta válida",
+      "bestPerDay": "Melhor volta",
       "lapsPerDay": "Voltas"
     },
     "detail": {
@@ -1162,14 +1166,14 @@
     },
     "referenceContext": {
       "coordinateRefusal": "Estas gravações do EVO usam sistemas de coordenadas comprovadamente diferentes; a geometria não pode ser comparada. Nenhuma coordenada foi ajustada.",
-      "defaultRefused": "A melhor volta é de outra variante, sistema de coordenadas ou carro. Escolha uma volta de referência.",
-      "versionPair": "Versões do jogo: volta {{a}} · referência {{b}}.",
+      "defaultRefused": "Seu recorde pessoal é de outra versão desta pista ou de outro carro, então não dá para comparar aqui. Escolha uma volta para comparar.",
+      "versionPair": "Versão do jogo: volta {{a}} · volta comparada {{b}}.",
       "unknown": "desconhecida",
-      "build_same": "Os identificadores de versão registrados coincidem.",
-      "build_different": "Versões diferentes podem alterar a física ou a pista; confira a compatibilidade.",
-      "build_unknown": "A ausência da versão não comprova compatibilidade.",
-      "coordinatesUnknown": "A compatibilidade das coordenadas do EVO é desconhecida. Metadados de coordenadas ausentes ou não reconhecidos não comprovam compatibilidade; só a versão 0.8.2 é insuficiente.",
-      "goal": "Objetivo da comparação",
+      "build_same": "As duas voltas foram feitas na mesma versão do jogo.",
+      "build_different": "O jogo foi atualizado entre as duas voltas, então o carro ou a pista podem se comportar de forma diferente.",
+      "build_unknown": "Uma das versões não é conhecida, então o jogo pode ter mudado entre as duas voltas.",
+      "coordinatesUnknown": "Estas duas voltas podem ter sido gravadas de formas diferentes, então as linhas no mapa podem não ficar exatamente uma sobre a outra.",
+      "goal": "Para que serve esta comparação",
       "practice": "Treino",
       "qualifying": "Qualify / volta rápida",
       "race": "Corrida",
@@ -1179,6 +1183,29 @@
       "condition_weather": "clima",
       "condition_tyres": "pneus",
       "condition_fuel": "carga de combustível"
+    },
+    "advanced": {
+      "lapTitle": "Avançado: setores, curvas e telemetria",
+      "lapHint": "O detalhe por trás do que está acima, para quando você quiser se aprofundar.",
+      "comparisonDetails": "Sobre esta comparação",
+      "sessionTitle": "Avançado: consistência e setores",
+      "sessionHint": "A média, o quanto você foi constante, a melhor volta possível e os setores de cada volta.",
+      "trackTitle": "Avançado: setores e totais",
+      "trackHint": "Seu melhor tempo em cada setor, as voltas válidas, a volta média e o tempo pilotado aqui.",
+      "carTitle": "Avançado: consistência e totais",
+      "carHint": "O quanto você é constante em cada pista, as voltas válidas e o tempo pilotado com este carro.",
+      "overviewTitle": "Avançado: consistência",
+      "overviewHint": "O quanto seus tempos de volta variam, período a período."
+    },
+    "pedals": {
+      "title": "Acelerador e freio",
+      "compared": "Volta comparada",
+      "onThrottle": "Acelerando",
+      "onBrake": "Freando",
+      "coasting": "Sem pedal",
+      "mapLabel": "A volta desenhada na cor do pedal em uso",
+      "hint": "Aponte para a volta no mapa (ou mova o controle abaixo dele) para ver quanto cada pedal foi pressionado ali.",
+      "hintTouch": "Toque na volta no mapa (ou mova o controle abaixo dele) para ver quanto cada pedal foi pressionado ali."
     }
   },
   "refresh": {
@@ -2955,7 +2982,7 @@
     "allCars": "Todos os carros",
     "average": "Volta válida média",
     "averageHint": "sem voltas de entrada e saída",
-    "bestOn": "Melhor volta válida em {{track}}",
+    "bestOn": "Melhor volta em {{track}}",
     "bestOnTopTrack": "{{track}}, a mais pilotada",
     "bestSoFar": "Melhor {{best}}",
     "boardCaption": "Sua melhor volta válida com cada carro nesta pista, da mais rápida para a mais lenta, com a diferença para o carro mais rápido.",
@@ -3114,8 +3141,9 @@
       "save": "Salvar esta comparação",
       "savedTitle": "Comparações salvas e recentes",
       "slower": "mais lenta que a referência",
-      "swapShort": "Trocar",
-      "unsave": "Deixar de salvar esta comparação"
+      "swapShort": "Inverter",
+      "unsave": "Deixar de salvar esta comparação",
+      "savedShort": "Recentes"
     },
     "filters": {
       "active": "Filtrando por",

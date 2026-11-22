@@ -101,9 +101,11 @@ describe('the track page on a phone', () => {
     const board = await screen.findByTestId('track-leaderboard');
     expect(tiles.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(map.compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // The two-column hero only starts at the large breakpoint: below it the grid has no column count at all.
-    expect(baseColumns(tiles.parentElement!.parentElement!)).toBeNull();
-    expect(classes(tiles.parentElement!.parentElement!)).toMatch(/lg:grid-cols-12/);
+    // The tiles run the full width; the map and the leaderboard sit side by side only from the large breakpoint (one column below it).
+    const pair = map.closest('[class*="lg:grid-cols-12"]') as HTMLElement;
+    expect(pair.contains(board)).toBe(true);
+    expect(pair.contains(tiles)).toBe(false);
+    expect(baseColumns(pair)).toBeNull();
   });
 
   it('keeps the tables inside their cards, scrolling there if they must, and hides the columns a phone has no room for', async () => {
@@ -116,7 +118,7 @@ describe('the track page on a phone', () => {
     expect(hiddenOnPhone(named('Laps'))).toBe(true);
     expect(hiddenOnPhone(named('S1'))).toBe(true);
     expect(hiddenOnPhone(named('Set on'))).toBe(true);
-    expect(hiddenOnPhone(named('Best valid lap'))).toBe(false);
+    expect(hiddenOnPhone(named('Best lap'))).toBe(false);
     expect(hiddenOnPhone(named('Gap'))).toBe(false);
     for (const cell of table.querySelectorAll('tbody tr:first-child td')) {
       // The same columns are hidden in the body as in the head.
@@ -142,7 +144,7 @@ describe('the car page on a phone', () => {
     wrap: (page) => <Routes><Route path="/virtual/cars/:id" element={page} /></Routes>,
   });
 
-  it('puts the tiles two across and the chart, the consistency and the table one under the other', async () => {
+  it('puts the tiles two across and the chart and the table one under the other, with the consistency in the advanced part after them', async () => {
     open();
     await screen.findByTestId('car-header');
     expect(baseColumns(screen.getByTestId('car-tiles'))).toBe('grid-cols-2');
@@ -150,8 +152,9 @@ describe('the car page on a phone', () => {
     const consistency = await screen.findByTestId('car-consistency');
     const table = await screen.findByTestId('best-per-track');
     expect(baseColumns(progress.parentElement!.parentElement!)).toBeNull();
-    expect(progress.compareDocumentPosition(consistency) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(consistency.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(progress.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(table.compareDocumentPosition(consistency) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('car-advanced').contains(consistency)).toBe(true);
   });
 
   it('keeps the track table inside its card and drops the laps and the date on a phone', async () => {

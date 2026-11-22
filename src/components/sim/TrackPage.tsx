@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { AdvancedFold } from '@/components/ui/advanced-fold';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Map as MapIcon, Trophy } from 'lucide-react';
@@ -25,6 +26,7 @@ import { lazyChart } from '@/components/LazyChart';
 
 const ProgressChart = lazyChart(() => import('./ProgressChart').then((m) => ({ default: m.ProgressChart })), 'h-60 md:h-80');
 import { GameBadge } from './session-bits';
+import { TrackLayoutThumb } from './TrackLayoutThumb';
 import { QueryGate } from './SimStates';
 import { TrackMap } from './TrackMap';
 import { useAge } from './use-age';
@@ -175,11 +177,14 @@ export function TrackPage() {
                   )}
                 </div>
                 <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
-                  <div className="min-w-0">
-                    <h2 className="text-2xl font-bold leading-tight" data-testid="track-name">{detail.track.name}</h2>
-                    <p className="text-sm text-muted-foreground" data-testid="track-subtitle">
-                      {detail.track.lengthM ? trackLength(detail.track.lengthM, distanceUnit as DistanceUnit) : t('garageDash.lengthUnknown', 'Length not known')}
-                    </p>
+                  <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+                    <TrackLayoutThumb trackId={detail.track.id} name={detail.track.name} className="h-16 w-16 sm:h-20 sm:w-20" />
+                    <div className="min-w-0">
+                      <h2 className="text-2xl font-bold leading-tight" data-testid="track-name">{detail.track.name}</h2>
+                      <p className="text-sm text-muted-foreground" data-testid="track-subtitle">
+                        {detail.track.lengthM ? trackLength(detail.track.lengthM, distanceUnit as DistanceUnit) : t('garageDash.lengthUnknown', 'Length not known')}
+                      </p>
+                    </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button asChild size="sm" variant="outline"><Link to={`/virtual/sessions?track=${encodeURIComponent(id)}`} data-testid="track-sessions-link">{t('modes.overview.allSessions', 'All sessions')}</Link></Button>
@@ -187,50 +192,32 @@ export function TrackPage() {
                 </div>
               </header>
 
-              <div className="grid gap-4 lg:grid-cols-12">
-                <div className="min-w-0 lg:col-span-7">
-                  <TileGrid testId="track-tiles" columns={{ xl: 4 }}>
-                    <TileItem>
-                      <StatTile testId="totals-laps" label={t('modes.detail.laps', 'Laps')} value={format.number(detail.totals.lapCount)} sub={share !== null ? t('modes.overview.dash.kpiValid', '{{percent}}% valid', { percent: share }) : t('modes.overview.dash.kpiValidNone', 'no laps yet')} />
-                    </TileItem>
-                    <TileItem>
-                      <StatTile testId="totals-valid" label={t('modes.detail.validLaps', 'Valid laps')} value={share !== null ? `${share}%` : '–'} sub={t('garageDash.validOf', '{{valid}} of {{laps}}', { valid: detail.totals.validLapCount, laps: detail.totals.lapCount })} />
-                    </TileItem>
+              {/* The first level (owner, 2026-11-22: XPD-D-SIMPLE-FIRST): the best lap, how much you drove here and when; the rest is in the advanced fold. */}
+              <TileGrid testId="track-tiles" columns={{ sm: 4, lg: null }}>
                     <TileItem>
                       <StatTile
-                        testId="totals-best" mono label={t('modes.cars.bestLap', 'Best valid lap')}
+                        testId="totals-best" mono label={t('modes.cars.bestLap', 'Best lap')}
                         value={detail.totals.bestLapMs !== null ? formatLapTime(detail.totals.bestLapMs) : '–'}
                         sub={fastest ? fastest.car.name : detail.totals.lapCount > 0 ? t('garageDash.noValidYet', 'No valid lap yet') : undefined}
                       />
                     </TileItem>
                     <TileItem>
-                      <StatTile
-                        testId="totals-average" mono label={t('garageDash.average', 'Average valid lap')} loading={laps.loading && !laps.isError}
-                        value={summary.averageValidMs !== null ? formatLapTime(summary.averageValidMs) : '–'}
-                        sub={lapsNote ?? t('garageDash.averageHint', 'without in and out laps')}
-                      />
+                      <StatTile testId="totals-laps" label={t('modes.detail.laps', 'Laps')} value={format.number(detail.totals.lapCount)} sub={share !== null ? t('modes.overview.dash.kpiValid', '{{percent}}% valid', { percent: share }) : t('modes.overview.dash.kpiValidNone', 'no laps yet')} />
                     </TileItem>
                     <TileItem>
                       <StatTile testId="totals-sessions" label={t('modes.detail.sessions', 'Sessions')} value={format.number(detail.totals.sessionCount)} />
                     </TileItem>
                     <TileItem>
-                      <StatTile
-                        testId="totals-time" label={t('garageDash.timeDriven', 'Time driven')} loading={laps.loading && !laps.isError}
-                        value={laps.isError ? '–' : formatTimeDriven(summary.timeMs, format.lang)} sub={lapsNote ?? undefined}
-                      />
-                    </TileItem>
-                    <TileItem>
-                      <StatTile testId="totals-cars" label={t('garageDash.carsUsed', 'Cars used')} value={format.number(detail.totals.carCount)} />
-                    </TileItem>
-                    <TileItem>
                       <StatTile testId="totals-last" label={t('modes.detail.lastDriven', 'Last driven')} value={detail.totals.lastDrivenAt ? shortDay(Date.parse(detail.totals.lastDrivenAt)) : '–'} sub={detail.totals.lastDrivenAt ? age(Date.parse(detail.totals.lastDrivenAt)) : undefined} />
                     </TileItem>
-                  </TileGrid>
-                </div>
-                <div className="min-w-0 lg:col-span-5 lg:row-span-2">
+              </TileGrid>
+
+              {/* The track with its best lap drawn on it, and where you stand in the ranking. */}
+              <div className="grid gap-4 lg:grid-cols-12">
+                <div className="min-w-0 lg:col-span-7">
                   <LayoutPanel detail={detail} bestLapId={fastest?.lapId ?? null} />
                 </div>
-                <div className="min-w-0 lg:col-span-7">
+                <div className="min-w-0 lg:col-span-5">
                   <LeaderboardPanel detail={detail} board={board} />
                 </div>
               </div>
@@ -240,7 +227,7 @@ export function TrackPage() {
               ) : (
                 <>
                   <div className="grid gap-4 lg:grid-cols-12">
-                    <div className="min-w-0 lg:col-span-8">
+                    <div className="min-w-0 lg:col-span-12">
                       {filtered && laps.loading && laps.laps.length === 0 ? (
                         <Skeleton className="h-60 rounded-lg md:h-80" data-testid="track-progress-loading" />
                       ) : (
@@ -265,13 +252,39 @@ export function TrackPage() {
                         />
                       )}
                     </div>
-                    <div className="min-w-0 lg:col-span-4"><SectorsPanel bests={sectors} /></div>
                   </div>
                   <TrackBoard board={board} sectors={sectors} />
                 </>
               )}
 
               <LatestSessions filters={{ track: id }} listTo={`/virtual/sessions?track=${encodeURIComponent(id)}`} hide="track" />
+
+              {detail.totals.lapCount > 0 && (
+                <AdvancedFold title={t('modes.advanced.trackTitle', 'Advanced: sectors and totals')} hint={t('modes.advanced.trackHint', 'Your best time in each sector, the valid laps, the average lap and the time driven here.')} testId="track-advanced">
+                  <TileGrid testId="track-tiles-advanced" columns={{ sm: 4, lg: null }}>
+                    <TileItem>
+                      <StatTile testId="totals-valid" label={t('modes.detail.validLaps', 'Valid laps')} value={share !== null ? `${share}%` : '–'} sub={t('garageDash.validOf', '{{valid}} of {{laps}}', { valid: detail.totals.validLapCount, laps: detail.totals.lapCount })} />
+                    </TileItem>
+                    <TileItem>
+                      <StatTile
+                        testId="totals-average" mono label={t('garageDash.average', 'Average valid lap')} loading={laps.loading && !laps.isError}
+                        value={summary.averageValidMs !== null ? formatLapTime(summary.averageValidMs) : '–'}
+                        sub={lapsNote ?? t('garageDash.averageHint', 'without in and out laps')}
+                      />
+                    </TileItem>
+                    <TileItem>
+                      <StatTile
+                        testId="totals-time" label={t('garageDash.timeDriven', 'Time driven')} loading={laps.loading && !laps.isError}
+                        value={laps.isError ? '–' : formatTimeDriven(summary.timeMs, format.lang)} sub={lapsNote ?? undefined}
+                      />
+                    </TileItem>
+                    <TileItem>
+                      <StatTile testId="totals-cars" label={t('garageDash.carsUsed', 'Cars used')} value={format.number(detail.totals.carCount)} />
+                    </TileItem>
+                  </TileGrid>
+                  <SectorsPanel bests={sectors} />
+                </AdvancedFold>
+              )}
             </>
           )}
         </QueryGate>

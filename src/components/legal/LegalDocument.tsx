@@ -87,7 +87,7 @@ function LanguageLinks() {
   const { t, i18n } = useTranslation();
   const active = currentLanguage(i18n.resolvedLanguage).code;
   return (
-    <div className="flex items-center gap-1 text-sm" role="group" aria-label={t('settings.prefs.language', 'Language')}>
+    <div className="flex items-center gap-1 text-sm max-[359px]:text-xs" role="group" aria-label={t('settings.prefs.language', 'Language')}>
       {LANGUAGES.map((l) => (
         <button
           key={l.code}
@@ -96,7 +96,8 @@ function LanguageLinks() {
           aria-pressed={l.code === active}
           onClick={() => void i18n.changeLanguage(l.code)}
           className={cn(
-            'rounded-md px-2 py-1 transition-colors',
+            // The smallest phones (320 px): the three languages still fit beside the logo.
+            'rounded-md px-2 py-1 transition-colors max-[359px]:px-1',
             l.code === active ? 'bg-primary/10 font-semibold text-foreground' : 'text-muted-foreground hover:text-foreground',
           )}
         >

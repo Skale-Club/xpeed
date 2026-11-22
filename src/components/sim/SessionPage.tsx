@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { AdvancedFold } from '@/components/ui/advanced-fold';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Loader2 } from 'lucide-react';
@@ -111,7 +112,6 @@ export function SessionPage() {
           {session && (
             <>
               <SessionHero session={session} lapCount={laps.length} shareLabel={share.session} onDelete={() => setPending({ kind: 'session' })} deleting={remove.isPending} />
-              <SessionCoach userId={userId} session={session} />
 
               {problem && (
                 <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm" data-testid="session-problem">
@@ -120,10 +120,18 @@ export function SessionPage() {
               )}
 
               {laps.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t('modes.session.noLaps', 'This session has no laps.')}</p>
+                <>
+                  <p className="text-sm text-muted-foreground">{t('modes.session.noLaps', 'This session has no laps.')}</p>
+                  <SessionCoach userId={userId} session={session} />
+                </>
               ) : (
                 <>
-                  <SessionKpiTiles kpis={kpis} pb={pb} bestThreeMs={bestThree} />
+                  {/*
+                    From the top (owner, 2026-11-22: XPD-D-SIMPLE-FIRST): the best lap and how many laps counted; the lap times as a chart with
+                    what stood out; the laps, each opening its analysis; the coach. The detail (the average, the consistency, the theoretical best,
+                    the sectors of every lap) is the second level, in the fold at the end.
+                  */}
+                  <SessionKpiTiles kpis={kpis} pb={pb} bestThreeMs={bestThree} level="essential" />
 
                   <div className="grid gap-4 lg:grid-cols-12">
                     <div className="min-w-0 lg:col-span-8">
@@ -136,9 +144,14 @@ export function SessionPage() {
                     </div>
                   </div>
 
-                  <SectorHeatTable laps={laps} pb={pb} bestId={best?.id ?? null} />
-
                   <LapsTable laps={laps} best={best} pb={pb} shareLabel={share.lap} shareTitle={share.lapTitle} deleting={remove.isPending} onDeleteLap={(lap) => setPending({ kind: 'lap', lap })} />
+
+                  <SessionCoach userId={userId} session={session} />
+
+                  <AdvancedFold title={t('modes.advanced.sessionTitle', 'Advanced: consistency and sectors')} hint={t('modes.advanced.sessionHint', 'The average, how steady you were, the best possible lap and the sectors of every lap.')} testId="session-advanced">
+                    <SessionKpiTiles kpis={kpis} pb={pb} bestThreeMs={bestThree} level="advanced" />
+                    <SectorHeatTable laps={laps} pb={pb} bestId={best?.id ?? null} />
+                  </AdvancedFold>
                 </>
               )}
             </>

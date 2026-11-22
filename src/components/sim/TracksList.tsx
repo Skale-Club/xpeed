@@ -18,7 +18,8 @@ import { trackLength } from '@/lib/sim/track-length';
 import { hasSyncedLayout, useAccountLayouts } from '@/lib/sim/track-layout-match';
 import { useOverview, useTracks, type V1TrackItem } from '@/lib/sim/v1-client';
 import { FilterSelect } from './FilterSelect';
-import { CardGridSkeleton, NoResults, SearchField, SummaryStrip, TimeSparkline, ToggleChip, TrackShape } from './garage/bits';
+import { TrackOutline } from '@/components/social/TrackThumb';
+import { CardGridSkeleton, NoResults, SearchField, SummaryStrip, TimeSparkline, ToggleChip } from './garage/bits';
 import { PbTrendChip } from './garage/Trend';
 import { GameBadge } from './session-bits';
 import { SimCarIdentity } from './SimCarIdentity';
@@ -27,7 +28,7 @@ import { useDashFormat } from './overview/use-format';
 import { useWhen } from './use-when';
 
 /**
- * One track as a card: the game and, when Xpeed Companion has sent the layout, its shape; the length; the laps, sessions and cars; the best valid lap
+ * One track as a card: its map (a placeholder until Xpeed Companion has sent the layout) and the game; the length; the laps, sessions and cars; the best valid lap
  * with the car that set it, how it moved in the last 30 days and a sparkline of the best so far. The shape and the progress are read when the card
  * comes on screen (one small file, one detail), never for the cards far down the list.
  */
@@ -49,6 +50,10 @@ function TrackCard({ track, layout, unit, today }: { track: V1TrackItem; layout:
       <Card className="h-full bg-card border-border transition-colors hover:bg-muted/30" data-testid="track">
         <CardContent className="space-y-3 p-4">
           <div className="flex items-start gap-3">
+            {/* The track's map leads its card, as the game's cover leads a car's: the same drawing as every list, a quiet placeholder with no layout. */}
+            <span className="flex shrink-0" data-testid="track-preview">
+              <TrackOutline layout={shape.data ?? null} pending={layout && seen && shape.isPending} name={track.name} className="h-16 w-16" decorative lineWidth={1.75} />
+            </span>
             <div className="min-w-0 flex-1 space-y-1.5">
               <div className="flex flex-wrap items-center gap-1.5">
                 <GameBadge game={track.game} />
@@ -63,11 +68,6 @@ function TrackCard({ track, layout, unit, today }: { track: V1TrackItem; layout:
                 {track.lengthM ? trackLength(track.lengthM, unit) : t('garageDash.lengthUnknown', 'Length not known')}
               </p>
             </div>
-            {layout && (
-              <div className="flex h-16 w-24 shrink-0 items-center justify-center rounded-md bg-muted/40" data-testid="track-preview">
-                {shape.data ? <TrackShape layout={shape.data} className="h-full w-full p-1" testId="track-preview-shape" /> : shape.isPending && seen ? <Skeleton className="h-full w-full" /> : <MapIcon className="h-5 w-5 text-muted-foreground/50" aria-hidden="true" />}
-              </div>
-            )}
             <ChevronRight className="mt-1 hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" aria-hidden="true" />
           </div>
 
@@ -91,12 +91,12 @@ function TrackCard({ track, layout, unit, today }: { track: V1TrackItem; layout:
 
           <div className="flex items-end justify-between gap-3 border-t border-border pt-3">
             <div className="min-w-0 space-y-0.5" data-testid="track-best">
-              <p className="text-xs text-muted-foreground">{t('modes.cars.bestLap', 'Best valid lap')}</p>
+              <p className="text-xs text-muted-foreground">{t('modes.cars.bestLap', 'Best lap')}</p>
               <p className="font-mono text-lg font-semibold tabular-nums leading-tight" data-testid="track-best-time">{track.bestLapMs !== null ? formatLapTime(track.bestLapMs) : '–'}</p>
               {track.bestLapMs === null ? (
                 <p className="text-xs text-muted-foreground">{t('garageDash.noValidYet', 'No valid lap yet')}</p>
               ) : car ? (
-                <p className="min-w-0 text-xs text-muted-foreground" data-testid="track-best-car"><SimCarIdentity name={car.name} logoClassName="h-4 w-4" /></p>
+                <p className="min-w-0 text-xs text-muted-foreground" data-testid="track-best-car"><SimCarIdentity name={car.name} size="line" /></p>
               ) : detail.isPending && seen ? (
                 <Skeleton className="h-4 w-28" />
               ) : null}

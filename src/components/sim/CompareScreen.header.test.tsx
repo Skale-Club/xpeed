@@ -125,6 +125,19 @@ describe('the quick references', () => {
     // The row of quick references is a plain wrapping row of small controls: the buttons and the drop-down are all h-8 / text-xs.
     const row = screen.getByTestId('quick-pickers');
     expect(row).toHaveClass('flex', 'flex-wrap', 'items-center', 'gap-2');
+    // It is the base of the header, under the two laps, with its label before it.
+    expect(screen.getByTestId('reference-context').contains(row)).toBe(true);
+    expect(screen.getByTestId('compare-slots').compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(row.previousElementSibling).toHaveTextContent('Compare with');
+    // The comparison's fine print opens from a quiet button at the end of that row, and stays closed until asked for.
+    const about = screen.getByTestId('reference-details-toggle');
+    expect(row.parentElement!.contains(about)).toBe(true);
+    expect(about).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('reference-details')).not.toBeVisible();
+    fireEvent.click(about);
+    expect(about).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('reference-details')).toBeVisible();
+    fireEvent.click(about);
     for (const control of [screen.getByTestId('quick-mine'), select]) expect(control).toHaveClass('h-8', 'text-xs');
     expect(selectOptions(select)).toEqual([expect.stringMatching(/^Another car/), expect.stringMatching(/^Other Car · 0:\d\d\.\d{3}$/)]);
     chooseOption(select, /^Other Car/);
@@ -149,11 +162,43 @@ describe('the quick references', () => {
   });
 });
 
+describe('the header of a comparison (owner, 2026-11-22: tidy it)', () => {
+  it('names the track, the car and the game once, on top, and the laps do not repeat them', async () => {
+    open(`/virtual/compare?a=${myLap.id}&b=${bestLap.id}`);
+    await gapReady();
+    const context = screen.getByTestId('compare-context');
+    expect(within(context).getByRole('heading', { level: 2 })).toHaveTextContent('Sample Ring');
+    expect(within(context).getByTestId('sim-car-identity')).toBeInTheDocument();
+    expect(within(context).getByTestId('session-game')).toBeInTheDocument();
+    // Same track and car: each lap says its number (and what it is), not the track, the car or "valid" again.
+    for (const slot of [screen.getByTestId('slot-lap'), screen.getByTestId('slot-reference')]) {
+      expect(slot).not.toHaveTextContent('Sample Ring');
+      expect(within(slot).queryByTestId('sim-car-identity')).not.toBeInTheDocument();
+      expect(slot).not.toHaveTextContent(/\bvalid\b/);
+    }
+    // Three bands from the top: what they share, the two laps with the gap, what they are compared with.
+    const after = (first: string, second: string) => !!(screen.getByTestId(first).compareDocumentPosition(screen.getByTestId(second)) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(after('compare-context', 'compare-slots')).toBe(true);
+    expect(after('compare-slots', 'reference-context')).toBe(true);
+  });
+});
+
 describe('the saved and recent comparisons', () => {
   it('keeps what was compared as a chip, with the laps and their times, and the chip of the one on screen is marked', async () => {
     open(`/virtual/compare?a=${myLap.id}&b=${bestLap.id}`);
     const chip = await screen.findByTestId('saved-chip');
-    expect(chip).toHaveTextContent(/^Sample Ring · Lap 7 0:41\.\d{3} ⇄ Lap 5 0:41\.\d{3}/);
+    // On the track of the comparison on screen the chip says the laps only (the track is named above); its tooltip keeps the whole text.
+    expect(chip).toHaveTextContent(/^Lap 7 0:41\.\d{3} ⇄ Lap 5 0:41\.\d{3}/);
+    expect(within(chip).getByTestId('saved-chip-link')).toHaveAttribute('title', expect.stringMatching(/^Sample Ring · Lap 7 /));
+    // The chips sit under the header's "Recent" button, closed until it is pressed; the button says how many there are.
+    const toggle = screen.getByTestId('recent-toggle');
+    expect(toggle).toHaveTextContent(/Recent\s*1/);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('recent-panel').contains(chip)).toBe(true);
+    expect(chip).not.toBeVisible();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(chip).toBeVisible();
     expect(within(chip).getByTestId('saved-chip-link')).toHaveAttribute('aria-current', 'true');
     expect(within(chip).getByTestId('saved-chip-link')).toHaveAttribute('href', `/virtual/compare?a=${myLap.id}&b=${bestLap.id}`);
     expect(kept()).toEqual([expect.objectContaining({ a: myLap.id, b: bestLap.id, pinned: false })]);
@@ -207,7 +252,7 @@ describe('the saved and recent comparisons', () => {
     });
     open(`/virtual/compare?a=${myLap.id}&b=${bestLap.id}`);
     const chip = await screen.findByTestId('saved-chip');
-    expect(chip).toHaveTextContent('Sample Ring · Lap 7');
+    expect(chip).toHaveTextContent('Lap 7');
     // The page works as ever: the gap is there, and a pin does not break it.
     await gapReady();
     fireEvent.click(within(chip).getByTestId('saved-chip-pin'));

@@ -1,6 +1,7 @@
 import { TrackOutline } from '@/components/social/TrackThumb';
 import { useOnScreen, useTrackDetail, useTrackLayout } from '@/lib/sim/garage-queries';
 import { cn } from '@/lib/utils';
+import { TRACK_THUMB } from './identity-sizes';
 
 /**
  * The small map of a track found by its id, for every list whose rows are about a track (the progress panel, the latest sessions, the sessions
@@ -9,7 +10,7 @@ import { cn } from '@/lib/utils';
  * read only when the row comes on screen and kept for the visit, so a list that names the same track ten times reads it once. A track with no
  * layout keeps a quiet placeholder of the same size: the names stay lined up.
  */
-export function TrackLayoutThumb({ trackId, name, className = 'h-10 w-10' }: { trackId: string | null | undefined; name: string; className?: string }) {
+export function TrackLayoutThumb({ trackId, name, className = TRACK_THUMB.row }: { trackId: string | null | undefined; name: string; className?: string }) {
   const [attach, seen] = useOnScreen<HTMLSpanElement>();
   const detail = useTrackDetail(trackId ?? null, seen);
   const track = detail.data?.track;

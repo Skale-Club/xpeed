@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { TrackMap } from './TrackMap';
 import type { TrackPath } from '@/lib/sim/analysis';
 import { circle, makeLayout } from '@/test/track-fixture';
@@ -154,5 +154,89 @@ describe('the track map', () => {
     const { container } = render(<TrackMap lap={lap} layout={layout} />);
     const ring = container.querySelector('[data-testid="track-layout"] path')!;
     expect((ring.getAttribute('d')!.match(/L/g) ?? []).length).toBeLessThan(4000);
+  });
+});
+
+describe('the mouse on the map (owner, 2026-11-21: zoom with the wheel, drag, point at the lap)', () => {
+  const box = { left: 0, top: 0, width: 400, height: 400, right: 400, bottom: 400, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
+  const map = () => {
+    const element = screen.getByTestId('track-map');
+    element.getBoundingClientRect = () => box;
+    return element;
+  };
+  const viewBox = () => screen.getByTestId('track-map').getAttribute('viewBox')!.split(' ').map(Number);
+  const roll = (deltaY: number, at = { clientX: 200, clientY: 200 }) => {
+    const event = new WheelEvent('wheel', { deltaY, bubbles: true, cancelable: true, ...at });
+    map().dispatchEvent(event);
+    return event;
+  };
+
+  /** A pointer event as a browser sends it (jsdom has no PointerEvent: a mouse event of that name, with the pointer's fields added). */
+  const pointer = (type: string, init: { clientX: number; clientY: number; pointerId?: number; pointerType?: string; buttons?: number }) => {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: init.clientX, clientY: init.clientY, buttons: init.buttons ?? 0 });
+    Object.defineProperty(event, 'pointerType', { value: init.pointerType ?? 'mouse' });
+    Object.defineProperty(event, 'pointerId', { value: init.pointerId ?? 1 });
+    act(() => { map().dispatchEvent(event); });
+  };
+
+  it('zooms in when the wheel is rolled forward, and stops the page from scrolling while it does', async () => {
+    render(<TrackMap lap={lap} />);
+    const event = await act(() => roll(-400));
+    expect(Number(screen.getByTestId('track-map').getAttribute('data-zoom'))).toBeGreaterThan(1);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('zooms towards the pointer: what is under it stays under it', async () => {
+    render(<TrackMap lap={lap} />);
+    const [x0, y0, w0, h0] = viewBox();
+    // The pointer is a quarter of the way in from the left and from the top.
+    const pointer = { clientX: 100, clientY: 100 };
+    const under = { x: x0 + w0 * 0.25, y: y0 + h0 * 0.25 };
+    await act(() => roll(-600, pointer));
+    const [x1, y1, w1, h1] = viewBox();
+    expect(w1).toBeLessThan(w0);
+    expect(x1 + w1 * 0.25).toBeCloseTo(under.x, 0);
+    expect(y1 + h1 * 0.25).toBeCloseTo(under.y, 0);
+  });
+
+  it('leaves the wheel to the page when the whole track is shown and it is rolled back (the page scrolls past the map)', async () => {
+    render(<TrackMap lap={lap} />);
+    const event = await act(() => roll(300));
+    expect(event.defaultPrevented).toBe(false);
+    expect(screen.getByTestId('track-map').getAttribute('data-zoom')).toBe('1');
+  });
+
+  it('rolls back out to the whole track and no further', async () => {
+    render(<TrackMap lap={lap} />);
+    await act(() => roll(-600));
+    await act(() => roll(5000));
+    expect(screen.getByTestId('track-map').getAttribute('data-zoom')).toBe('1');
+  });
+
+  it('tells the page which place the mouse points at, in the game\'s own coordinates, and how near a point must be', async () => {
+    const picked: Array<{ x: number; z: number; reach: number }> = [];
+    render(<TrackMap lap={lap} onPick={(point, reach) => picked.push({ ...point, reach })} />);
+    const w0 = viewBox()[2];
+    // The middle of the picture is the middle of the lap's square (0..20 on both axes).
+    pointer('pointermove', { clientX: 200, clientY: 200 });
+    await vi.waitFor(() => expect(picked).toHaveLength(1));
+    expect(picked[0].x).toBeCloseTo(10, 0);
+    expect(picked[0].z).toBeCloseTo(10, 0);
+    // The reach is a fixed number of screen pixels: 28 of them, in meters at this zoom.
+    expect(picked[0].reach).toBeCloseTo((w0 / 400) * 28, 3);
+  });
+
+  it('does not pick while the map is being dragged, and picks where a press is let go without moving (a click or a tap)', async () => {
+    const picked: unknown[] = [];
+    render(<TrackMap lap={lap} onPick={(point) => picked.push(point)} />);
+    await act(() => roll(-600));
+    pointer('pointerdown', { clientX: 200, clientY: 200, buttons: 1 });
+    pointer('pointermove', { clientX: 150, clientY: 180, buttons: 1 });
+    pointer('pointerup', { clientX: 150, clientY: 180 });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(picked).toHaveLength(0);
+    pointer('pointerdown', { clientX: 120, clientY: 120, pointerId: 2, pointerType: 'touch' });
+    pointer('pointerup', { clientX: 121, clientY: 120, pointerId: 2, pointerType: 'touch' });
+    await vi.waitFor(() => expect(picked).toHaveLength(1));
   });
 });

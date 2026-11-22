@@ -15,13 +15,15 @@ describe('SimCarIdentity', () => {
     expect(await screen.findByText('Ford GT')).toBeInTheDocument();
     expect(screen.getByTestId('sim-car-identity').querySelector('img')).toHaveAttribute('src', expect.stringContaining('/ford/logo'));
   });
-  it('sizes the logo as the page asks (a page header wants it big, a table small), 24 px by default', async () => {
+  it('sizes the logo as the place asks: the row size by default, the line size in small text, a page header its own', async () => {
     const { rerender } = render(<QueryClientProvider client={new QueryClient()}><SimCarIdentity name="Ford GT" /></QueryClientProvider>);
     const logo = async () => (await screen.findByText('Ford GT')).parentElement!.querySelector('img')!.parentElement!;
-    expect((await logo()).className).toMatch(/\bh-6 w-6\b/);
+    expect((await logo()).className).toMatch(/\bh-7 w-10\b/);
+    rerender(<QueryClientProvider client={new QueryClient()}><SimCarIdentity name="Ford GT" size="line" /></QueryClientProvider>);
+    await vi.waitFor(async () => expect((await logo()).className).toMatch(/\bh-5 w-7\b/));
     rerender(<QueryClientProvider client={new QueryClient()}><SimCarIdentity name="Ford GT" logoClassName="h-12 w-12" /></QueryClientProvider>);
     await vi.waitFor(async () => expect((await logo()).className).toMatch(/\bh-12 w-12\b/));
-    expect((await logo()).className).not.toMatch(/\bh-6\b/);
+    expect((await logo()).className).not.toMatch(/\bh-7\b/);
   });
   it('keeps unknown names unchanged and uses the generic icon', async () => {
     render(<QueryClientProvider client={new QueryClient()}><SimCarIdentity name="Sample Car" /></QueryClientProvider>);

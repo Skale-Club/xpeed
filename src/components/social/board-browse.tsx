@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { GameCover } from '@/components/sim/GameCover';
 import { SimCarIdentity } from '@/components/sim/SimCarIdentity';
 import { GameBadge } from '@/components/sim/session-bits';
 import { ErrorPanel, QueryGate } from '@/components/sim/SimStates';
@@ -138,7 +139,12 @@ export function GameBoards({ game, scope, onGame, emptyNode }: { game: string | 
         {gameIds.length > 1 && chosen && (
           <Tabs value={chosen} onValueChange={onGame}>
             <TabsList aria-label={t('social.leaderboard.game', 'Game')} className="h-auto flex-wrap justify-start" data-testid="board-game-tabs">
-              {gameIds.map((id) => <TabsTrigger key={id} value={id} data-testid={`board-game-${id}`}>{games.name(id)}</TabsTrigger>)}
+              {gameIds.map((id) => (
+                <TabsTrigger key={id} value={id} className="gap-1.5" data-testid={`board-game-${id}`}>
+                  <GameCover game={id} className="w-3.5 self-center rounded-[2px] border-0" />
+                  {games.name(id)}
+                </TabsTrigger>
+              ))}
             </TabsList>
           </Tabs>
         )}

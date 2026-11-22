@@ -56,7 +56,7 @@ export function LatestSessions({ filters, listTo, hide }: { filters: SessionFilt
             <li key={session.id} data-testid="latest-session">
               <Link to={sessionPath(session.id)} className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2 hover:bg-muted/40 ${FOCUS}`}>
                 <div className="flex min-w-0 items-center gap-3">
-                  {hide !== 'track' && <TrackLayoutThumb trackId={session.track.id} name={session.track.name} className="h-10 w-10" />}
+                  {hide !== 'track' && <TrackLayoutThumb trackId={session.track.id} name={session.track.name} />}
                   <div className="min-w-0 space-y-1">
                     <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
                       {hide === 'track' ? <SimCarIdentity name={session.car.name} /> : <span className="truncate">{session.track.name}</span>}

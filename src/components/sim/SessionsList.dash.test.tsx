@@ -117,6 +117,49 @@ describe('the days', () => {
   });
 });
 
+describe('the card of a session (owner, 2026-11-21: XPD-D-SESSION-CARD)', () => {
+  const tokens = (element: Element) => (element.getAttribute('class') ?? '').split(/\s+/);
+
+  it('is two rows that do not depend on each other: the head with the cover, and the numbers across the full width of the card', async () => {
+    const { state } = seeded();
+    renderSim(<SessionsList />, { state });
+    const card = (await screen.findAllByTestId('session'))[0];
+    const head = within(card).getByTestId('session-head');
+    const numbers = within(card).getByTestId('session-numbers');
+    // Siblings: the numbers are not inside the head, so the cover's column cannot push them in.
+    expect(numbers.parentElement).toBe(head.parentElement);
+    expect(head.contains(numbers)).toBe(false);
+    expect(head.contains(within(card).getByTestId('session-cover'))).toBe(true);
+    expect(numbers.contains(within(card).getByTestId('session-cover'))).toBe(false);
+  });
+
+  it('makes the cover as tall as the text beside it: from the capitals of the track name to the baseline of the time line', async () => {
+    const { state } = seeded();
+    renderSim(<SessionsList />, { state });
+    const card = (await screen.findAllByTestId('session'))[0];
+    // The cover stretches to the head's height instead of keeping its own.
+    expect(tokens(within(card).getByTestId('session-cover'))).toEqual(expect.arrayContaining(['self-stretch', 'aspect-auto']));
+    // The first and the last line are trimmed to their letters, so the head's box (and the cover with it) starts and ends on them.
+    expect(tokens(within(card).getByRole('heading', { level: 3 }))).toContain('[text-box:trim-start_cap_alphabetic]');
+    expect(tokens(within(card).getByTestId('session-time').parentElement!)).toContain('[&>span]:[text-box:trim-end_cap_alphabetic]');
+    // Trimmed to its capitals, the name is cut sideways only: an accent above them is not cut off.
+    expect(tokens(within(card).getByRole('heading', { level: 3 }))).toEqual(expect.arrayContaining(['overflow-x-clip', 'text-ellipsis', 'whitespace-nowrap']));
+    expect(tokens(within(card).getByRole('heading', { level: 3 }))).not.toContain('truncate');
+  });
+
+  it('keeps the labels of the numbers on one line and the values on another (the lap-time line is taller than a number)', async () => {
+    const { state } = seeded();
+    renderSim(<SessionsList />, { state });
+    const card = (await screen.findAllByTestId('session'))[0];
+    expect(tokens(within(card).getByTestId('session-numbers'))).toContain('items-start');
+    const value = (testId: string) => tokens(within(card).getByTestId(testId).querySelector('dd')!);
+    // From `sm` up the four share one row: all values take the band of the line. On a phone only the pair that holds the line does.
+    for (const testId of ['session-laps-metric', 'session-best', 'session-spread', 'session-trend']) expect(value(testId)).toEqual(expect.arrayContaining(['flex', 'items-center', 'sm:min-h-[30px]']));
+    for (const testId of ['session-spread', 'session-trend']) expect(value(testId)).toContain('min-h-[30px]');
+    for (const testId of ['session-laps-metric', 'session-best']) expect(value(testId)).not.toContain('min-h-[30px]');
+  });
+});
+
 describe('in Portuguese and Spanish', () => {
   it.each([
     ['pt-BR', /quinta-feira, 12 de novembro/i, '2 sessões · 5 voltas', '1 sessão · 1 volta', 'Só voltas válidas', 'Sessões'],

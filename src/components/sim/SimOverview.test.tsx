@@ -256,9 +256,10 @@ describe('where you drive', () => {
     await dashboard(state);
     const tracks = within(screen.getByTestId('where-tracks')).getAllByTestId('where-row');
     expect(tracks.map((row) => row.getAttribute('data-name')).filter((name) => name?.startsWith('Monza'))).toHaveLength(2);
-    expect(tracks.some((row) => row.textContent?.includes('Monza · Assetto Corsa'))).toBe(true);
-    expect(tracks.some((row) => row.textContent?.includes('Monza · Le Mans Ultimate'))).toBe(true);
-    expect(tracks.find((row) => row.textContent?.includes('Spa-Francorchamps'))?.textContent).not.toContain('·');
+    // The game is named the way a game is named in every line of text: its small cover and its name (`GameName`).
+    const gameOf = (row: HTMLElement) => within(row).queryByTestId('session-game')?.textContent ?? null;
+    expect(tracks.filter((row) => row.getAttribute('data-name')?.startsWith('Monza')).map(gameOf).sort()).toEqual(['Assetto Corsa', 'Le Mans Ultimate']);
+    expect(gameOf(tracks.find((row) => row.textContent?.includes('Spa-Francorchamps'))!)).toBeNull();
   });
 });
 

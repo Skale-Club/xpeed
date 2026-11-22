@@ -45,7 +45,7 @@ export function ProgressChart({ rows, testId = 'progress-chart', controls, title
           <Quiet>{t('garageDash.oneDay', 'Only one day of driving so far. The progress line shows once you have driven on two different days.')}</Quiet>
           {best ? (
             <p className="text-sm">
-              <span className="text-muted-foreground">{t('modes.progress.bestPerDay', 'Best valid lap')}: </span>
+              <span className="text-muted-foreground">{t('modes.progress.bestPerDay', 'Best lap')}: </span>
               <span className="font-mono font-semibold tabular-nums">{formatLapTime((best.bestS as number) * 1000)}</span>
               <span className="text-muted-foreground"> · {format.day(best.day, 'long')}</span>
             </p>
@@ -77,7 +77,7 @@ export function ProgressChart({ rows, testId = 'progress-chart', controls, title
                 <Tooltip
                   contentStyle={TOOLTIP}
                   labelFormatter={(value) => format.day(new Date(Number(value)).toISOString().slice(0, 10), 'long')}
-                  formatter={(value: number, name: string) => (name === 'bestS' ? [formatLapTime(value * 1000), t('modes.progress.bestPerDay', 'Best valid lap')] : [value, t('modes.progress.lapsPerDay', 'Laps')])}
+                  formatter={(value: number, name: string) => (name === 'bestS' ? [formatLapTime(value * 1000), t('modes.progress.bestPerDay', 'Best lap')] : [value, t('modes.progress.lapsPerDay', 'Laps')])}
                 />
                 <Bar yAxisId="laps" dataKey="laps" name="laps" fill={CHART_PALETTE.blue} fillOpacity={0.35} barSize={8} isAnimationActive={false} />
                 {showBest && <Line yAxisId="best" dataKey="bestS" name="bestS" type="linear" stroke={CHART_PALETTE.yellow} strokeWidth={2} dot={{ r: 3 }} connectNulls isAnimationActive={false} />}
@@ -86,7 +86,7 @@ export function ProgressChart({ rows, testId = 'progress-chart', controls, title
           </div>
           <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
             {showBest && (
-              <li className="flex items-center gap-1.5"><span className="h-0.5 w-4" style={{ background: CHART_PALETTE.yellow }} aria-hidden="true" />{t('modes.progress.bestPerDay', 'Best valid lap')}</li>
+              <li className="flex items-center gap-1.5"><span className="h-0.5 w-4" style={{ background: CHART_PALETTE.yellow }} aria-hidden="true" />{t('modes.progress.bestPerDay', 'Best lap')}</li>
             )}
             <li className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm opacity-60" style={{ background: CHART_PALETTE.blue }} aria-hidden="true" />{t('modes.progress.lapsPerDay', 'Laps')}</li>
           </ul>
