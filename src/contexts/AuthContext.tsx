@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState, type Rea
 import { supabase } from '@/integrations/supabase/client';
 import * as google from '@/lib/auth/google';
 import { setCurrentUser, type AppUser } from '@/lib/auth/session';
+import { canSignInFromCompanion, checkedHere, markChecked, markSignedOut, signInFromCompanion, signedOutHere } from '@/lib/auth/companion-sign-in';
 import { queryClient } from '@/lib/query-client';
 
 interface AuthContextType {
@@ -27,6 +28,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const generation = useRef(0);
   const identityUid = useRef<string | null>(null);
   const registration = useRef<{ uid: string; promise: Promise<AppUser> } | null>(null);
+  // Inside the Companion's window: whether this page already asked the Companion to sign it in.
+  const companionAsked = useRef(false);
 
   const synchronize = async (identity: google.IdentityUser | null) => {
     const version = ++generation.current;
@@ -65,6 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const lifecycle = generation;
     let unsubscribe: (() => void) | undefined;
+    let alive = true;
     const failed = (cause: Error) => {
       ++lifecycle.current;
       registration.current = null; identityUid.current = null;
@@ -72,17 +76,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     try {
       unsubscribe = google.observeGoogleUser(
-        (identity) => { void synchronize(identity).catch(() => {}); },
+        (identity) => {
+          // Inside the Companion's window the page is signed in as the Companion's account (companion-sign-in.ts): signed
+          // out, it asks the Companion first and stays on its loading screen meanwhile; signed in, it checks once per tab, in
+          // the background, that it is the same account. A person who signed out here is left signed out.
+          if (canSignInFromCompanion() && !signedOutHere()) {
+            if (!identity && !companionAsked.current) {
+              companionAsked.current = true; markChecked(true);
+              void signInFromCompanion(null, google.signInWithCustomToken).then((outcome) => {
+                // Signed in: the identity change arrives here again. Otherwise the normal sign-in shows.
+                if (outcome !== 'signed-in' && alive) void synchronize(null).catch(() => {});
+              });
+              return;
+            }
+            if (identity && !checkedHere()) {
+              companionAsked.current = true; markChecked(true);
+              void signInFromCompanion(identity.uid, google.signInWithCustomToken);
+            }
+          }
+          void synchronize(identity).catch(() => {});
+        },
         failed,
       );
     } catch (cause) { failed(cause instanceof Error ? cause : new Error('Authentication unavailable')); }
-    return () => { ++lifecycle.current; unsubscribe?.(); setCurrentUser(null); };
+    return () => { alive = false; ++lifecycle.current; unsubscribe?.(); setCurrentUser(null); };
   }, []);
 
-  const verifyPhoneCode = async (phone: string, code: string) => { await synchronize(await google.verifyPhoneCode(phone, code)); };
-  const signInWithGoogle = async () => { await synchronize(await google.signInWithGoogle()); };
-  const signInWithGoogleIdToken = async (token: string) => { await synchronize(await google.signInWithGoogleIdToken(token)); };
-  const signOut = async () => { await google.signOutGoogle(); await synchronize(null); };
+  const verifyPhoneCode = async (phone: string, code: string) => { markSignedOut(false); await synchronize(await google.verifyPhoneCode(phone, code)); };
+  const signInWithGoogle = async () => { markSignedOut(false); await synchronize(await google.signInWithGoogle()); };
+  const signInWithGoogleIdToken = async (token: string) => { markSignedOut(false); await synchronize(await google.signInWithGoogleIdToken(token)); };
+  const signOut = async () => { if (canSignInFromCompanion()) markSignedOut(true); await google.signOutGoogle(); await synchronize(null); };
   const updateName = async (name: string) => {
     const { error: dbError } = await supabase.rpc('update_account_name' as never, { p_name: name } as never);
     if (dbError) throw dbError;

@@ -22,3 +22,4 @@ export function cancelPhoneChallenge() {}
 export async function updateDisplayName(name: string) { await supabase.auth.updateUser({ data: { full_name: name } }); }
 
 export async function signInWithGoogleIdToken() { throw new Error('Use the simulated SMS flow'); }
+export async function signInWithCustomToken(): Promise<IdentityUser> { throw new Error('The harness has no Companion'); }

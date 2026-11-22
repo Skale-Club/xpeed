@@ -11,12 +11,18 @@
 //! The decisions that need no window are plain functions with tests: which place an address belongs to (`place_for_url`) and what
 //! to do with a navigation (`nav_policy`).
 //!
+//! Sign-in: the site's page signs itself in as the account the Companion is connected to (`src/lib/auth/companion-sign-in.ts`).
+//! It asks over WebView2's message channel (`{"type":"xpeed:session"}`); the panel, only for a page on the paired server, asks
+//! the server for a one-time code with the device key on a thread of its own and answers `{"type":"xpeed:session","code":...}`
+//! (`session_reply`). The key never reaches the page.
+//!
 //! Memory: the web view is hidden on a native screen, closed when the panel window is destroyed (closing it, or hiding to the
 //! tray) and after `IDLE_CLOSE_MS` of native screens; the next click makes it again. If WebView2 is not there or fails to start, the
 //! place opens in the browser as before, for the rest of the session.
 
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
+use std::sync::{Arc, Mutex};
 
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     CreateCoreWebView2EnvironmentWithOptions, ICoreWebView2, ICoreWebView2Controller, ICoreWebView2EnvironmentOptions,
@@ -25,7 +31,7 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
 use webview2_com::{
     take_pwstr, AcceleratorKeyPressedEventHandler, CreateCoreWebView2ControllerCompletedHandler,
     CreateCoreWebView2EnvironmentCompletedHandler, NavigationStartingEventHandler, NewWindowRequestedEventHandler,
-    SourceChangedEventHandler,
+    SourceChangedEventHandler, WebMessageReceivedEventHandler,
 };
 use windows::core::{Interface, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{E_POINTER, HWND as ComHwnd, RECT as ComRect};
@@ -217,14 +223,19 @@ struct Slot {
     hidden_since: Option<i64>,
 }
 
+/// Answers for the page that a thread made and the window thread has not given to the page yet (JSON texts).
+type Replies = Arc<Mutex<Vec<String>>>;
+
 /// The web view of the panel window.
 pub(super) struct Web {
     slot: Rc<RefCell<Slot>>,
+    replies: Replies,
 }
 
 impl Default for Web {
     fn default() -> Self {
         Web {
+            replies: Arc::default(),
             slot: Rc::new(RefCell::new(Slot {
                 phase: Phase::Idle,
                 generation: 0,
@@ -289,7 +300,32 @@ impl Web {
         if creating {
             return true;
         }
-        start(&self.slot, hwnd)
+        start(&self.slot, &self.replies, hwnd)
+    }
+
+    /// Gives the page the answers that are ready (the window calls it on `WM_WEB`). Only a page still on the paired server gets
+    /// them; one that moved elsewhere (a sign-in host) does not, and the answer is dropped: the page asks again when it is back.
+    pub(super) fn deliver(&self) {
+        let replies = std::mem::take(&mut *self.replies.lock().unwrap_or_else(|e| e.into_inner()));
+        if replies.is_empty() {
+            return;
+        }
+        let (view, server, current) = {
+            let slot = self.slot.borrow();
+            match &slot.phase {
+                Phase::Ready { view, .. } => (view.clone(), slot.server.clone(), slot.current.clone()),
+                _ => return,
+            }
+        };
+        if nav_policy(&server, &current) != Nav::InPlace {
+            return;
+        }
+        for reply in replies {
+            let wide = win::wide(&reply);
+            if let Err(why) = unsafe { view.PostWebMessageAsJson(PCWSTR(wide.as_ptr())) } {
+                applog::line(&format!("web view: could not answer the page: {why}"));
+            }
+        }
     }
 
     /// The page navigates to `url` (the site's address).
@@ -406,7 +442,7 @@ fn fail(slot: &Rc<RefCell<Slot>>, hwnd: HWND, why: &str) {
 
 /// Starts making the environment and then the controller. Returns false when it cannot even start (no WebView2 runtime): the
 /// failure is recorded and the caller opens the browser. Otherwise it returns at once; the handlers finish the work.
-fn start(slot: &Rc<RefCell<Slot>>, hwnd: HWND) -> bool {
+fn start(slot: &Rc<RefCell<Slot>>, replies: &Replies, hwnd: HWND) -> bool {
     let Some(folder) = user_data_folder() else {
         fail(slot, hwnd, "no folder for the web view's data");
         return false;
@@ -423,6 +459,7 @@ fn start(slot: &Rc<RefCell<Slot>>, hwnd: HWND) -> bool {
         s.generation
     };
     let weak = Rc::downgrade(slot);
+    let replies = replies.clone();
     let handler = CreateCoreWebView2EnvironmentCompletedHandler::create(Box::new(move |result, environment| {
         let Some(slot) = weak.upgrade() else { return Ok(()) };
         if slot.borrow().generation != generation {
@@ -432,9 +469,10 @@ fn start(slot: &Rc<RefCell<Slot>>, hwnd: HWND) -> bool {
             result?;
             let environment = environment.ok_or_else(|| windows::core::Error::from(E_POINTER))?;
             let weak = Rc::downgrade(&slot);
+            let replies = replies.clone();
             let controller_done = CreateCoreWebView2ControllerCompletedHandler::create(Box::new(move |result, controller| {
                 if let Some(slot) = weak.upgrade() {
-                    controller_made(&slot, hwnd, generation, result, controller);
+                    controller_made(&slot, &replies, hwnd, generation, result, controller);
                 } else if let Some(controller) = controller {
                     let _ = unsafe { controller.Close() };
                 }
@@ -468,6 +506,7 @@ fn start(slot: &Rc<RefCell<Slot>>, hwnd: HWND) -> bool {
 /// The controller is there (or it failed): set the view up and show the page that was asked for.
 fn controller_made(
     slot: &Rc<RefCell<Slot>>,
+    replies: &Replies,
     hwnd: HWND,
     generation: u32,
     result: windows::core::Result<()>,
@@ -487,7 +526,7 @@ fn controller_made(
     };
     let setup = (|| -> windows::core::Result<ICoreWebView2> {
         let view = unsafe { controller.CoreWebView2()? };
-        configure(slot, hwnd, &controller, &view)?;
+        configure(slot, replies, hwnd, &controller, &view)?;
         Ok(view)
     })();
     match setup {
@@ -526,6 +565,7 @@ fn controller_made(
 /// The user agent, the events the panel listens to.
 fn configure(
     slot: &Rc<RefCell<Slot>>,
+    replies: &Replies,
     hwnd: HWND,
     controller: &ICoreWebView2Controller,
     view: &ICoreWebView2,
@@ -612,6 +652,37 @@ fn configure(
             &mut token,
         )?;
 
+        // The page asks to be signed in as the Companion's account: only a page on the paired server, and the code is asked for
+        // on a thread (the window thread never waits for the network); `deliver` hands the answer over on `WM_WEB`.
+        let weak = Rc::downgrade(slot);
+        let replies = replies.clone();
+        let window = hwnd as isize;
+        view.add_WebMessageReceived(
+            &WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
+                let Some(args) = args else { return Ok(()) };
+                let mut source = PWSTR::null();
+                args.Source(&mut source)?;
+                let source = take_pwstr(source);
+                let server = server_of(&weak);
+                if nav_policy(&server, &source) != Nav::InPlace {
+                    return Ok(());
+                }
+                let mut message = PWSTR::null();
+                args.WebMessageAsJson(&mut message)?;
+                if !is_session_request(&take_pwstr(message)) {
+                    return Ok(());
+                }
+                let replies = replies.clone();
+                std::thread::spawn(move || {
+                    let reply = session_reply(fetch_session_code(&server));
+                    replies.lock().unwrap_or_else(|e| e.into_inner()).push(reply);
+                    PostMessageW(window as HWND, WM_WEB, 0, 0);
+                });
+                Ok(())
+            })),
+            &mut token,
+        )?;
+
         // F11 (full screen) keeps working while the page has the keyboard: it goes to the panel as it would from its own.
         controller.add_AcceleratorKeyPressed(
             &AcceleratorKeyPressedEventHandler::create(Box::new(move |_, args| {
@@ -630,6 +701,45 @@ fn configure(
         )?;
     }
     Ok(())
+}
+
+/// What the page sends to ask for a sign-in code.
+pub(super) const SESSION_MESSAGE: &str = "xpeed:session";
+
+/// Whether a message from the page (its JSON) asks to be signed in as the Companion's account.
+pub(super) fn is_session_request(json: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(json)
+        .ok()
+        .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(|t| t == SESSION_MESSAGE))
+        .unwrap_or(false)
+}
+
+/// The answer the page gets: the code, or why there is none (the page then shows its own sign-in).
+pub(super) fn session_reply(code: Result<String, String>) -> String {
+    match code {
+        Ok(code) => serde_json::json!({ "type": SESSION_MESSAGE, "code": code }).to_string(),
+        Err(why) => serde_json::json!({ "type": SESSION_MESSAGE, "error": why }).to_string(),
+    }
+}
+
+/// Asks the server for a code with this computer's device key (read fresh, so a new connection counts at once). Not connected,
+/// or connected to another server than the page's, is no code.
+fn fetch_session_code(server: &str) -> Result<String, String> {
+    let path = crate::config::home_dir()
+        .map(|home| home.join("config.json"))
+        .ok_or_else(|| "no configuration folder".to_owned())?;
+    let config = crate::config::load(&path)?.ok_or_else(|| "this computer is not connected".to_owned())?;
+    if config.token.is_empty() {
+        return Err("this computer is not connected".into());
+    }
+    if config.server.trim_end_matches('/') != server.trim_end_matches('/') {
+        return Err("this computer is connected to another server".into());
+    }
+    let code = crate::net::web_session_code(&crate::net::agent(), server, &config.token);
+    if let Err(why) = &code {
+        applog::line(&format!("web view: no sign-in code for the page: {why}"));
+    }
+    code
 }
 
 /// The origin the panel is paired with (what the navigation policy compares with).
@@ -809,6 +919,27 @@ mod tests {
         assert!(with.starts_with(default));
         assert!(with.ends_with(&format!(" XpeedCompanion/{}", env!("CARGO_PKG_VERSION"))));
         assert_eq!(agent_with_token(&with), with, "never added twice");
+    }
+
+    #[test]
+    fn only_the_session_message_asks_for_a_code() {
+        assert!(is_session_request(r#"{"type":"xpeed:session"}"#));
+        assert!(is_session_request(r#"{ "type" : "xpeed:session", "extra": 1 }"#));
+        for not in [r#"{"type":"other"}"#, r#""xpeed:session""#, "{}", "", "not json", r#"{"type":1}"#] {
+            assert!(!is_session_request(not), "{not}");
+        }
+    }
+
+    #[test]
+    fn the_answer_carries_the_code_or_why_not() {
+        let ok: serde_json::Value = serde_json::from_str(&session_reply(Ok("abc_-1".into()))).unwrap();
+        assert_eq!(ok["type"], "xpeed:session");
+        assert_eq!(ok["code"], "abc_-1");
+        assert!(ok.get("error").is_none());
+        let no: serde_json::Value = serde_json::from_str(&session_reply(Err("not connected".into()))).unwrap();
+        assert_eq!(no["type"], "xpeed:session");
+        assert!(no.get("code").is_none());
+        assert_eq!(no["error"], "not connected");
     }
 
     #[test]

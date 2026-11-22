@@ -2,7 +2,7 @@ import { getApp, getApps, initializeApp } from 'firebase/app';
 import {
   getAuth, onIdTokenChanged, GoogleAuthProvider,
   RecaptchaVerifier, signInWithPhoneNumber, signInWithPopup,
-  signOut, updateProfile, signInWithCredential,
+  signOut, updateProfile, signInWithCredential, signInWithCustomToken as firebaseSignInWithCustomToken,
   type Auth, type ConfirmationResult,
 } from 'firebase/auth';
 import { Capacitor } from '@capacitor/core';
@@ -157,6 +157,11 @@ export async function signInWithGoogle(): Promise<IdentityUser> {
 
 export async function signInWithGoogleIdToken(token: string): Promise<IdentityUser> {
   return (await signInWithCredential(getGoogleAuth(), GoogleAuthProvider.credential(token))).user;
+}
+
+/** The Companion's window: signs in with the custom token the server made for the Companion's account (api/sim/web-session). */
+export async function signInWithCustomToken(token: string): Promise<IdentityUser> {
+  return (await firebaseSignInWithCustomToken(getGoogleAuth(), token)).user;
 }
 
 export async function signOutGoogle() {

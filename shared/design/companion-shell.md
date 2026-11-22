@@ -41,6 +41,17 @@ Either signal turns the site's **shell mode** on:
 ## Sign-in
 
 Stage 1 (now): the person signs in once inside the Companion with the site's own login; WebView2 keeps the session.
-Stage 2 (needs the owner): the Companion trades its device key for a one-time code and the site signs in with a Firebase
-custom token, so no second login. It needs a Firebase service-account key in the server's environment, which does not
-exist yet.
+Stage 2 (built 2026-11-22; works once `FIREBASE_SERVICE_ACCOUNT` is in the server's environment): the page is signed in as
+the Companion's account, so no second login.
+
+1. The page, in shell mode and inside WebView2 (`window.chrome.webview`), posts `{"type":"xpeed:session"}` when it is
+   signed out, and once per tab when it is signed in (to check it is the same account).
+2. The Companion answers only a page on the paired server: on a thread it calls `POST /api/sim/web-session` with its device
+   key and posts back `{"type":"xpeed:session","code":"..."}` or `{"type":"xpeed:session","error":"..."}`.
+3. The page sends `{code}` (no key) to `POST /api/sim/web-session` and gets `{token, uid}`: a Firebase custom token for the
+   account's existing Google identity. Same uid as the page: nothing changes; otherwise `signInWithCustomToken`.
+
+A code works once, for two minutes; the key never reaches the page. A custom sign-in never creates or links an account
+(migration `20261122120000_companion_web_session.sql`). Signing out inside the Companion stops the automatic sign-in for
+that tab. With no service account, no connection or no answer in 8 s, the page shows its own sign-in as in stage 1.
+Code: `api/sim/web-session.ts`, `src/lib/auth/companion-sign-in.ts`, `xpeed-sim/src/panel/webview.rs`.

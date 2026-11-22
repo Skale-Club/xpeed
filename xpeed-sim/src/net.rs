@@ -980,6 +980,34 @@ pub fn whoami(agent: &ureq::Agent, server: &str, key: &str) -> Result<String, St
     }
 }
 
+/// Asks the server for a one-time code that signs the site's page in the panel in as this computer's account
+/// (`POST /api/sim/web-session`). The code goes to the page, never the key; it works once, for two minutes.
+pub fn web_session_code(agent: &ureq::Agent, server: &str, key: &str) -> Result<String, String> {
+    let response = agent
+        .post(format!("{server}/api/sim/web-session"))
+        .header("Authorization", format!("Bearer {key}"))
+        .send_empty()
+        .map_err(|error| network_problem(&error))?;
+    let reply = read_reply(response);
+    match reply.status {
+        200 => serde_json::from_str::<Value>(&reply.body)
+            .ok()
+            .as_ref()
+            .and_then(|v| v.get("code"))
+            .and_then(Value::as_str)
+            .filter(|code| {
+                !code.is_empty() && code.len() <= 128 && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            })
+            .map(str::to_owned)
+            .ok_or_else(|| "the server answered the sign-in code in a way this app does not know".to_owned()),
+        401 | 403 => Err("the server does not accept this computer's key".into()),
+        404 => Err("this account has no sign-in the site can use from here".into()),
+        429 => Err("too many attempts; wait a little and try again".into()),
+        503 => Err("the server cannot sign the site in from here yet".into()),
+        _ => Err(explain(&reply, "the server could not give a sign-in code")),
+    }
+}
+
 /// SHA-256 (FIPS 180-4) fed in pieces, for a file too big to hold in memory (the installer of an update).
 pub struct Sha256 {
     h: [u32; 8],

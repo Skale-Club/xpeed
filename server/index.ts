@@ -23,6 +23,7 @@ import simLink from '../api/sim/link';
 import simTracks from '../api/sim/tracks';
 import simGames from '../api/sim/games';
 import simMe from '../api/sim/me';
+import simWebSession from '../api/sim/web-session';
 import simHeartbeat from '../api/sim/heartbeat';
 import simReference from '../api/sim/reference';
 import simLive from '../api/sim/live';
@@ -62,7 +63,7 @@ const routes = new Map<string,Handler>([
   ['/.well-known/oauth-protected-resource',protectedResource],['/api/wellknown/oauth-protected-resource',protectedResource],
   ['/api/oauth/register',register],['/api/oauth/issue-code',issueCode],['/api/oauth/token',token],
   ['/api/account',createAccountRoute()],['/api/db',createDbRoute()],
-  ['/api/sim/pair',simPair],['/api/sim/laps',simLaps],['/api/sim/codes',simCodes],['/api/sim/devices',simDevices],['/api/sim/coach',simCoach],['/api/sim/link',simLink],['/api/sim/tracks',simTracks],['/api/sim/games',simGames],['/api/sim/me',simMe],['/api/sim/heartbeat',simHeartbeat],['/api/sim/reference',simReference],['/api/sim/live',simLive],['/api/sim/companion-errors',simCompanionErrors],['/api/client-errors',clientErrors],
+  ['/api/sim/pair',simPair],['/api/sim/laps',simLaps],['/api/sim/codes',simCodes],['/api/sim/devices',simDevices],['/api/sim/coach',simCoach],['/api/sim/link',simLink],['/api/sim/tracks',simTracks],['/api/sim/games',simGames],['/api/sim/me',simMe],['/api/sim/web-session',(req: Request)=>simWebSession(req)],['/api/sim/heartbeat',simHeartbeat],['/api/sim/reference',simReference],['/api/sim/live',simLive],['/api/sim/companion-errors',simCompanionErrors],['/api/client-errors',clientErrors],
   ['/api/companion/latest',companionLatest],['/api/companion/download',companionDownload],
   ['/api/car-brands',carBrands],
   ['/api/vehicle-visuals',vehicleVisuals],

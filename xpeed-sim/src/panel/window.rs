@@ -599,6 +599,8 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
                     state.tab = state.before_web;
                 }
             }
+            // Answers the page asked for (its sign-in code) go to it now.
+            state.web.deliver();
             state.web.reconcile(hwnd, &state.tab, now_ms());
             InvalidateRect(hwnd, null(), 0);
             0
