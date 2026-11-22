@@ -3131,7 +3131,8 @@
       "savedTitle": "Comparaciones guardadas y recientes",
       "slower": "más lenta que la referencia",
       "swapShort": "Invertir",
-      "unsave": "Dejar de guardar esta comparación"
+      "unsave": "Dejar de guardar esta comparación",
+      "savedShort": "Recientes"
     },
     "filters": {
       "active": "Filtrando por",

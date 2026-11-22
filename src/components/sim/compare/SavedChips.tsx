@@ -5,12 +5,13 @@ import { compareUrl } from '@/lib/sim/compare-url';
 import { formatLapTime } from '@/lib/sim/analysis';
 import { isCurrent, type SavedComparison } from '@/lib/sim/compare-recent';
 import { cn } from '@/lib/utils';
+import { BAR_CONTROLS, BAR_LABEL, BAR_ROW } from './bar';
 
 /**
  * The comparisons made lately and the ones saved, as chips that open them again (kept in this browser). Each chip is a link to the comparison; beside it, a
  * pin saves it (a saved one stays, the recent ones are cut to the latest few) and a cross lets it go. The chip of the comparison on screen is marked.
  */
-export function SavedChips({ items, a, b, onPin, onForget, hideTitle = false }: {
+export function SavedChips({ items, a, b, onPin, onForget, hideTitle = false, row = false, onTrack = null }: {
   items: readonly SavedComparison[];
   /** The comparison on screen: its lap and its reference (null for the personal best). */
   a: string | null;
@@ -19,23 +20,32 @@ export function SavedChips({ items, a, b, onPin, onForget, hideTitle = false }: 
   onForget: (item: SavedComparison) => void;
   /** Leave out the small title (the card around the chips already names them). */
   hideTitle?: boolean;
+  /** Under the two laps of a comparison: one row of the strip, a short label beside the chips. */
+  row?: boolean;
+  /** The track of the comparison on screen: a chip on that track does not repeat its name (the whole text stays in its tooltip). */
+  onTrack?: string | null;
 }) {
   const { t } = useTranslation();
   if (items.length === 0) return null;
   return (
-    <section className="space-y-1.5" aria-label={t('sessionsDash.compare.savedTitle', 'Saved and recent comparisons')} data-testid="saved-comparisons">
-      {!hideTitle && <p className="text-xs font-medium text-muted-foreground">{t('sessionsDash.compare.savedTitle', 'Saved and recent comparisons')}</p>}
-      <ul className="flex flex-wrap gap-2">
+    <section className={row ? cn(BAR_ROW, 'sm:items-start') : 'space-y-1.5'} aria-label={t('sessionsDash.compare.savedTitle', 'Saved and recent comparisons')} data-testid="saved-comparisons">
+      {row
+        // Several lines of chips: the label stays beside the first one.
+        ? <p className={cn(BAR_LABEL, 'sm:pt-1.5')}>{t('sessionsDash.compare.savedShort', 'Recent')}</p>
+        : !hideTitle && <p className="text-xs font-medium text-muted-foreground">{t('sessionsDash.compare.savedTitle', 'Saved and recent comparisons')}</p>}
+      <ul className={row ? BAR_CONTROLS : 'flex flex-wrap gap-2'}>
         {items.map((item) => {
           const current = isCurrent(item, a, b);
           const { info } = item;
-          const text = `${info.track} · ${t('modes.compare.lapN', 'Lap {{n}}', { n: info.aLap })} ${formatLapTime(info.aMs)}${
+          const laps = `${t('modes.compare.lapN', 'Lap {{n}}', { n: info.aLap })} ${formatLapTime(info.aMs)}${
             info.bLap !== null && info.bMs !== null ? ` ⇄ ${t('modes.compare.lapN', 'Lap {{n}}', { n: info.bLap })} ${formatLapTime(info.bMs)}` : ` ⇄ ${t('sessionsDash.compare.myBestShort', 'my best')}`
           }`;
+          const text = `${info.track} · ${laps}`;
+          // On the track of the comparison on screen, the track's name is already above: the chip says the laps only.
           return (
             <li
               key={`${item.a}|${item.b ?? ''}`}
-              className={cn('inline-flex max-w-full items-center rounded-full border text-xs', current ? 'border-primary bg-primary/10' : 'border-border bg-muted/30')}
+              className={cn('inline-flex max-w-full items-center rounded-full border text-xs', current ? (row ? 'border-border-strong bg-muted font-medium text-foreground' : 'border-primary bg-primary/10') : cn('border-border bg-muted/30', row && 'text-muted-foreground'))}
               data-testid="saved-chip"
               data-pinned={item.pinned ? 'true' : 'false'}
             >
@@ -46,7 +56,7 @@ export function SavedChips({ items, a, b, onPin, onForget, hideTitle = false }: 
                 title={text}
                 data-testid="saved-chip-link"
               >
-                {text}
+                {onTrack && info.track === onTrack ? laps : text}
               </Link>
               <button
                 type="button"

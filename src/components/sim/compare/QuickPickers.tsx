@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Award, History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { bestLapOf } from '@/lib/sim/session-stats';
 import { useLapMeta } from '@/lib/sim/use-lap-meta';
 import { usePbs, useSession, useSessions, type V1Pb, type V1TrackRef } from '@/lib/sim/v1-client';
 import { useReadAllPages } from '../use-read-all-pages';
+import { BAR_LABEL, BAR_ROW } from './bar';
 
 /**
  * Three ways to choose the reference without searching for a lap: your best on this track and car, the best lap of the session before this lap's session, and
@@ -25,8 +26,10 @@ function matchesRecordedLayout(header: LapHeader, game: string, track: V1TrackRe
   return sameTrackIdentity(header, { game, track: { name: track.sourceName ?? track.name, variant: track.variant } });
 }
 
-export function QuickPickers({ lapId, header, referenceId, pb, onChoose }: {
+export function QuickPickers({ lapId, header, referenceId, pb, onChoose, trailing }: {
   lapId: string; header: LapHeader; referenceId: string | null; pb: V1Pb | null; onChoose: (lapId: string) => void;
+  /** What the page puts at the end of the row (the button that opens the comparison's fine print). */
+  trailing?: ReactNode;
 }) {
   const { t } = useTranslation();
   const meta = useLapMeta(lapId).data;
@@ -59,11 +62,12 @@ export function QuickPickers({ lapId, header, referenceId, pb, onChoose }: {
   const otherChosen = otherCars.find((entry) => entry.lapId === referenceId)?.lapId ?? '';
 
   // Nothing to offer (no personal best yet, no earlier session, no other car): no row of nothing.
-  if (!pb && !previousBest && otherCars.length === 0) return null;
+  if (!pb && !previousBest && otherCars.length === 0) return trailing ? <div className="flex justify-end">{trailing}</div> : null;
 
   return (
-    <FilterBar role="group" aria-label={t('sessionsDash.compare.quickLabel', 'Quick references')} data-testid="quick-pickers">
-      <span className="text-xs font-medium text-muted-foreground">{t('sessionsDash.compare.quickTitle', 'Compare with')}</span>
+    <div className={BAR_ROW}>
+      <span className={BAR_LABEL}>{t('sessionsDash.compare.quickTitle', 'Compare with')}</span>
+    <FilterBar className="min-w-0 flex-1" role="group" aria-label={t('sessionsDash.compare.quickLabel', 'Quick references')} data-testid="quick-pickers">
       {pb && (
         <Button
           type="button"
@@ -108,5 +112,7 @@ export function QuickPickers({ lapId, header, referenceId, pb, onChoose }: {
         />
       )}
     </FilterBar>
+      {trailing}
+    </div>
   );
 }

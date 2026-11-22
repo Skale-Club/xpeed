@@ -125,6 +125,20 @@ describe('the quick references', () => {
     // The row of quick references is a plain wrapping row of small controls: the buttons and the drop-down are all h-8 / text-xs.
     const row = screen.getByTestId('quick-pickers');
     expect(row).toHaveClass('flex', 'flex-wrap', 'items-center', 'gap-2');
+    // It is one row of the strip under the two laps: its label sits in the same column as the label of the recent comparisons.
+    const strip = screen.getByTestId('comparison-bar');
+    expect(strip.contains(row)).toBe(true);
+    expect(row.previousElementSibling).toHaveTextContent('Compare with');
+    expect(row.previousElementSibling).toHaveClass('sm:w-28');
+    // The comparison's fine print opens from a quiet button at the end of that row, and stays closed until asked for.
+    const about = screen.getByTestId('reference-details-toggle');
+    expect(row.parentElement!.contains(about)).toBe(true);
+    expect(about).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('reference-details')).not.toBeVisible();
+    fireEvent.click(about);
+    expect(about).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('reference-details')).toBeVisible();
+    fireEvent.click(about);
     for (const control of [screen.getByTestId('quick-mine'), select]) expect(control).toHaveClass('h-8', 'text-xs');
     expect(selectOptions(select)).toEqual([expect.stringMatching(/^Another car/), expect.stringMatching(/^Other Car · 0:\d\d\.\d{3}$/)]);
     chooseOption(select, /^Other Car/);
@@ -153,7 +167,13 @@ describe('the saved and recent comparisons', () => {
   it('keeps what was compared as a chip, with the laps and their times, and the chip of the one on screen is marked', async () => {
     open(`/virtual/compare?a=${myLap.id}&b=${bestLap.id}`);
     const chip = await screen.findByTestId('saved-chip');
-    expect(chip).toHaveTextContent(/^Sample Ring · Lap 7 0:41\.\d{3} ⇄ Lap 5 0:41\.\d{3}/);
+    // On the track of the comparison on screen the chip says the laps only (the track is named above); its tooltip keeps the whole text.
+    expect(chip).toHaveTextContent(/^Lap 7 0:41\.\d{3} ⇄ Lap 5 0:41\.\d{3}/);
+    expect(within(chip).getByTestId('saved-chip-link')).toHaveAttribute('title', expect.stringMatching(/^Sample Ring · Lap 7 /));
+    // One row of the strip, under a short label in the labels' column.
+    expect(screen.getByTestId('comparison-bar').contains(chip)).toBe(true);
+    expect(screen.getByTestId('saved-comparisons').firstElementChild).toHaveTextContent('Recent');
+    expect(screen.getByTestId('saved-comparisons').firstElementChild).toHaveClass('sm:w-28');
     expect(within(chip).getByTestId('saved-chip-link')).toHaveAttribute('aria-current', 'true');
     expect(within(chip).getByTestId('saved-chip-link')).toHaveAttribute('href', `/virtual/compare?a=${myLap.id}&b=${bestLap.id}`);
     expect(kept()).toEqual([expect.objectContaining({ a: myLap.id, b: bestLap.id, pinned: false })]);
@@ -207,7 +227,7 @@ describe('the saved and recent comparisons', () => {
     });
     open(`/virtual/compare?a=${myLap.id}&b=${bestLap.id}`);
     const chip = await screen.findByTestId('saved-chip');
-    expect(chip).toHaveTextContent('Sample Ring · Lap 7');
+    expect(chip).toHaveTextContent('Lap 7');
     // The page works as ever: the gap is there, and a pin does not break it.
     await gapReady();
     fireEvent.click(within(chip).getByTestId('saved-chip-pin'));

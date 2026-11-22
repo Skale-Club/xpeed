@@ -3131,7 +3131,8 @@
       "savedTitle": "Saved and recent comparisons",
       "slower": "slower than the reference",
       "swapShort": "Swap",
-      "unsave": "Stop saving this comparison"
+      "unsave": "Stop saving this comparison",
+      "savedShort": "Recent"
     },
     "filters": {
       "active": "Filtering by",
