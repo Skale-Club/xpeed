@@ -13,7 +13,8 @@ export function DeltaBlock({ seconds, note, canSwap, onSwap }: { seconds: number
   const { t } = useTranslation();
   const tone = seconds === null ? null : deltaTone(seconds);
   return (
-    <div className="flex flex-row items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 md:min-w-[11rem] md:flex-col md:justify-center" data-testid="delta-block">
+    // No box of its own: the gap between the two laps, in the middle of the header (above them on a narrow screen).
+    <div className="flex flex-row items-center justify-between gap-3 border-y border-border py-3 lg:min-w-[12rem] lg:flex-col lg:justify-center lg:border-x lg:border-y-0 lg:px-6 lg:py-1" data-testid="delta-block">
       <div className="text-center">
         <p
           className={cn('font-mono text-3xl font-bold tabular-nums leading-none md:text-4xl', tone === 'loss' && 'text-destructive', tone === 'gain' && 'text-success', seconds === null && 'text-muted-foreground')}
@@ -33,8 +34,8 @@ export function DeltaBlock({ seconds, note, canSwap, onSwap }: { seconds: number
       <Button
         type="button"
         size="sm"
-        variant="outline"
-        className="h-8 shrink-0"
+        variant="ghost"
+        className="h-8 shrink-0 text-muted-foreground hover:text-foreground"
         disabled={!canSwap}
         onClick={onSwap}
         aria-label={t('modes.compare.swap', 'Swap the lap and the reference')}

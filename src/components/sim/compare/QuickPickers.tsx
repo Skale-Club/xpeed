@@ -11,7 +11,6 @@ import { bestLapOf } from '@/lib/sim/session-stats';
 import { useLapMeta } from '@/lib/sim/use-lap-meta';
 import { usePbs, useSession, useSessions, type V1Pb, type V1TrackRef } from '@/lib/sim/v1-client';
 import { useReadAllPages } from '../use-read-all-pages';
-import { BAR_LABEL, BAR_ROW } from './bar';
 
 /**
  * Three ways to choose the reference without searching for a lap: your best on this track and car, the best lap of the session before this lap's session, and
@@ -65,8 +64,8 @@ export function QuickPickers({ lapId, header, referenceId, pb, onChoose, trailin
   if (!pb && !previousBest && otherCars.length === 0) return trailing ? <div className="flex justify-end">{trailing}</div> : null;
 
   return (
-    <div className={BAR_ROW}>
-      <span className={BAR_LABEL}>{t('sessionsDash.compare.quickTitle', 'Compare with')}</span>
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+      <span className="shrink-0 text-xs font-medium text-muted-foreground">{t('sessionsDash.compare.quickTitle', 'Compare with')}</span>
     <FilterBar className="min-w-0 flex-1" role="group" aria-label={t('sessionsDash.compare.quickLabel', 'Quick references')} data-testid="quick-pickers">
       {pb && (
         <Button

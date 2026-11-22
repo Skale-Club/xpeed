@@ -129,7 +129,7 @@ describe('the reference', () => {
     open(`/virtual/compare?a=${myLap.id}`);
     await waitFor(() => expect(screen.getByTestId('final-gap')).toHaveTextContent(/^\+0\.3\d\d s$/));
     const reference = screen.getByTestId('slot-reference');
-    expect(reference).toHaveTextContent('My personal best (default)');
+    expect(reference).toHaveTextContent('Your personal best');
     expect(reference).toHaveTextContent('Lap 5');
     expect(fileRequests().sort()).toEqual([`/laps/${bestLap.id}/file`, `/laps/${myLap.id}/file`].sort());
     // The PB was found from /v1/pbs, narrowed to the game of the lap.

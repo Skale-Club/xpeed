@@ -747,7 +747,7 @@
       "lookingForPb": "Procurando o seu recorde pessoal…",
       "noReference": "Sem referência. Escolha uma volta para comparar.",
       "myBest": "Meu recorde pessoal (padrão)",
-      "swap": "Trocar a volta e a referência de lugar",
+      "swap": "Inverter a volta e a referência",
       "removeReference": "Remover a referência",
       "useMyBest": "Usar o meu recorde pessoal como referência",
       "title": "Análise da volta",
@@ -755,7 +755,10 @@
       "startIntro": "Abra uma volta para analisá-la: a partir de uma sessão, de uma pista, de um carro ou de um ranking. Ela é medida contra o seu recorde pessoal na mesma pista e no mesmo carro, e lá você pode escolher outra referência.",
       "latestLaps": "Suas últimas voltas",
       "findLap": "Achar uma volta por pista e carro",
-      "mapTouchHint": "Afaste dois dedos sobre o mapa para chegar mais perto, arraste para mover e toque na volta para ver os pedais naquele ponto."
+      "mapTouchHint": "Afaste dois dedos sobre o mapa para chegar mais perto, arraste para mover e toque na volta para ver os pedais naquele ponto.",
+      "yourBest": "Seu recorde pessoal",
+      "yourLap": "Sua volta",
+      "comparedWith": "Comparada com"
     },
     "sessions": {
       "intro": "Suas sessões, com as voltas que o Xpeed Companion enviou.",
@@ -3130,7 +3133,7 @@
       "save": "Salvar esta comparação",
       "savedTitle": "Comparações salvas e recentes",
       "slower": "mais lenta que a referência",
-      "swapShort": "Trocar",
+      "swapShort": "Inverter",
       "unsave": "Deixar de salvar esta comparação",
       "savedShort": "Recentes"
     },

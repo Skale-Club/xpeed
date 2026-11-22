@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, History, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { LapAnalysis } from '@/components/sim/LapAnalysis';
@@ -11,6 +11,7 @@ import { formatGap, formatLapTime, incomparableReason } from '@/lib/sim/analysis
 import { compareParams } from '@/lib/sim/compare-url';
 import { forget, loadSaved, remember, setPinned, type SavedComparison } from '@/lib/sim/compare-recent';
 import { useLayoutFinder } from '@/lib/sim/use-track-layouts';
+import { useLapMeta } from '@/lib/sim/use-lap-meta';
 import { useLapFile } from '@/lib/sim/use-lap-file';
 import { sameTrackIdentity } from '@/lib/sim/track-file';
 import { usePbs, useUserId, type V1Lap } from '@/lib/sim/v1-client';
@@ -22,6 +23,9 @@ import { LapPanel } from './compare/LapPanel';
 import { QuickPickers } from './compare/QuickPickers';
 import { SavedChips } from './compare/SavedChips';
 import { CompareStart } from './compare/CompareStart';
+import { GameName } from './session-bits';
+import { SimCarIdentity } from './SimCarIdentity';
+import { TrackLayoutThumb } from './TrackLayoutThumb';
 import { LapPicker, type PickerStart } from './LapPicker';
 import { useReadAllPages } from './use-read-all-pages';
 import { OptionSelect } from '@/components/ui/option-select';
@@ -43,6 +47,9 @@ export function CompareScreen() {
   const [picking, setPicking] = useState<'a' | 'b' | null>(null);
 
   const aFile = useLapFile(aId);
+  const aMeta = useLapMeta(aId).data;
+  // The comparisons made lately, under the header's "Recent" button: closed until asked for.
+  const [recentOpen, setRecentOpen] = useState(false);
   const aHeader = aFile.data?.header;
   const [goalChoice, setGoalChoice] = useState<{ lapId: string | null; goal: ComparisonGoal } | null>(null);
   const goal = goalChoice && goalChoice.lapId === aId ? goalChoice.goal : comparisonGoal(aHeader);
@@ -181,23 +188,71 @@ export function CompareScreen() {
     <div className="space-y-4" data-testid="compare">
       {slimBar}
       {(!slim || editing || picking !== null) && (
-        <Card className="border-border bg-card">
+        <Card className="overflow-hidden border-border bg-card" data-testid="compare-header">
+          {/*
+            The header of a comparison (owner, 2026-11-22: "messy"), in three bands. On top, what both laps share, said once: the track with its
+            map, the car and the game, and the button that opens the comparisons made lately. In the middle the two laps with the gap between them.
+            At the base, what they are compared with and the comparison's fine print.
+          */}
+          {aInfo && aHeader && (
+            <div className="flex items-center gap-3 border-b border-border px-4 py-3" data-testid="compare-context">
+              <TrackLayoutThumb trackId={aMeta?.track?.id} name={aInfo.track} />
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <h2 className="truncate text-base font-semibold" title={aInfo.track}>{aInfo.track}</h2>
+                <p className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <SimCarIdentity name={aInfo.car} size="line" className="text-xs" />
+                  <GameName game={aHeader.game} />
+                </p>
+              </div>
+              {saved.length > 0 && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={recentOpen ? 'secondary' : 'ghost'}
+                  className="h-8 shrink-0 gap-1.5 px-2.5 text-xs"
+                  onClick={() => setRecentOpen(!recentOpen)}
+                  aria-expanded={recentOpen}
+                  aria-controls="comparison-recent"
+                  data-testid="recent-toggle"
+                >
+                  <History className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span className="hidden sm:inline">{t('sessionsDash.compare.savedShort', 'Recent')}</span>
+                  <span className="rounded-full bg-muted px-1.5 font-mono text-2xs tabular-nums">{saved.length}</span>
+                </Button>
+              )}
+            </div>
+          )}
+
           <CardContent className="space-y-4 p-4">
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]" data-testid="compare-slots">
+            {/* The comparisons made lately and the saved ones, under the header's "Recent" button. */}
+            <div id="comparison-recent" hidden={!recentOpen} className="rounded-lg border border-border bg-muted/20 p-3" data-testid="recent-panel">
+              <SavedChips
+                quiet
+                onTrack={aInfo?.track ?? null}
+                items={saved}
+                a={aId}
+                b={bParam}
+                onPin={(item, pinned) => setSaved(setPinned(userId, saved, item, pinned))}
+                onForget={(item) => setSaved(forget(userId, saved, item))}
+              />
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-center" data-testid="compare-slots">
               <LapPanel
                 side="lap"
-                label={t('modes.compare.lap', 'Lap')}
+                label={t('modes.compare.yourLap', 'Your lap')}
                 testId="slot-lap"
                 hint={t('modes.compare.noLap', 'No lap chosen yet.')}
                 file={aFile}
                 lapId={aId}
                 onChange={() => setPicking(picking === 'a' ? null : 'a')}
                 badge={isPb ? t('modes.session.pb', 'Personal best') : undefined}
+                context={aInfo}
               />
               <DeltaBlock seconds={delta} note={deltaNote} canSwap={!!bId} onSwap={swap} />
               <LapPanel
                 side="reference"
-                label={t('modes.compare.reference', 'Reference')}
+                label={t('modes.compare.comparedWith', 'Compared with')}
                 testId="slot-reference"
                 hint={isPb ? t('modes.compare.isPb', 'This is your personal best on this track and car, so there is nothing to compare it with. Choose a reference to compare it with.') : pbs.isPending && !!aHeader ? t('modes.compare.lookingForPb', 'Looking for your personal best…') : t('modes.compare.noReference', 'No reference. Choose a lap to compare with.')}
                 file={bFile}
@@ -205,70 +260,53 @@ export function CompareScreen() {
                 onChange={() => setPicking(picking === 'b' ? null : 'b')}
                 onClear={bParam ? () => go({ b: null }) : undefined}
                 clearLabel={defaultRef ? t('modes.compare.useMyBest', 'Use my personal best as the reference') : t('modes.compare.removeReference', 'Remove the reference')}
-                badge={usingDefault ? t('modes.compare.myBest', 'My personal best (default)') : undefined}
+                badge={usingDefault || (!!pb && bId === pb.lapId) ? t('modes.compare.yourBest', 'Your personal best') : undefined}
+                context={aInfo}
               />
             </div>
 
-            {/*
-              The strip under the two laps (owner, 2026-11-22): rows that line up, each a short label and its controls. "Compare with" and its
-              quick choices, with the comparison's fine print behind a quiet button at the end of the row; what must be seen (conditions that
-              differ, a personal best that cannot be compared); then the recent comparisons.
-            */}
-            {(aFile.data || saved.length > 0) && (
-              <div className="space-y-2.5 border-t border-border pt-3" data-testid="comparison-bar">
-                {aFile.data && (
-                  <div className="space-y-2" data-testid="reference-context">
-                    <QuickPickers
-                      lapId={aId}
-                      header={aFile.data.header}
-                      referenceId={bId}
-                      pb={rejectedDefault ? null : pb}
-                      onChoose={(lapId) => go({ b: lapId })}
-                      trailing={(
-                        <button
-                          type="button"
-                          onClick={() => setFinePrint(!finePrint)}
-                          aria-expanded={finePrint}
-                          aria-controls="comparison-fine-print"
-                          className="inline-flex shrink-0 items-center gap-1 self-start rounded-sm text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:self-center"
-                          data-testid="reference-details-toggle"
-                        >
-                          {t('modes.advanced.comparisonDetails', 'About this comparison')}
-                          <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', finePrint && 'rotate-180')} aria-hidden="true" />
-                        </button>
-                      )}
-                    />
-                    {/* What must be seen: the laps were not driven in the same conditions, or the personal best cannot be the comparison. */}
-                    {conditionDifferences.length > 0 && <p className="text-xs text-warn" data-testid="reference-conditions">{t('modes.referenceContext.conditionsDiffer', 'Recorded conditions differ: {{conditions}}.', { conditions: conditionDifferences.map((key) => t(`modes.referenceContext.condition_${key}`, key)).join(', ') })}</p>}
-                    {rejectedDefault && <p role="status" className="text-xs text-warn" data-testid="default-reference-refused">{t('modes.referenceContext.defaultRefused')}</p>}
-                    {/* The fine print of a comparison (what it is for, the game versions, how the laps were recorded): the second level. */}
-                    <div id="comparison-fine-print" hidden={!finePrint} className="space-y-2 rounded-lg border border-border bg-muted/30 p-3" data-testid="reference-details">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span id="comparison-goal-label" className="text-xs text-muted-foreground">{t('modes.referenceContext.goal', 'What this comparison is for')}</span>
-                        <OptionSelect size="sm" className="w-full sm:w-56" aria-labelledby="comparison-goal-label" value={goal} onChange={(value) => setGoalChoice({ lapId: aId, goal: value as ComparisonGoal })} options={[
-                          { value: 'practice', label: t('modes.referenceContext.practice', 'Practice') },
-                          { value: 'qualifying', label: t('modes.referenceContext.qualifying', 'Qualifying / time trial') },
-                          { value: 'race', label: t('modes.referenceContext.race', 'Race') },
-                        ]} data-testid="comparison-goal" />
-                      </div>
-                      <p className="text-xs text-muted-foreground">{goal === 'race'
-                        ? t('modes.referenceContext.raceReference', 'Choose a pace reference with similar tyres, fuel and weather. Your all-time best is not selected automatically.')
-                        : t('modes.referenceContext.fastReference', 'Your personal best is a starting reference. Check tyres, fuel and weather, or choose another lap.')}</p>
-                      {versionContext && <p className="text-xs text-muted-foreground" data-testid="reference-versions">{t('modes.referenceContext.versionPair', { a: aHeader?.recorder?.gameBuild ?? t('modes.referenceContext.unknown'), b: bFile.data?.header.recorder?.gameBuild ?? t('modes.referenceContext.unknown') })} {t(`modes.referenceContext.build_${versionContext.gameBuild}`)}</p>}
-                      {versionContext?.coordinatesUnknown && <p className="text-xs text-warn" data-testid="reference-coordinates-unknown">{t('modes.referenceContext.coordinatesUnknown')}</p>}
-                    </div>
-                  </div>
-                )}
-
-                <SavedChips
-                  row
-                  onTrack={aInfo?.track ?? null}
-                  items={saved}
-                  a={aId}
-                  b={bParam}
-                  onPin={(item, pinned) => setSaved(setPinned(userId, saved, item, pinned))}
-                  onForget={(item) => setSaved(forget(userId, saved, item))}
+            {aFile.data && (
+              <div className="space-y-2 border-t border-border pt-3" data-testid="reference-context">
+                <QuickPickers
+                  lapId={aId}
+                  header={aFile.data.header}
+                  referenceId={bId}
+                  pb={rejectedDefault ? null : pb}
+                  onChoose={(lapId) => go({ b: lapId })}
+                  trailing={(
+                    <button
+                      type="button"
+                      onClick={() => setFinePrint(!finePrint)}
+                      aria-expanded={finePrint}
+                      aria-controls="comparison-fine-print"
+                      className="inline-flex shrink-0 items-center gap-1 self-start rounded-sm text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:ml-auto sm:self-center"
+                      data-testid="reference-details-toggle"
+                    >
+                      <Info className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t('modes.advanced.comparisonDetails', 'About this comparison')}
+                      <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', finePrint && 'rotate-180')} aria-hidden="true" />
+                    </button>
+                  )}
                 />
+                {/* What must be seen: the laps were not driven in the same conditions, or the personal best cannot be the comparison. */}
+                {conditionDifferences.length > 0 && <p className="text-xs text-warn" data-testid="reference-conditions">{t('modes.referenceContext.conditionsDiffer', 'Recorded conditions differ: {{conditions}}.', { conditions: conditionDifferences.map((key) => t(`modes.referenceContext.condition_${key}`, key)).join(', ') })}</p>}
+                {rejectedDefault && <p role="status" className="text-xs text-warn" data-testid="default-reference-refused">{t('modes.referenceContext.defaultRefused')}</p>}
+                {/* The fine print of a comparison (what it is for, the game versions, how the laps were recorded): the second level. */}
+                <div id="comparison-fine-print" hidden={!finePrint} className="space-y-2 rounded-lg border border-border bg-muted/30 p-3" data-testid="reference-details">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span id="comparison-goal-label" className="text-xs text-muted-foreground">{t('modes.referenceContext.goal', 'What this comparison is for')}</span>
+                    <OptionSelect size="sm" className="w-full sm:w-56" aria-labelledby="comparison-goal-label" value={goal} onChange={(value) => setGoalChoice({ lapId: aId, goal: value as ComparisonGoal })} options={[
+                      { value: 'practice', label: t('modes.referenceContext.practice', 'Practice') },
+                      { value: 'qualifying', label: t('modes.referenceContext.qualifying', 'Qualifying / time trial') },
+                      { value: 'race', label: t('modes.referenceContext.race', 'Race') },
+                    ]} data-testid="comparison-goal" />
+                  </div>
+                  <p className="text-xs text-muted-foreground">{goal === 'race'
+                    ? t('modes.referenceContext.raceReference', 'Choose a pace reference with similar tyres, fuel and weather. Your all-time best is not selected automatically.')
+                    : t('modes.referenceContext.fastReference', 'Your personal best is a starting reference. Check tyres, fuel and weather, or choose another lap.')}</p>
+                  {versionContext && <p className="text-xs text-muted-foreground" data-testid="reference-versions">{t('modes.referenceContext.versionPair', { a: aHeader?.recorder?.gameBuild ?? t('modes.referenceContext.unknown'), b: bFile.data?.header.recorder?.gameBuild ?? t('modes.referenceContext.unknown') })} {t(`modes.referenceContext.build_${versionContext.gameBuild}`)}</p>}
+                  {versionContext?.coordinatesUnknown && <p className="text-xs text-warn" data-testid="reference-coordinates-unknown">{t('modes.referenceContext.coordinatesUnknown')}</p>}
+                </div>
               </div>
             )}
 

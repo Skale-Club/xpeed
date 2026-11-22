@@ -755,7 +755,10 @@
       "startIntro": "Abre una vuelta para analizarla: desde una sesión, un circuito, un coche o una clasificación. Se mide con tu mejor marca personal en el mismo circuito y con el mismo coche, y allí puedes elegir otra referencia.",
       "latestLaps": "Tus últimas vueltas",
       "findLap": "Buscar una vuelta por circuito y coche",
-      "mapTouchHint": "Separa dos dedos sobre el mapa para acercarte, arrastra para moverlo y toca la vuelta para ver los pedales en ese punto."
+      "mapTouchHint": "Separa dos dedos sobre el mapa para acercarte, arrastra para moverlo y toca la vuelta para ver los pedales en ese punto.",
+      "yourBest": "Tu récord personal",
+      "yourLap": "Tu vuelta",
+      "comparedWith": "Comparada con"
     },
     "sessions": {
       "intro": "Tus sesiones, con las vueltas que envió Xpeed Companion.",

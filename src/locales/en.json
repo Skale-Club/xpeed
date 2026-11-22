@@ -755,7 +755,10 @@
       "startIntro": "Open a lap to analyze it: from a session, a track, a car or a leaderboard. It is measured against your personal best on the same track and car, and you can choose another reference there.",
       "latestLaps": "Your latest laps",
       "findLap": "Find a lap by track and car",
-      "mapTouchHint": "Spread two fingers on the map to get closer, drag to move it, and tap the lap to see the pedals there."
+      "mapTouchHint": "Spread two fingers on the map to get closer, drag to move it, and tap the lap to see the pedals there.",
+      "yourBest": "Your personal best",
+      "yourLap": "Your lap",
+      "comparedWith": "Compared with"
     },
     "sessions": {
       "intro": "Your sessions, with the laps Xpeed Companion sent.",
