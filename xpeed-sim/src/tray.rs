@@ -19,8 +19,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, FindWindowW, GetCursorPos, GetMessageW, GetSystemMetrics, GetWindowLongPtrW, LoadImageW, PostMessageW,
     PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu, TranslateMessage,
     CREATESTRUCTW, GWLP_USERDATA, HICON, ICONINFO, IMAGE_ICON, LR_SHARED, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG,
-    SM_CXICON, SM_CXSMICON, TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONUP, WM_NCCREATE,
-    WM_NULL, WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPED,
+    SM_CXICON, SM_CXSMICON, TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_ENDSESSION,
+    WM_LBUTTONUP, WM_NCCREATE, WM_NULL, WM_QUERYENDSESSION, WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPED,
 };
 
 use crate::config::{self, Config, FuelUnit, PressureUnit, SpeedUnit, TempUnit, Units, DEFAULT_SERVER};
@@ -122,6 +122,45 @@ struct App {
     install: Arc<Mutex<Option<Staged>>>,
     /// The program is closing to let that installer run: `run` starts it once everything has been closed.
     installing: bool,
+    /// The thread that reads the games and writes the laps: waited for when the program closes, so a lap being written is
+    /// finished first. Taken by whoever closes first (the end of the Windows session, or the normal way out of `run`).
+    recorder: Option<std::thread::JoinHandle<()>>,
+}
+
+/// How long the end of the Windows session (shutdown, sign-out, restart) waits for the laps to be written: Windows ends a
+/// program a few seconds after telling it, so this stays under that.
+const END_SESSION_WAIT: std::time::Duration = std::time::Duration::from_secs(4);
+
+/// Waits for `thread` up to `limit`; true when it finished (and was joined), false when it is still going.
+fn wait_for_thread(thread: std::thread::JoinHandle<()>, limit: std::time::Duration) -> bool {
+    let until = Instant::now() + limit;
+    while !thread.is_finished() {
+        if Instant::now() >= until {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let _ = thread.join();
+    true
+}
+
+impl App {
+    /// Windows is ending the session (shutdown, sign-out, restart; or an installer's Restart Manager): close the way Quit does,
+    /// now, inside the message, because Windows may end the program as soon as the message returns. Before this, the program
+    /// was simply ended there and a lap being written could be lost (owner, 2026-11-22).
+    fn end_session(&mut self) {
+        applog::line("Windows is ending the session: closing");
+        self.shared.quit();
+        if let Some(recorder) = self.recorder.take() {
+            if !wait_for_thread(recorder, END_SESSION_WAIT) {
+                applog::line("the lap recorder did not stop in time for the end of the session");
+            }
+        }
+        applog::line("closed for the end of the session");
+        unsafe {
+            DestroyWindow(self.hwnd);
+        }
+    }
 }
 
 /// Whether a supported game is running: a reader says so, or its program is in the list of running programs (which is
@@ -875,6 +914,15 @@ unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPA
             }
             0
         }
+        // Windows asks whether the session may end: always yes (nothing here needs the person to answer first).
+        WM_QUERYENDSESSION => 1,
+        // It is ending (wparam true; false means it was called off): close properly before Windows ends the program.
+        WM_ENDSESSION => {
+            if wparam != 0 {
+                app.end_session();
+            }
+            0
+        }
         WM_DESTROY => {
             let nid = app.nid(0);
             Shell_NotifyIconW(NIM_DELETE, &nid);
@@ -1078,6 +1126,7 @@ pub fn run(open_panel: bool) -> ExitCode {
             wake: wake.clone(),
             install: Arc::new(Mutex::new(None)),
             installing: false,
+            recorder: None,
         });
         app.sync_account();
         let app = Box::into_raw(app);
@@ -1136,14 +1185,14 @@ pub fn run(open_panel: bool) -> ExitCode {
             update::AfterUpdate::Nothing => {}
         }
         start_update_checker(&shared, &updater, &wake, hwnd, (*app).config_path.clone());
-        let recorder = {
+        (*app).recorder = Some({
             let (shared, dir) = (shared.clone(), laps_dir.clone());
             std::thread::spawn(move || {
                 if let Err(why) = engine::run(&dir, &shared, &|line| applog::line(&line), false) {
                     applog::line(&why);
                 }
             })
-        };
+        });
 
         let mut message: MSG = std::mem::zeroed();
         while GetMessageW(&mut message, null_mut(), 0, 0) > 0 {
@@ -1155,7 +1204,10 @@ pub fn run(open_panel: bool) -> ExitCode {
         let install = if (*app).installing { lock(&(*app).install).take() } else { None };
         applog::line("quitting");
         shared.quit();
-        let _ = recorder.join();
+        // Already waited for when the Windows session ended (`end_session`).
+        if let Some(recorder) = (*app).recorder.take() {
+            let _ = recorder.join();
+        }
         shared.set_uploader(None);
         shared.set_heartbeat(None);
         shared.set_references_worker(None);
@@ -1248,6 +1300,28 @@ pub fn start_connect(server: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_end_of_the_session_waits_for_the_recorder_but_not_past_its_limit() {
+        use std::time::Duration;
+        let quick = std::thread::spawn(|| std::thread::sleep(Duration::from_millis(50)));
+        assert!(
+            wait_for_thread(quick, Duration::from_secs(2)),
+            "a recorder that stops is waited for"
+        );
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let stuck = std::thread::spawn(move || {
+            let _ = rx.recv();
+        });
+        let started = Instant::now();
+        assert!(
+            !wait_for_thread(stuck, Duration::from_millis(150)),
+            "one that does not stop is left"
+        );
+        assert!(started.elapsed() < Duration::from_secs(1), "and the wait ends at its limit");
+        drop(tx);
+        assert!(END_SESSION_WAIT < Duration::from_secs(5), "under the few seconds Windows gives");
+    }
 
     #[test]
     fn the_programs_own_icons_are_made_for_the_big_and_the_small_slot() {
