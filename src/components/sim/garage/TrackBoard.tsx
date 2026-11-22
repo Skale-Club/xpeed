@@ -33,7 +33,7 @@ export function TrackBoard({ board, sectors }: { board: readonly BoardRow[]; sec
               <tr className="border-b border-border text-xs text-muted-foreground">
                 <th scope="col" className="py-1.5 pr-2 font-medium"><span className="sr-only">{t('garageDash.rank', 'Rank')}</span><span aria-hidden="true">#</span></th>
                 <th scope="col" className="py-1.5 pr-3 font-medium">{t('modes.detail.car', 'Car')}</th>
-                <th scope="col" className="py-1.5 pr-3 text-right font-medium">{t('modes.cars.bestLap', 'Best valid lap')}</th>
+                <th scope="col" className="py-1.5 pr-3 text-right font-medium">{t('modes.cars.bestLap', 'Best lap')}</th>
                 <th scope="col" className="py-1.5 pr-3 text-right font-medium">{t('garageDash.gap', 'Gap')}</th>
                 {showSectors && sectors?.sectors.map((sector) => (
                   <th key={sector.index} scope="col" className="hidden py-1.5 pr-3 text-right font-medium md:table-cell">{t('garageDash.sectorShort', 'S{{n}}', { n: sector.index + 1 })}</th>

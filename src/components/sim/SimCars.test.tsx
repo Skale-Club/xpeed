@@ -78,7 +78,7 @@ describe('the list of cars', () => {
     const ferrariCard = cards.find((card) => card.textContent?.includes('Ferrari 499P'))!;
     const toyotaCard = cards.find((card) => card.textContent?.includes('Toyota GR010'))!;
     await waitFor(() => expect(within(ferrariCard).getByTestId('car-best-time')).toHaveTextContent('1:39.000'));
-    expect(within(ferrariCard).getByTestId('car-best')).toHaveTextContent('Best valid lap on Monza');
+    expect(within(ferrariCard).getByTestId('car-best')).toHaveTextContent('Best lap on Monza');
     const spark = within(ferrariCard).getByTestId('sparkline');
     expect(spark).toHaveAttribute('data-points', '30');
     expect(spark.querySelector('path')?.getAttribute('d')).not.toMatch(/NaN|Infinity/);
@@ -207,7 +207,7 @@ describe('the list of cars', () => {
     open('/virtual/cars', only);
     const card = await screen.findByTestId('cars-car');
     expect(card).toHaveTextContent('Ginetta G40');
-    await waitFor(() => expect(within(card).getByTestId('car-best')).toHaveTextContent('Best valid lap on Interlagos'));
+    await waitFor(() => expect(within(card).getByTestId('car-best')).toHaveTextContent('Best lap on Interlagos'));
     expect(within(card).getByTestId('car-best-time')).toHaveTextContent('–');
     expect(card).toHaveTextContent('No valid lap yet');
     expect(within(card).getByTestId('car-laps')).toHaveTextContent('0% valid');

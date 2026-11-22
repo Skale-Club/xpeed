@@ -89,7 +89,7 @@ function CarCard({ car, today }: { car: V1CarItem; today: string }) {
               {top && <TrackLayoutThumb trackId={top.track.id} name={top.track.name} />}
               <div className="min-w-0 space-y-0.5">
               <p className="truncate text-xs text-muted-foreground">
-                {top ? t('garageDash.bestOn', 'Best valid lap on {{track}}', { track: top.track.name }) : t('modes.cars.bestLap', 'Best valid lap')}
+                {top ? t('garageDash.bestOn', 'Best lap on {{track}}', { track: top.track.name }) : t('modes.cars.bestLap', 'Best lap')}
               </p>
               {top ? (
                 <p className="font-mono text-lg font-semibold tabular-nums leading-tight" data-testid="car-best-time">{top.bestMs !== null ? formatLapTime(top.bestMs) : '–'}</p>

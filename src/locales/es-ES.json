@@ -774,7 +774,7 @@
       "all": "Todos",
       "noMatch": "Ninguna sesión coincide con estos filtros.",
       "clearFilters": "Quitar los filtros",
-      "bestLabel": "Mejor vuelta válida",
+      "bestLabel": "Mejor vuelta",
       "kind": {
         "practice": "Entrenamientos",
         "qualifying": "Clasificación",
@@ -929,7 +929,7 @@
         "fasterTitle": "Dónde mejoraste",
         "fasterEmpty": "Aún no hay una marca personal nueva en este período.",
         "firstBest": "Primera vuelta válida",
-        "pairsTitle": "Mejor vuelta válida por circuito y coche",
+        "pairsTitle": "Mejor vuelta por circuito y coche",
         "pairNotEnough": "Aún no hay vueltas suficientes",
         "openTrack": "Abrir la página del circuito",
         "pairAlt_one": "Mejor vuelta válida por día, {{track}} con {{car}}: {{first}} el {{firstDay}}, {{last}} el {{lastDay}}, {{count}} día.",
@@ -967,7 +967,7 @@
       "empty": "Aún no hay coches. Instala Xpeed Companion y conéctalo a tu cuenta: los coches que conduzcas aparecen aquí.",
       "trackCount": "Circuitos: {{count}}",
       "lastDriven": "Última vez {{when}}",
-      "bestLap": "Mejor vuelta válida"
+      "bestLap": "Mejor vuelta"
     },
     "states": {
       "empty": "Aún no hay vueltas. Instala Xpeed Companion en el ordenador en el que corres y conéctalo a tu cuenta: tus vueltas aparecen aquí solas.",
@@ -1130,7 +1130,7 @@
     "progress": {
       "title": "Progreso",
       "lapsTitle": "Vueltas por día",
-      "bestPerDay": "Mejor vuelta válida",
+      "bestPerDay": "Mejor vuelta",
       "lapsPerDay": "Vueltas"
     },
     "detail": {
@@ -1187,7 +1187,15 @@
     "advanced": {
       "lapTitle": "Avanzado: sectores, curvas y telemetría",
       "lapHint": "El detalle detrás de lo de arriba, para cuando quieras profundizar.",
-      "comparisonDetails": "Sobre esta comparación"
+      "comparisonDetails": "Sobre esta comparación",
+      "sessionTitle": "Avanzado: consistencia y sectores",
+      "sessionHint": "La media, lo constante que fuiste, la mejor vuelta posible y los sectores de cada vuelta.",
+      "trackTitle": "Avanzado: sectores y totales",
+      "trackHint": "Tu mejor tiempo en cada sector, las vueltas válidas, la vuelta media y el tiempo conducido aquí.",
+      "carTitle": "Avanzado: consistencia y totales",
+      "carHint": "Lo constante que eres en cada circuito, las vueltas válidas y el tiempo conducido con este coche.",
+      "overviewTitle": "Avanzado: consistencia",
+      "overviewHint": "Cuánto varían tus tiempos de vuelta, periodo a periodo."
     },
     "pedals": {
       "title": "Acelerador y freno",
@@ -2974,7 +2982,7 @@
     "allCars": "Todos los coches",
     "average": "Vuelta válida media",
     "averageHint": "sin vueltas de entrada ni de salida",
-    "bestOn": "Mejor vuelta válida en {{track}}",
+    "bestOn": "Mejor vuelta en {{track}}",
     "bestOnTopTrack": "{{track}}, el más conducido",
     "bestSoFar": "Mejor {{best}}",
     "boardCaption": "Tu mejor vuelta válida con cada coche en este circuito, de la más rápida a la más lenta, con la diferencia respecto al coche más rápido.",

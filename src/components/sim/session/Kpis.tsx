@@ -15,17 +15,28 @@ const seconds = (ms: number) => `${(ms / 1000).toFixed(3)} s`;
  * and clean, the theoretical best lap from the best sectors (and how much faster than the best lap it is), the top speed and the fuel a lap used when the laps
  * carry them. A tile whose number the laps do not carry is left out, not shown as zero.
  */
-export function SessionKpiTiles({ kpis, pb, bestThreeMs }: { kpis: SessionKpis; pb: V1Pb | null; bestThreeMs: number | null }) {
+export function SessionKpiTiles({ kpis, pb, bestThreeMs, level = 'all' }: {
+  kpis: SessionKpis;
+  pb: V1Pb | null;
+  bestThreeMs: number | null;
+  /**
+   * Which tiles (owner, 2026-11-22: XPD-D-SIMPLE-FIRST): `essential` (the best lap, how many laps counted, the top speed, the fuel) on top of the
+   * page; `advanced` (the average, the consistency, the theoretical best) in the page's advanced fold; `all` for both.
+   */
+  level?: 'essential' | 'advanced' | 'all';
+}) {
   const { t } = useTranslation();
   const { distanceUnit, volumeUnit } = useSettings();
   const format = useDashFormat();
   const unit = distanceUnit as DistanceUnit;
   const best = kpis.best;
   const behindPb = best && pb && best.id !== pb.lapId ? best.timeMs - pb.bestMs : null;
+  const essential = level !== 'advanced';
+  const advanced = level !== 'essential';
 
   return (
-    <TileGrid testId="session-kpis" columns={{ sm: 3, lg: null, xl: 4 }}>
-      <StatTile
+    <TileGrid testId={level === 'advanced' ? 'session-kpis-advanced' : 'session-kpis'} columns={{ sm: 3, lg: null, xl: 4 }}>
+      {essential && <StatTile
         testId="session-best"
         label={t('sessionsDash.session.kpiBest', 'Best lap')}
         value={best ? formatLapTime(best.timeMs) : '–'}
@@ -37,24 +48,24 @@ export function SessionKpiTiles({ kpis, pb, bestThreeMs }: { kpis: SessionKpis; 
           : behindPb !== null ? t('sessionsDash.session.behindPb', '{{gap}} s from your personal best', { gap: formatGap(behindPb / 1000) })
           : t('sessionsDash.session.bestLapN', 'lap {{n}}', { n: best.lapNumber })
         }
-      />
-      <StatTile
+      />}
+      {advanced && <StatTile
         testId="kpi-average"
         label={t('sessionsDash.session.kpiAverage', 'Average valid lap')}
         value={kpis.averageMs !== null ? formatLapTime(kpis.averageMs) : '–'}
         mono
         hint={t('sessionsDash.session.averageHint', 'The mean of the valid laps, with the laps through the pits left out.')}
         sub={bestThreeMs !== null ? <span data-testid="best-three">{t('sessionsDash.session.bestThree', 'best 3: {{time}}', { time: formatLapTime(bestThreeMs) })}</span> : undefined}
-      />
-      <StatTile
+      />}
+      {advanced && <StatTile
         testId="kpi-spread"
         label={t('sessionsDash.session.kpiSpread', 'Consistency')}
         value={<span data-testid="spread">{kpis.spreadMs !== null ? `±${(kpis.spreadMs / 1000).toFixed(3)} s` : '–'}</span>}
         mono
         hint={t('modes.session.consistencyHint', 'How much your valid laps differ from each other. Smaller is steadier. Laps through the pits are left out.')}
         sub={kpis.spreadMs !== null ? t('sessionsDash.session.spreadSub', 'spread of the valid laps') : t('sessionsDash.session.spreadNone', 'needs 2 valid laps')}
-      />
-      <StatTile
+      />}
+      {essential && <StatTile
         testId="kpi-valid"
         label={t('sessionsDash.session.kpiValid', 'Valid laps')}
         value={kpis.validPercent !== null ? `${kpis.validPercent} %` : '–'}
@@ -70,8 +81,8 @@ export function SessionKpiTiles({ kpis, pb, bestThreeMs }: { kpis: SessionKpis; 
             )}
           </>
         }
-      />
-      {kpis.theoreticalMs !== null && (
+      />}
+      {advanced && kpis.theoreticalMs !== null && (
         <StatTile
           testId="kpi-theoretical"
           label={t('sessionsDash.session.kpiTheoretical', 'Theoretical best')}
@@ -85,14 +96,14 @@ export function SessionKpiTiles({ kpis, pb, bestThreeMs }: { kpis: SessionKpis; 
           }
         />
       )}
-      {kpis.topSpeedKmh !== null && (
+      {essential && kpis.topSpeedKmh !== null && (
         <StatTile
           testId="kpi-topspeed"
           label={t('sessionsDash.session.kpiTopSpeed', 'Top speed')}
           value={`${speedIn(kpis.topSpeedKmh / 3.6, unit).toFixed(0)} ${speedLabel(unit)}`}
         />
       )}
-      {kpis.fuelPerLapL !== null && (
+      {essential && kpis.fuelPerLapL !== null && (
         <StatTile
           testId="kpi-fuel"
           label={t('sessionsDash.session.kpiFuel', 'Fuel per lap')}

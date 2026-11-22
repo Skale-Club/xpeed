@@ -45,7 +45,7 @@ describe('the progress chart', () => {
     render(<ProgressChart rows={[row('2026-11-10', 99.5)]} />);
     expect(screen.queryByTestId('chart')).not.toBeInTheDocument();
     expect(screen.getByTestId('progress-chart-single')).toHaveTextContent('Only one day of driving so far');
-    expect(screen.getByTestId('progress-chart-single')).toHaveTextContent('Best valid lap: 1:39.500');
+    expect(screen.getByTestId('progress-chart-single')).toHaveTextContent('Best lap: 1:39.500');
   });
 
   it('says the game counted none of the laps of a single day, instead of drawing an empty chart', () => {

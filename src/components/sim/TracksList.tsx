@@ -91,7 +91,7 @@ function TrackCard({ track, layout, unit, today }: { track: V1TrackItem; layout:
 
           <div className="flex items-end justify-between gap-3 border-t border-border pt-3">
             <div className="min-w-0 space-y-0.5" data-testid="track-best">
-              <p className="text-xs text-muted-foreground">{t('modes.cars.bestLap', 'Best valid lap')}</p>
+              <p className="text-xs text-muted-foreground">{t('modes.cars.bestLap', 'Best lap')}</p>
               <p className="font-mono text-lg font-semibold tabular-nums leading-tight" data-testid="track-best-time">{track.bestLapMs !== null ? formatLapTime(track.bestLapMs) : '–'}</p>
               {track.bestLapMs === null ? (
                 <p className="text-xs text-muted-foreground">{t('garageDash.noValidYet', 'No valid lap yet')}</p>

@@ -115,7 +115,7 @@ function PairChart({ pair }: { pair: V1StatsPair }) {
               <Tooltip
                 contentStyle={TOOLTIP}
                 labelFormatter={(value) => format.day(new Date(Number(value)).toISOString().slice(0, 10), 'long')}
-                formatter={(value: number) => [formatLapTime(value * 1000), t('modes.progress.bestPerDay', 'Best valid lap')]}
+                formatter={(value: number) => [formatLapTime(value * 1000), t('modes.progress.bestPerDay', 'Best lap')]}
               />
               <Line
                 dataKey="s"
@@ -148,7 +148,7 @@ export function ProgressPanel({ stats }: { stats: V1Stats }) {
       <Improvements items={stats.improvements} />
       {stats.pairs.length > 0 && (
         <section className="space-y-2" aria-labelledby="pairs-title">
-          <h4 id="pairs-title" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('modes.overview.dash.pairsTitle', 'Best valid lap by track and car')}</h4>
+          <h4 id="pairs-title" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('modes.overview.dash.pairsTitle', 'Best lap by track and car')}</h4>
           <ul className="grid gap-3 sm:grid-cols-2" data-testid="progress-pairs">
             {stats.pairs.map((pair) => <PairChart key={`${pair.trackId}-${pair.carId}`} pair={pair} />)}
           </ul>

@@ -217,7 +217,9 @@ describe('the car page', () => {
     openCar('never', never);
     expect(await screen.findByTestId('car-no-laps')).toBeInTheDocument();
     expect(screen.getByTestId('totals-best')).toHaveTextContent('–');
-    expect(screen.getByTestId('totals-valid')).toHaveTextContent('–');
+    expect(screen.getByTestId('totals-laps')).toHaveTextContent('0');
+    // Nothing driven: no advanced part with empty tables in it.
+    expect(screen.queryByTestId('car-advanced')).not.toBeInTheDocument();
     expect(screen.queryByTestId('chart')).not.toBeInTheDocument();
     expect(screen.getByTestId('car-page').textContent).not.toMatch(/NaN|Infinity|undefined/);
   });

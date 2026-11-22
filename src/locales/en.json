@@ -774,7 +774,7 @@
       "all": "All",
       "noMatch": "No session matches these filters.",
       "clearFilters": "Clear the filters",
-      "bestLabel": "Best valid lap",
+      "bestLabel": "Best lap",
       "kind": {
         "practice": "Practice",
         "qualifying": "Qualifying",
@@ -929,7 +929,7 @@
         "fasterTitle": "Where you got faster",
         "fasterEmpty": "No new personal best in this period yet.",
         "firstBest": "First valid lap",
-        "pairsTitle": "Best valid lap by track and car",
+        "pairsTitle": "Best lap by track and car",
         "pairNotEnough": "Not enough laps yet",
         "openTrack": "Open the track page",
         "pairAlt_one": "Best valid lap per day, {{track}} with {{car}}: {{first}} on {{firstDay}}, {{last}} on {{lastDay}}, {{count}} day.",
@@ -967,7 +967,7 @@
       "empty": "No cars yet. Install Xpeed Companion and connect it to your account: the cars you drive show up here.",
       "trackCount": "Tracks: {{count}}",
       "lastDriven": "Last driven {{when}}",
-      "bestLap": "Best valid lap"
+      "bestLap": "Best lap"
     },
     "states": {
       "empty": "No laps yet. Install Xpeed Companion on the computer you race on and connect it to your account: your laps show up here by themselves.",
@@ -1130,7 +1130,7 @@
     "progress": {
       "title": "Progress",
       "lapsTitle": "Laps per day",
-      "bestPerDay": "Best valid lap",
+      "bestPerDay": "Best lap",
       "lapsPerDay": "Laps"
     },
     "detail": {
@@ -1187,7 +1187,15 @@
     "advanced": {
       "lapTitle": "Advanced: sectors, corners and telemetry",
       "lapHint": "The detail behind what is above, for when you want to dig in.",
-      "comparisonDetails": "About this comparison"
+      "comparisonDetails": "About this comparison",
+      "sessionTitle": "Advanced: consistency and sectors",
+      "sessionHint": "The average, how steady you were, the best possible lap and the sectors of every lap.",
+      "trackTitle": "Advanced: sectors and totals",
+      "trackHint": "Your best time in each sector, the valid laps, the average lap and the time driven here.",
+      "carTitle": "Advanced: consistency and totals",
+      "carHint": "How steady you are on each track, the valid laps and the time driven with this car.",
+      "overviewTitle": "Advanced: consistency",
+      "overviewHint": "How much your lap times vary, period by period."
     },
     "pedals": {
       "title": "Throttle and brake",
@@ -2974,7 +2982,7 @@
     "allCars": "All cars",
     "average": "Average valid lap",
     "averageHint": "without in and out laps",
-    "bestOn": "Best valid lap on {{track}}",
+    "bestOn": "Best lap on {{track}}",
     "bestOnTopTrack": "{{track}}, the most driven",
     "bestSoFar": "Best {{best}}",
     "boardCaption": "Your best valid lap with each car on this track, the fastest first, with the gap to the fastest car.",

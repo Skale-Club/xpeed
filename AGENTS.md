@@ -108,5 +108,7 @@ simple. Two rules for every screen, the Virtual ones above all:
 - **Plain words at the first level,** in the three languages: say what happened, not how it is stored ("The map has not
   arrived from the game yet", never "No compatible track geometry is available").
 
-Applied so far: the lap analysis. The other Virtual screens follow one at a time, each shown to the owner (Journal:
-XPD-D-SIMPLE-FIRST).
+Applied so far (Journal: XPD-D-SIMPLE-FIRST): the lap analysis, a session, a track, a car and the Overview. On each, the
+first tiles start with the best lap, the most useful panel comes next, and an `AdvancedFold` at the end holds the averages,
+consistency, theoretical best and sectors. Labels say "Best lap" (a lap the game did not count is said where it happens).
+Not yet: Leaderboards, Friends, a driver's page, the lists (Sessions, Tracks, Game cars) and the Real side.

@@ -774,7 +774,7 @@
       "all": "Todos",
       "noMatch": "Nenhuma sessão combina com esses filtros.",
       "clearFilters": "Limpar os filtros",
-      "bestLabel": "Melhor volta válida",
+      "bestLabel": "Melhor volta",
       "kind": {
         "practice": "Treino livre",
         "qualifying": "Classificação",
@@ -929,7 +929,7 @@
         "fasterTitle": "Onde você ficou mais rápido",
         "fasterEmpty": "Nenhuma marca pessoal nova neste período ainda.",
         "firstBest": "Primeira volta válida",
-        "pairsTitle": "Melhor volta válida por pista e carro",
+        "pairsTitle": "Melhor volta por pista e carro",
         "pairNotEnough": "Ainda não há voltas suficientes",
         "openTrack": "Abrir a página da pista",
         "pairAlt_one": "Melhor volta válida por dia, {{track}} com {{car}}: {{first}} em {{firstDay}}, {{last}} em {{lastDay}}, {{count}} dia.",
@@ -967,7 +967,7 @@
       "empty": "Nenhum carro ainda. Instale o Xpeed Companion e conecte à sua conta: os carros que você dirigir aparecem aqui.",
       "trackCount": "Pistas: {{count}}",
       "lastDriven": "Dirigido por último {{when}}",
-      "bestLap": "Melhor volta válida"
+      "bestLap": "Melhor volta"
     },
     "states": {
       "empty": "Nenhuma volta ainda. Instale o Xpeed Companion no computador em que você corre e conecte à sua conta: suas voltas aparecem aqui sozinhas.",
@@ -1130,7 +1130,7 @@
     "progress": {
       "title": "Progresso",
       "lapsTitle": "Voltas por dia",
-      "bestPerDay": "Melhor volta válida",
+      "bestPerDay": "Melhor volta",
       "lapsPerDay": "Voltas"
     },
     "detail": {
@@ -1187,7 +1187,15 @@
     "advanced": {
       "lapTitle": "Avançado: setores, curvas e telemetria",
       "lapHint": "O detalhe por trás do que está acima, para quando você quiser se aprofundar.",
-      "comparisonDetails": "Sobre esta comparação"
+      "comparisonDetails": "Sobre esta comparação",
+      "sessionTitle": "Avançado: consistência e setores",
+      "sessionHint": "A média, o quanto você foi constante, a melhor volta possível e os setores de cada volta.",
+      "trackTitle": "Avançado: setores e totais",
+      "trackHint": "Seu melhor tempo em cada setor, as voltas válidas, a volta média e o tempo pilotado aqui.",
+      "carTitle": "Avançado: consistência e totais",
+      "carHint": "O quanto você é constante em cada pista, as voltas válidas e o tempo pilotado com este carro.",
+      "overviewTitle": "Avançado: consistência",
+      "overviewHint": "O quanto seus tempos de volta variam, período a período."
     },
     "pedals": {
       "title": "Acelerador e freio",
@@ -2974,7 +2982,7 @@
     "allCars": "Todos os carros",
     "average": "Volta válida média",
     "averageHint": "sem voltas de entrada e saída",
-    "bestOn": "Melhor volta válida em {{track}}",
+    "bestOn": "Melhor volta em {{track}}",
     "bestOnTopTrack": "{{track}}, a mais pilotada",
     "bestSoFar": "Melhor {{best}}",
     "boardCaption": "Sua melhor volta válida com cada carro nesta pista, da mais rápida para a mais lenta, com a diferença para o carro mais rápido.",

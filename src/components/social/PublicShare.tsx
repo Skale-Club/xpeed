@@ -135,7 +135,7 @@ function SessionView({ share, token }: { share: PublicSessionShare; token: strin
           <div className="flex flex-wrap items-end gap-x-6 gap-y-1">
             {session.bestLapMs !== null && (
               <p>
-                <span className="block text-xs text-muted-foreground">{t('modes.sessions.bestLabel', 'Best valid lap')}</span>
+                <span className="block text-xs text-muted-foreground">{t('modes.sessions.bestLabel', 'Best lap')}</span>
                 <span className="font-mono text-3xl font-semibold tabular-nums" data-testid="public-best">{formatLapTime(session.bestLapMs)}</span>
               </p>
             )}

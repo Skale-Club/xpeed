@@ -30,7 +30,7 @@ export function CarTracks({ rows, pbsReady }: { rows: readonly TrackRow[]; pbsRe
             <thead>
               <tr className="border-b border-border text-xs text-muted-foreground">
                 <th scope="col" className="py-1.5 pr-3 font-medium">{t('modes.detail.track', 'Track')}</th>
-                <th scope="col" className="py-1.5 pr-3 text-right font-medium">{t('modes.cars.bestLap', 'Best valid lap')}</th>
+                <th scope="col" className="py-1.5 pr-3 text-right font-medium">{t('modes.cars.bestLap', 'Best lap')}</th>
                 <th scope="col" className="py-1.5 pr-3 text-right font-medium">{t('garageDash.gapToBest', 'To your best')}</th>
                 <th scope="col" className="hidden py-1.5 pr-3 text-right font-medium sm:table-cell">{t('modes.detail.laps', 'Laps')}</th>
                 <th scope="col" className="hidden py-1.5 pr-3 font-medium md:table-cell">{t('modes.detail.when', 'Set on')}</th>

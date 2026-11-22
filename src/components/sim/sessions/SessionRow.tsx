@@ -121,7 +121,7 @@ function SessionRowView({ session, pb, pbsReady }: { session: V1Session; pb: V1P
                   )}
                 </span>
               </Metric>
-              <Metric label={t('modes.sessions.bestLabel', 'Best valid lap')} testId="session-best">
+              <Metric label={t('modes.sessions.bestLabel', 'Best lap')} testId="session-best">
                 <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   <span className="font-mono font-semibold tabular-nums">{session.bestLapMs !== null ? formatLapTime(session.bestLapMs) : '–'}</span>
                   {session.bestLapMs === null && (
