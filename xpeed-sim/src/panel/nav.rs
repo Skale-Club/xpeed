@@ -1,6 +1,6 @@
 //! The sidebar's buttons, mirrored from the website's menu (`shared/design/nav.json`, read in at build time by `site`): the
-//! Companion's own screens (Dashboard, Monitor) first, then the site's Virtual places in their groups and order, then Settings,
-//! a line between groups. A screen opens in the panel; a website place shows the site's own page inside the panel (`webview`; the
+//! Dashboard first, then the site's Virtual places in their groups and order, then Monitor and Settings (Monitor second to last,
+//! the owner's order of 2026-11-22), a line between groups. A screen opens in the panel; a website place shows the site's own page inside the panel (`webview`; the
 //! browser opens it only when WebView2 is not available). Names and icons come from the site, so a change there shows here.
 
 use super::site::{WebPlace, SCREEN_ICONS, SETTINGS_ICON, WEB_PLACES};
@@ -66,9 +66,9 @@ pub(super) struct SidebarLayout {
     pub dividers: Vec<i32>,
 }
 
-/// The buttons in their groups: the panel's screens, the site's Virtual groups in the site's order, then Settings.
+/// The buttons in their groups: Dashboard, the site's Virtual groups in the site's order, then Monitor and Settings.
 pub(super) fn sidebar_groups() -> Vec<Vec<SideItem>> {
-    let mut groups = vec![vec![SideItem::Screen(Tab::Dash), SideItem::Screen(Tab::Monitor)]];
+    let mut groups = vec![vec![SideItem::Screen(Tab::Dash)]];
     let mut last: Option<&str> = None;
     for place in WEB_PLACES {
         if last == Some(place.group) {
@@ -80,7 +80,7 @@ pub(super) fn sidebar_groups() -> Vec<Vec<SideItem>> {
         }
         last = Some(place.group);
     }
-    groups.push(vec![SideItem::Screen(Tab::Settings)]);
+    groups.push(vec![SideItem::Screen(Tab::Monitor), SideItem::Screen(Tab::Settings)]);
     groups
 }
 
@@ -124,11 +124,14 @@ mod nav_tests {
     #[test]
     fn mirrors_the_site_menu_in_its_order_and_groups() {
         let groups = sidebar_groups();
+        assert_eq!(groups.first(), Some(&vec![SideItem::Screen(Tab::Dash)]));
+        // Monitor is second to last, right above Settings (owner, 2026-11-22).
         assert_eq!(
-            groups.first(),
-            Some(&vec![SideItem::Screen(Tab::Dash), SideItem::Screen(Tab::Monitor)])
+            groups.last(),
+            Some(&vec![SideItem::Screen(Tab::Monitor), SideItem::Screen(Tab::Settings)])
         );
-        assert_eq!(groups.last(), Some(&vec![SideItem::Screen(Tab::Settings)]));
+        let all: Vec<SideItem> = groups.iter().flatten().copied().collect();
+        assert_eq!(all[all.len() - 2], SideItem::Screen(Tab::Monitor));
         let web: Vec<&str> = groups
             .iter()
             .flatten()

@@ -1487,7 +1487,12 @@ fn the_header_can_be_clicked_where_it_is_drawn() {
     let [dash, mon, full, top] = header_hits(960, 1.0);
     // The screens: square buttons down the sidebar, one under the other, inside its width.
     assert!(inside(&dash, 20, 20) && !inside(&dash, 20, 60) && !inside(&dash, 150, 20));
-    assert!(inside(&mon, 20, 70) && !inside(&mon, 20, 20));
+    // Monitor sits second to last, right above Settings (owner, 2026-11-22).
+    assert!(inside(&mon, 20, mon.top + 16) && !inside(&mon, 20, 20) && !inside(&mon, 20, 70));
+    let buttons = nav::sidebar_layout(1.0).buttons;
+    let (item, r) = buttons[buttons.len() - 2];
+    assert_eq!(item, nav::SideItem::Screen(Tab::Monitor));
+    assert_eq!((r.left, r.top, r.right, r.bottom), (mon.left, mon.top, mon.right, mon.bottom));
     assert!(mon.top > dash.bottom && dash.right < content_left(1.0) && mon.right < content_left(1.0));
     assert_eq!((dash.right - dash.left, dash.bottom - dash.top), (32, 32), "small squares");
     assert!(inside(&full, 880, 20) && !inside(&full, 899, 20));
